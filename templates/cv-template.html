@@ -44,10 +44,20 @@
     src: url('./fonts/roboto-latin-ext-700-normal.woff2') format('woff2');
     unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
   }
+  /* SemiBold 600 (single file covers latin + latin-ext): the non-bold text
+     weight — body copy and former 500-weight labels render here instead of
+     falling back to 400/700. */
+  @font-face {
+    font-family: 'Roboto';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('./fonts/roboto-latin-600-normal.woff2') format('woff2');
+  }
   :root {
     --accent-color: hsl(187 74% 32%);
     --font-family: "Roboto", "Liberation Sans", 'Helvetica Neue', Arial, 'DejaVu Sans', sans-serif;
-    --font-size: 11px;
+    --font-size: 12px;
     /* Matches generate-pdf.mjs's PDF_PAGE_MARGIN — the actual PDF page margin
        comes from the later @page rule injectPrintPageCss appends (which reads
        this same variable), so this default must match it exactly. */
@@ -87,6 +97,7 @@
   body {
     font-family: var(--font-family);
     font-size: var(--font-size);
+    font-weight: 600;
     line-height: 1.5;
     color: #1a1a2e;
     background: #ffffff;
@@ -111,7 +122,7 @@
 
   .header h1 {
     font-family: var(--font-family);
-    font-size: 28px;
+    font-size: 29px;
     font-weight: 700;
     color: #1a1a2e;
     /* No letter-spacing: Chromium emits per-glyph positions for tracked text
@@ -126,7 +137,7 @@
     height: 2px;
     background: linear-gradient(to right, var(--accent-color), hsl(270, 70%, 45%));
     border-radius: 1px;
-    margin-bottom: 10px;
+    margin-bottom: 11px;
   }
 
   .contact-row {
@@ -134,7 +145,7 @@
     flex-wrap: wrap;
     gap: 8px 14px;
     font-family: var(--font-family);
-    font-size: 10.5px;
+    font-size: 11.5px;
     line-height: 1.4;
     color: #555;
   }
@@ -175,7 +186,7 @@
 
   .section-title {
     font-family: var(--font-family);
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
     text-transform: uppercase;
     /* No letter-spacing (see header rule above): tracked headings extract as
@@ -184,7 +195,7 @@
     color: var(--accent-color);
     border-bottom: 1.5px solid #e2e2e2;
     padding-bottom: 4px;
-    margin-bottom: 10px;
+    margin-bottom: 11px;
     line-height: 1.2;
   }
 
@@ -214,11 +225,11 @@
 
   .competency-tag {
     font-family: var(--font-family);
-    font-size: 10px;
-    font-weight: 500;
+    font-size: 11px;
+    font-weight: 600;
     color: hsl(187, 74%, 28%);
     background: hsl(187, 40%, 95%);
-    padding: 4px 10px;
+    padding: 4px 11px;
     border-radius: 3px;
     border: 1px solid hsl(187, 40%, 88%);
   }
@@ -232,19 +243,19 @@
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    gap: 12px;
+    gap: 13px;
     margin-bottom: 4px;
   }
 
   .job-company {
     font-family: var(--font-family);
-    font-size: 12.5px;
+    font-size: 13.5px;
     font-weight: 600;
     color: hsl(270, 70%, 45%);
   }
 
   .job-period {
-    font-size: 10.5px;
+    font-size: 11.5px;
     color: #777;
     white-space: nowrap;
   }
@@ -257,7 +268,7 @@
   }
 
   .job-location {
-    font-size: 10px;
+    font-size: 11px;
     color: #888;
   }
 
@@ -267,7 +278,7 @@
   }
 
   .job li {
-    font-size: 10.5px;
+    font-size: 11.5px;
     line-height: 1.6;
     color: #333;
     margin-bottom: 4px;
@@ -279,12 +290,12 @@
 
   /* === PROJECTS === */
   .project {
-    margin-bottom: 12px;
+    margin-bottom: 13px;
   }
 
   .project-title {
     font-family: var(--font-family);
-    font-size: 11.5px;
+    font-size: 12.5px;
     font-weight: 600;
     color: hsl(270, 70%, 45%);
   }
@@ -299,8 +310,8 @@
   }
 
   .project-badge {
-    font-size: 9px;
-    font-weight: 500;
+    font-size: 10px;
+    font-weight: 600;
     color: var(--accent-color);
     background: hsl(187, 40%, 95%);
     padding: 1px 6px;
@@ -309,14 +320,14 @@
   }
 
   .project-desc {
-    font-size: 10.5px;
+    font-size: 11.5px;
     color: #444;
     margin-top: 3px;
     line-height: 1.55;
   }
 
   .project-tech {
-    font-size: 9.5px;
+    font-size: 10.5px;
     color: #888;
     margin-top: 3px;
   }
@@ -330,7 +341,7 @@
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    gap: 12px;
+    gap: 13px;
   }
 
   .edu-title {
@@ -341,17 +352,17 @@
 
   .edu-org {
     color: hsl(270, 70%, 45%);
-    font-weight: 500;
+    font-weight: 600;
   }
 
   .edu-year {
-    font-size: 10px;
+    font-size: 11px;
     color: #777;
     white-space: nowrap;
   }
 
   .edu-desc {
-    font-size: 10px;
+    font-size: 11px;
     color: #666;
     margin-top: 2px;
     line-height: 1.5;
@@ -374,8 +385,8 @@
   }
 
   .cert-title {
-    font-size: 10.5px;
-    font-weight: 500;
+    font-size: 11.5px;
+    font-weight: 600;
     color: #333;
   }
 
@@ -385,7 +396,7 @@
   }
 
   .cert-year {
-    font-size: 10px;
+    font-size: 11px;
     color: #777;
     white-space: nowrap;
     text-align: right;
@@ -412,8 +423,8 @@
   }
 
   .award-title {
-    font-size: 10.5px;
-    font-weight: 500;
+    font-size: 11.5px;
+    font-weight: 600;
     color: #333;
   }
 
@@ -423,7 +434,7 @@
   }
 
   .award-year {
-    font-size: 10px;
+    font-size: 11px;
     color: #777;
     white-space: nowrap;
     text-align: right;
@@ -432,7 +443,7 @@
 
   /* === INTERESTS === */
   .interests-line {
-    font-size: 10.5px;
+    font-size: 11.5px;
     color: #444;
   }
 
@@ -444,14 +455,14 @@
   }
 
   .skill-item {
-    font-size: 10.5px;
+    font-size: 11.5px;
     color: #444;
   }
 
   .skill-category {
     font-weight: 600;
     color: #333;
-    font-size: 10.5px;
+    font-size: 11.5px;
   }
 
   /* === PRINT === */
