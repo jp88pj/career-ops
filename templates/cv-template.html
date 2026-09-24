@@ -8,9 +8,45 @@
   /* Themeable tokens (#1837): overridable via config/profile.yml `style:`, which
      the PDF pipeline injects as a later :root block. Defaults below reproduce the
      original hardcoded values, so a profile without a `style:` block is unchanged. */
+  /* Roboto embedded for human legibility (#font-legibility): static (non-variable)
+     woff2, so glyph advances extract cleanly — unlike the variable display fonts
+     this replaces. "Liberation Sans" stays in the stack as the offline fallback
+     if a Roboto file ever fails to inline. */
+  @font-face {
+    font-family: 'Roboto';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('./fonts/roboto-latin-400-normal.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: 'Roboto';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('./fonts/roboto-latin-ext-400-normal.woff2') format('woff2');
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  }
+  @font-face {
+    font-family: 'Roboto';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url('./fonts/roboto-latin-700-normal.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: 'Roboto';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url('./fonts/roboto-latin-ext-700-normal.woff2') format('woff2');
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  }
   :root {
     --accent-color: hsl(187 74% 32%);
-    --font-family: "Liberation Sans", 'Helvetica Neue', Arial, 'DejaVu Sans', sans-serif;
+    --font-family: "Roboto", "Liberation Sans", 'Helvetica Neue', Arial, 'DejaVu Sans', sans-serif;
     --font-size: 11px;
     /* Matches generate-pdf.mjs's PDF_PAGE_MARGIN — the actual PDF page margin
        comes from the later @page rule injectPrintPageCss appends (which reads
@@ -78,7 +114,10 @@
     font-size: 28px;
     font-weight: 700;
     color: #1a1a2e;
-    letter-spacing: -0.02em;
+    /* No letter-spacing: Chromium emits per-glyph positions for tracked text
+       and PDF extractors (ATS auto-fill) decode the gaps as spurious spaces
+       mid-word — incl. the candidate's own name. See #font-extraction. */
+    letter-spacing: normal;
     margin-bottom: 6px;
     line-height: 1.1;
   }
@@ -139,7 +178,9 @@
     font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    /* No letter-spacing (see header rule above): tracked headings extract as
+       "E X P E R I E N C E" in ATS parsers. Spacing purists lose; parsers win. */
+    letter-spacing: normal;
     color: var(--accent-color);
     border-bottom: 1.5px solid #e2e2e2;
     padding-bottom: 4px;
@@ -634,7 +675,8 @@
 
   html[lang="zh-CN"] .section-title,
   html[lang="zh"] .section-title {
-    letter-spacing: 0.03em;
+    /* No letter-spacing: same extractor-spaces issue as the Latin rules. */
+    letter-spacing: normal;
   }
 </style>
 </head>
