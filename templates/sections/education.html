@@ -1,22 +1,28 @@
 <!--
   education.html — section partial for Education (#2183).
 
+  Parser-proof layout (SmartRecruitersuvod): degree title, institution, year
+  and description each render as their own block-level element so ATS text
+  extractors see clean line breaks instead of inline-span boundaries.
+  YEAR_BLOCK and DESC_BLOCK are conditional (omitted when absent) so no
+  empty divs leak stray spacing into parsed output.
+
   Field placeholders filled per entry:
     TITLE      — degree / course title
-    ORG_BLOCK  — conditional: institution span when org is present; omitted otherwise
-    YEAR       — graduation / completion year (empty string when absent)
+    ORG_BLOCK  — conditional: institution div when org is present; omitted otherwise
+    YEAR_BLOCK — conditional: year div when year is present; omitted otherwise
     DESC_BLOCK — conditional: description div when description is present; omitted otherwise
-
-  Template packs: edit tag names, class names, and field order freely inside the ENTRY zone.
 -->
 <!--ENTRY-->
 <div class="edu-item">
   <div class="edu-header">
-    <div class="edu-title">{{TITLE}}{{ORG_BLOCK}}</div>
-    <div class="edu-year">{{YEAR}}</div>
+    <div class="edu-title">{{TITLE}}</div>
+    {{YEAR_BLOCK}}
   </div>
+  {{ORG_BLOCK}}
   {{DESC_BLOCK}}
 </div>
-<!--ORG_BLOCK--> <span class="edu-org">{{ORG}}</span><!--/ORG_BLOCK-->
+<!--ORG_BLOCK--><div class="edu-org">{{ORG}}</div><!--/ORG_BLOCK-->
+<!--YEAR_BLOCK--><div class="edu-year">{{YEAR}}</div><!--/YEAR_BLOCK-->
 <!--DESC_BLOCK--><div class="edu-desc">{{DESC}}</div><!--/DESC_BLOCK-->
 <!--/ENTRY-->

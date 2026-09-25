@@ -443,16 +443,18 @@ function buildEducation(entries, partial) {
   if (!partial) {
     return entries.filter(e => hasRequiredFields(e, 'education', 'html')).map(e => {
       const org = e.org
-        ? ` <span class="edu-org">${escapeHtml(e.org)}</span>`
+        ? `\n  <div class="edu-org">${escapeHtml(e.org)}</div>`
+        : '';
+      const year = e.year
+        ? `\n      <div class="edu-year">${escapeHtml(e.year)}</div>`
         : '';
       const desc = e.description
         ? `\n    <div class="edu-desc">${escapeHtml(e.description)}</div>`
         : '';
       return `<div class="edu-item">
     <div class="edu-header">
-      <div class="edu-title">${escapeHtml(e.title)}${org}</div>
-      <div class="edu-year">${escapeHtml(e.year || '')}</div>
-    </div>${desc}
+      <div class="edu-title">${escapeHtml(e.title)}</div>${year}
+    </div>${org}${desc}
   </div>`;
     }).join('\n  ');
   }
@@ -461,6 +463,7 @@ function buildEducation(entries, partial) {
   return entries.filter(e => hasRequiredFields(e, 'education', 'html')).map(e => {
     const blockValues = new Map([
       ['ORG_BLOCK',  { value: escapeHtml(e.org || ''),         present: Boolean(e.org) }],
+      ['YEAR_BLOCK', { value: escapeHtml(e.year || ''),        present: Boolean(e.year) }],
       ['DESC_BLOCK', { value: escapeHtml(e.description || ''), present: Boolean(e.description) }],
     ]);
     return fillEntry(entryTemplate, blocks, {
