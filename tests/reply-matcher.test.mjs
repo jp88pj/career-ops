@@ -785,3 +785,45 @@ test('classifyReply - rejection keywords do not swallow invites', () => {
   assert.notEqual(invite.type, 'Rejected');
   assert.equal(invite.type, 'Interview');
 });
+// Regression 2026-09-27 (#122 Cohere): a volume-of-interest acknowledgement
+// containing the bare word "Unfortunately" was typed Rejected, because
+// rejection was decided before auto-confirmation and `unfortunately` was in the
+// same flat list as decisive phrases. Fixed by tiering the keywords.
+//
+// The fix must NOT become a blanket "confirmation veto": Ashby sends real
+// rejections whose subject is "Thanks for applying to <company>!" and whose body
+// also says "thank you for applying". Those must stay Rejected, so these tests
+// pin both directions.
+test('classifyReply - weak rejection word is suppressed by an acknowledgement (#122)', () => {
+  const confirmation = classifyReply({
+    subject: 'Thanks for applying to Cohere!',
+    body_snippet: 'A member of our Talent team will review your application and be in touch if your qualifications match. Unfortunately, due to the high volume of interest we have been receiving, we are not able to personally respond to every candidate.'
+  });
+  assert.notEqual(confirmation.type, 'Rejected', 'volume-of-interest acknowledgement must not be Rejected');
+});
+
+test('classifyReply - an acknowledgement never masks a decisive rejection', () => {
+  // This is the case a blanket veto would break. Subject and body both carry an
+  // acknowledgement phrase; only the tier-1 phrase makes it a rejection.
+  const ashby = classifyReply({
+    subject: 'Thanks for applying to Acme!',
+    body_snippet: 'Thank you for applying to Acme! After reviewing your application we have decided to move forward with other candidates. Thank you for your time.'
+  });
+  assert.equal(ashby.type, 'Rejected');
+
+  const willNot = classifyReply({
+    subject: 'Update on your application',
+    body_snippet: 'Thank you for your interest. We have completed our review and will not be moving forward with your candidacy. Thank you for your time.'
+  });
+  assert.equal(willNot.type, 'Rejected');
+});
+
+test('classifyReply - a weak rejection word alone still rejects', () => {
+  // Preserves the original behaviour when nothing contradicts it: a bare
+  // "unfortunately" with no acknowledgement anywhere is still a rejection.
+  const bare = classifyReply({
+    subject: 'Update on your application',
+    body_snippet: 'Unfortunately we are unable to offer you the position at this time.'
+  });
+  assert.equal(bare.type, 'Rejected');
+});

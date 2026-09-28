@@ -542,10 +542,35 @@ export function classifyReply(cand) {
     'offer letter', 'employment agreement', 'job offer', 'congratulations on the offer', 'compensation details', 'pleased to offer'
   ];
 
-  // 3. Rejected keywords
-  const rejectionKeywords = [
-    '很遗憾', '暂不匹配', '不合适', '未能进入下一轮', '感谢您的时间', '未通过', '不再考虑', '决定不推进',
-    'unfortunately', 'not a match', 'not matching', 'decided not to proceed', 'will not be moving forward', 'position has been filled', 'role has been closed', 'unable to offer',
+  // 3. Rejected keywords, split by DECISIVENESS.
+  //
+  // Tier 1 phrases STATE a decision ("we will not be moving forward with your
+  // application"). Conclusive on their own.
+  //
+  // Tier 2 words are sentiment or ambiguity ("unfortunately", "not a match").
+  // They only mean Rejected when the same message does not also read as an
+  // acknowledgement of the application.
+  //
+  // WHY NOT A BLANKET CONFIRMATION VETO
+  // -----------------------------------
+  // Ashby sends genuine rejections with the subject "Thanks for applying to
+  // <company>!" and a body that also contains "thank you for applying" - which
+  // is an autoKeywords entry. Vetoing Rejected whenever an acknowledgement
+  // marker appears would therefore suppress exactly the rejections we most want
+  // to catch. Tiering keeps those: their Tier 1 phrase wins, and Tier 2 is only
+  // consulted when nothing decisive was found.
+  //
+  // Found 2026-09-27 on a real Cohere volume-of-interest confirmation, which
+  // read "A member of our Talent team will review your application ... If you
+  // have any questions, please contact ... Unfortunately, due to the high
+  // volume of interest we've been receiving, we aren't able to personally
+  // respond to every candidate" and was typed Rejected on the bare word
+  // "unfortunately" (tracker #122). The tier-2 terms below are all
+  // pre-existing; this split is what stops them deciding alone.
+  const rejectionDecisiveKeywords = [
+    '暂不匹配', '不合适', '未能进入下一轮', '未通过', '不再考虑', '决定不推进',
+    'not a match', 'not matching', 'decided not to proceed', 'will not be moving forward',
+    'position has been filled', 'role has been closed',
     // "decided not to move forward with your application" is the single most
     // common English ATS rejection phrasing, and it missed the 'decided not to
     // proceed' entry above: proceed != move forward. Found 2026-09-27 on a real
@@ -560,6 +585,24 @@ export function classifyReply(cand) {
     'pursue other candidates', 'pursuing other candidates', 'another candidate',
     'other applicants', 'were not selected', 'was not selected', 'not selected for this'
   ];
+  const rejectionWeakKeywords = [
+    '很遗憾',            // "unfortunately" - sentiment, also used in volume disclaimers
+    '感谢您的时间',       // "thank you for your time" - appears in confirmations too
+    'unfortunately',
+    'unable to offer'
+  ];
+  // An acknowledgement that suppresses a Tier 2 match. Only consulted when no
+  // Tier 1 phrase matched, so it can never mask a real rejection.
+  const acknowledgementKeywords = [
+    'thank you for applying', 'thanks for applying', 'thank you for your application',
+    'thanks for your application', 'application received', 'received your application',
+    'we have received your application', 'will review your application',
+    'review your application', 'be in touch if your qualifications',
+    'high volume of interest', 'volume of interest', 'not able to personally respond',
+    'thank you for your interest', 'thank you for applying to'
+  ];
+  // Union, kept for the evidence trail and for any external caller reading it.
+  const rejectionKeywords = [...rejectionDecisiveKeywords, ...rejectionWeakKeywords];
 
   // 4. Auto-confirmation keywords
   const autoKeywords = [
@@ -600,8 +643,12 @@ export function classifyReply(cand) {
   // which still contains the 'offer letter' phrase) must win even when offer-ish
   // phrasing is present. Deciding Offer first would type such replies as Offer and
   // push a spurious Offer tracker update.
-  const hasRejectionKeywords = check(rejectionKeywords);
-  const isRejected = signal === 'rejection' || hasRejectionKeywords;
+  const hasDecisiveRejection = check(rejectionDecisiveKeywords);
+  const hasWeakRejection = hasDecisiveRejection ? false : check(rejectionWeakKeywords);
+  // An acknowledgement only suppresses a WEAK match, never a decisive one — see
+  // the "WHY NOT A BLANKET CONFIRMATION VETO" note above.
+  const hasAcknowledgement = (hasDecisiveRejection ? false : check(acknowledgementKeywords));
+  const isRejected = signal === 'rejection' || hasDecisiveRejection || (hasWeakRejection && !hasAcknowledgement);
   if (isRejected) {
     if (signal === 'rejection' && !evidence.includes('rejection')) evidence.push('rejection');
     return {
