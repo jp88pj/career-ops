@@ -752,3 +752,36 @@ test('classifyReply - need action vs scheduling', () => {
   assert.equal(scheduleRes.suggestedTrackerUpdate, 'Interview');
 });
 
+
+// Regression 2026-09-27 (#86 Topline Pro): a real Ashby template rejection
+// saying "we've decided not to move forward with your application" classified
+// as 'Unknown' with zero keyword hits, because the list held the near-identical
+// 'decided not to proceed'. 'proceed' != 'move forward'. These are the common
+// English ATS phrasings; assert each so a future keyword edit cannot silently
+// reintroduce the gap.
+test('classifyReply - English ATS rejection phrasings (#86 regression)', () => {
+  const phrases = [
+    'After thoughtful consideration, we have decided not to move forward with your application at this time.',
+    'Unfortunately, we will not be moving forward with your application.',
+    'We are unable to move forward with your candidacy.',
+    'We have decided to move forward with other candidates.',
+    'We will be pursuing other candidates for this role.',
+    'We regret to inform you that you were not selected for this position.'
+  ];
+  for (const p of phrases) {
+    const r = classifyReply({ subject: 'Update on your application', body_snippet: p });
+    assert.equal(r.type, 'Rejected', `expected Rejected for: ${p}`);
+    assert.equal(r.suggestedTrackerUpdate, 'Rejected', `expected Rejected update for: ${p}`);
+  }
+});
+
+// Guard against over-broadening the rejection list: an interview invitation and
+// a "keep your resume on file" courtesy note must not become Rejected.
+test('classifyReply - rejection keywords do not swallow invites', () => {
+  const invite = classifyReply({
+    subject: 'Interview invitation',
+    body_snippet: 'We would like to invite you to an interview. Please let us know your availability for the coming week.'
+  });
+  assert.notEqual(invite.type, 'Rejected');
+  assert.equal(invite.type, 'Interview');
+});

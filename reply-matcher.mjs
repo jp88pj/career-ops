@@ -545,7 +545,20 @@ export function classifyReply(cand) {
   // 3. Rejected keywords
   const rejectionKeywords = [
     '很遗憾', '暂不匹配', '不合适', '未能进入下一轮', '感谢您的时间', '未通过', '不再考虑', '决定不推进',
-    'unfortunately', 'not a match', 'not matching', 'decided not to proceed', 'will not be moving forward', 'position has been filled', 'role has been closed', 'unable to offer'
+    'unfortunately', 'not a match', 'not matching', 'decided not to proceed', 'will not be moving forward', 'position has been filled', 'role has been closed', 'unable to offer',
+    // "decided not to move forward with your application" is the single most
+    // common English ATS rejection phrasing, and it missed the 'decided not to
+    // proceed' entry above: proceed != move forward. Found 2026-09-27 on a real
+    // Ashby template rejection (Topline Pro, tracker #86) that classified as
+    // 'Unknown' with zero keyword hits. These are the phrasings observed in
+    // Greenhouse / Ashby / Lever / Workday templates. Kept deliberately
+    // unambiguous - no bare 'other candidates' or 'not selected', which also
+    // appear in interview-scheduling and keep-in-touch mail.
+    'decided not to move forward', 'not to move forward with your application',
+    'not be moving forward', 'unable to move forward', 'will not be proceeding',
+    'decided to move forward with other', 'moving forward with other candidates',
+    'pursue other candidates', 'pursuing other candidates', 'another candidate',
+    'other applicants', 'were not selected', 'was not selected', 'not selected for this'
   ];
 
   // 4. Auto-confirmation keywords
