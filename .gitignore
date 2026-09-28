@@ -180,3 +180,22 @@ documents/*
 # Intake fingerprints — the recorded source filenames may themselves carry
 # PII (e.g. cv/jane-doe-master-cv.pdf). #1723
 data/intake-state.json
+
+# --- Session artifacts (2026-09-27) ---------------------------------------
+# Run output and one-shot helpers, not source. The *scripts* under batch/ are
+# tracked so migrations stay reproducible; their outputs are not.
+batch/*.json
+!batch/regen-type-2026-09-24.mjs
+
+# One-off extraction/setup helpers written while working a batch. Each is
+# documented and re-runnable, but they are throwaway tooling for a single
+# session and do not belong in the shipped tree.
+bandana-batch2-extract.mjs
+gmail-label-setup.mjs
+
+# Debug scratch: probe-*.mjs one-file Playwright experiments.
+probe-*.mjs
+
+# Bug report destined for another repository's issue tracker
+# (Schlaflied/career-ops-plugin-tavily), not this one.
+tavily-search-bug-report.md
