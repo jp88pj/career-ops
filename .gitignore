@@ -199,3 +199,5 @@ probe-*.mjs
 # Bug report destined for another repository's issue tracker
 # (Schlaflied/career-ops-plugin-tavily), not this one.
 tavily-search-bug-report.md
+# Draft upstream issue text (paste into GitHub, then delete).
+upstream-issue-reply-classifier.md
