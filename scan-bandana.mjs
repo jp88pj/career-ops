@@ -87,8 +87,11 @@ if (existsSync(PORTALS_PATH)) {
   config = yaml.load(readFileSync(PORTALS_PATH, 'utf-8')) || {};
 }
 
+// `enabled: false` switches a single pass off without deleting it, matching how
+// tracked_companies entries are skipped elsewhere (scan.mjs resolveEntries).
+// Entries without the key stay enabled, so existing configs are unaffected.
 const bandanaSearches = Array.isArray(config.bandana_searches)
-  ? config.bandana_searches.filter(s => s && typeof s === 'object')
+  ? config.bandana_searches.filter(s => s && typeof s === 'object' && s.enabled !== false)
   : DEFAULT_SEARCHES;
 
 // ── Filters (same contract as scan-interamt.mjs) ─────────────────────
