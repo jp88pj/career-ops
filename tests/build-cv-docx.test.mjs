@@ -115,9 +115,35 @@ if (built) {
     parts = new Map();
   }
 
-  for (const required of ['[Content_Types].xml', '_rels/.rels', 'word/document.xml']) {
+  // The conventional set. A 3-part package is legal but not what Word emits,
+  // and strict third-party parsers have been seen to reject it, so require the
+  // parts a real .docx carries.
+  for (const required of [
+    '[Content_Types].xml', '_rels/.rels', 'word/document.xml',
+    'word/styles.xml', 'word/_rels/document.xml.rels',
+    'docProps/core.xml', 'docProps/app.xml',
+  ]) {
     if (parts.has(required)) pass(`contains ${required}`);
-    else fail(`missing required part ${required}`);
+    else fail(`missing part ${required} (strict parsers expect the conventional set)`);
+  }
+
+  // Every relationship target must resolve to a part that exists.
+  if (parts.has('_rels/.rels')) {
+    const rels = parts.get('_rels/.rels').toString('utf8');
+    const targets = [...rels.matchAll(/Target="([^"]+)"/g)].map((m) => m[1]);
+    const dangling = targets.filter((tg) => !parts.has(tg));
+    if (dangling.length === 0) pass(`all ${targets.length} package relationships resolve`);
+    else fail(`dangling relationship targets: ${dangling.join(', ')}`);
+  }
+
+  // Runs must name a font explicitly, or a parser that resolves fonts first
+  // reads nothing useful.
+  if (parts.has('word/document.xml')) {
+    const doc = parts.get('word/document.xml').toString('utf8');
+    const runs = (doc.match(/<w:r>/g) || []).length;
+    const fonts = (doc.match(/<w:rFonts /g) || []).length;
+    if (runs > 0 && fonts >= runs) pass(`all ${runs} runs declare an explicit font`);
+    else fail(`${runs} runs but only ${fonts} declare a font`);
   }
 
   // --- CRC correctness: every part must survive a round trip
@@ -165,12 +191,31 @@ if (built) {
     // --- ordering: the header must precede the body, or a parser files the
     // name under employment history
     const iName = paras.findIndex((p) => p.includes('Jonathan Presser'));
-    const iSummary = paras.findIndex((p) => p === 'Summary');
-    const iExp = paras.findIndex((p) => p === 'Experience');
+    const iSummary = paras.findIndex((p) => p === 'SUMMARY');
+    const iExp = paras.findIndex((p) => p === 'EXPERIENCE');
     if (iName === 0) pass('name is the first paragraph');
     else fail(`name is not first (index ${iName})`);
     if (iSummary > 0 && iExp > iSummary) pass('section order: Summary precedes Experience');
-    else fail('section headings out of order');
+    else fail(`section headings out of order (SUMMARY@${iSummary}, EXPERIENCE@${iExp})`);
+
+    // --- parser-legibility contract. These three were all changed because a
+    // resume parser mishandled them; assert the shape so it cannot regress.
+    const sectionWords = ['SUMMARY', 'EXPERIENCE', 'EDUCATION', 'SKILLS'];
+    const foundSections = paras.filter((p) => sectionWords.includes(p));
+    if (foundSections.length >= 3) pass(`section headings are ALL CAPS (${foundSections.join(', ')})`);
+    else fail(`section headings not ALL CAPS: ${JSON.stringify(foundSections)}`);
+
+    // A pBdr makes a heading look like a table cell to a segmenter.
+    if (!/<w:pBdr/.test(doc)) pass('no paragraph borders (a segmenter reads pBdr as a table cell)');
+    else fail('paragraph borders present — parsers may segment headings as table cells');
+
+    // Hanging indents make list items look like separate records.
+    if (!/w:hanging=/.test(doc)) pass('no hanging indents (list items stay inside their record)');
+    else fail('hanging indents present — a parser may split one job into several');
+
+    // No tables at all: a table-based layout is the classic resume-parser trap.
+    if (!/<w:tbl>/.test(doc)) pass('no tables (the classic resume-parser trap)');
+    else fail('tables present in the resume body');
   }
 
   // --- escaping: ampersand in the employer name above is the live case

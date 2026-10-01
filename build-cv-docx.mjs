@@ -98,20 +98,39 @@ const esc = (s) => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 
+// Every run names its font explicitly. A parser that cannot resolve an implicit
+// font falls back to reading nothing useful, and several commercial resume
+// parsers look for rFonts before they look at anything else.
+const FONT = '<w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>';
+const rPrFor = (opts) => {
+  const { bold = false, size = null } = opts;
+  const bits = [FONT, bold ? '<w:b/>' : '', size ? `<w:sz w:val="${size}"/><w:szCs w:val="${size}"/>` : ''];
+  return bits.join('');
+};
+
 const p = (text, opts = {}) => {
   const { bold = false, size = null, after = 60, before = 0 } = opts;
-  const rPr = [bold ? '<w:b/>' : '', size ? `<w:sz w:val="${size}"/><w:szCs w:val="${size}"/>` : ''].join('');
+  const rPr = rPrFor(opts);
   return `<w:p><w:pPr><w:spacing w:before="${before}" w:after="${after}"/>${rPr ? `<w:rPr>${rPr}</w:rPr>` : ''}</w:pPr>` +
     `<w:r>${rPr ? `<w:rPr>${rPr}</w:rPr>` : ''}<w:t xml:space="preserve">${esc(text)}</w:t></w:r></w:p>`;
 };
-// Heading with a rule under it, mirroring the CV's section bars.
-const heading = (text) =>
-  `<w:p><w:pPr><w:spacing w:before="200" w:after="70"/><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="2" w:color="9AA0A6"/></w:pBdr><w:rPr><w:b/><w:sz w:val="20"/></w:rPr></w:pPr>` +
-  `<w:r><w:rPr><w:b/><w:sz w:val="20"/></w:rPr><w:t>${esc(text)}</w:t></w:r></w:p>`;
-const bullet = (lead, rest) =>
-  `<w:p><w:pPr><w:ind w:left="288" w:hanging="144"/><w:spacing w:after="40"/></w:pPr>` +
-  `<w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">${esc(lead)}, </w:t></w:r>` +
-  `<w:r><w:t xml:space="preserve">${esc(rest)}</w:t></w:r></w:p>`;
+// Heading as an ALL-CAPS line on its own paragraph, with no border and no
+// hanging indent anywhere in the document. Those are the two constructs
+// third-party resume parsers most often mishandle: a pBdr makes the heading look
+// like a table cell to a segmenter, and a hanging indent makes list items look
+// like their own records. Plain one-line-per-field is the most legible shape a
+// parser can be handed.
+const heading = (text) => {
+  const rPr = rPrFor({ bold: true, size: 20 });
+  return `<w:p><w:pPr><w:spacing w:before="200" w:after="60"/><w:rPr>${rPr}</w:rPr></w:pPr>` +
+    `<w:r><w:rPr>${rPr}</w:rPr><w:t>${esc(String(text).toUpperCase())}</w:t></w:r></w:p>`;
+};
+const bullet = (lead, rest) => {
+  const leadRPr = rPrFor({ bold: true });
+  return `<w:p><w:pPr><w:spacing w:after="40"/><w:rPr>${rPrFor({})}</w:rPr></w:pPr>` +
+    `<w:r><w:rPr>${leadRPr}</w:rPr><w:t xml:space="preserve">${esc(lead)}, </w:t></w:r>` +
+    `<w:r><w:rPr>${rPrFor({})}</w:rPr><w:t xml:space="preserve">${esc(rest)}</w:t></w:r></w:p>`;
+};
 
 // ---------- payload -> document.xml ----------
 function document(payload) {
@@ -126,9 +145,11 @@ function document(payload) {
   if (Array.isArray(payload.experience) && payload.experience.length) {
     x.push(heading('Experience'));
     for (const e of payload.experience) {
-      const meta = [e.role, e.location, e.dates].filter(Boolean).join(' | ');
+      // One line per record, in the order a resume parser reads them back:
+      // employer, then title/location/dates, then one bullet per paragraph.
       x.push(p(e.company || '', { bold: true, before: 100, after: 10 }));
-      if (meta) x.push(p(meta, { size: 18, after: 40 }));
+      const meta = [e.role, e.location, e.dates].filter(Boolean);
+      if (meta.length) x.push(p(meta.join(' | '), { size: 18, after: 40 }));
       for (const bl of e.bullets || []) x.push(bullet('', bl).replace('<w:t xml:space="preserve">, </w:t>', '<w:t xml:space="preserve"></w:t>'));
     }
   }
@@ -136,14 +157,15 @@ function document(payload) {
     x.push(heading('Education'));
     for (const ed of payload.education) {
       x.push(p(ed.title || '', { bold: true, before: 60, after: 10 }));
-      x.push(p([ed.org, ed.year].filter(Boolean).join(' | '), { size: 18, after: 40 }));
+      const meta = [ed.org, ed.year].filter(Boolean);
+      if (meta.length) x.push(p(meta.join(' | '), { size: 18, after: 40 }));
     }
   }
   if (Array.isArray(payload.skills) && payload.skills.length) {
     x.push(heading('Skills'));
     for (const s of payload.skills) {
       x.push(s.category
-        ? `<w:p><w:pPr><w:spacing w:after="40"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">${esc(s.category)}: </w:t></w:r><w:r><w:t xml:space="preserve">${esc(s.items)}</w:t></w:r></w:p>`
+        ? `<w:p><w:pPr><w:spacing w:after="40"/><w:rPr>${rPrFor({})}</w:rPr></w:pPr><w:r><w:rPr>${rPrFor({ bold: true })}</w:rPr><w:t xml:space="preserve">${esc(s.category)}: </w:t></w:r><w:r><w:rPr>${rPrFor({})}</w:rPr><w:t xml:space="preserve">${esc(s.items)}</w:t></w:r></w:p>`
         : p(s.items));
     }
   }
@@ -158,11 +180,28 @@ function document(payload) {
 <w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1080" w:right="1080" w:bottom="1080" w:left="1080" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>`;
 }
 
+// ---------- package parts ----------
+// A bare [Content_Types].xml + _rels + document.xml is the smallest legal
+// package, but it is not what Word produces, and strict third-party parsers
+// have been observed to choke on it. Ship the conventional part set so the file
+// looks like every other .docx a parser has ever seen.
 const CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`;
 
 const RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>`;
+
+const DOC_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
+
+const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr>${FONT}<w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="60" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style></w:styles>`;
+
+const CORE = (name) => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>${esc(name)} - CV</dc:title><dc:creator>${esc(name)}</dc:creator><cp:lastModifiedBy>${esc(name)}</cp:lastModifiedBy></cp:coreProperties>`;
+
+const APP = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>career-ops build-cv-docx</Application></Properties>`;
 
 // ---------- CLI ----------
 const [inPath, outPath] = process.argv.slice(2);
@@ -171,10 +210,15 @@ if (!inPath || !outPath) {
   process.exit(1);
 }
 const payload = JSON.parse(readFileSync(inPath, 'utf8'));
+const who = payload.candidate?.name || 'Candidate';
 const buf = zip([
   ['[Content_Types].xml', CONTENT_TYPES],
   ['_rels/.rels', RELS],
+  ['docProps/core.xml', CORE(who)],
+  ['docProps/app.xml', APP],
   ['word/document.xml', document(payload)],
+  ['word/_rels/document.xml.rels', DOC_RELS],
+  ['word/styles.xml', STYLES],
 ]);
 writeFileSync(outPath, buf);
-console.log(`docx written: ${outPath} (${Math.round(buf.length / 1024)} KB)`);
+console.log(`docx written: ${outPath} (${Math.round(buf.length / 1024)} KB, ${buf.readUInt16LE(buf.lastIndexOf(Buffer.from([0x50,0x4b,0x05,0x06])) + 10)} parts)`);
