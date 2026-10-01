@@ -191,6 +191,94 @@ export function locationFromSlug(url) {
 }
 
 /**
+ * Extract the machine-readable posting metadata from schema.org JSON-LD.
+ *
+ * The comp figure is NOT in the rendered text. Measured 2026-10-01: a full
+ * posting page contains exactly one `$` in its markup, and it sits inside
+ * `<script type="application/ld+json">` as "jobBenefits". Stripping tags and
+ * scanning for `$X-Y` therefore found salary on 1 of 45 postings -- the one that
+ * happened to restate it in prose. Every other posting LOOKED like it had no
+ * salary at all, which reads as "unpaid" rather than "not scraped".
+ *
+ * JSON-LD is the structured half of the page and is present on every posting
+ * checked, with a stable shape:
+ *   jobBenefits     "$70,653.00 – $74,955.00"   <- the range, verbatim
+ *   employmentType  ["Full-time"]                <- note: an ARRAY
+ *   title           canonical title
+ *
+ * Returns null when the block is absent or unparseable, so the caller can fall
+ * back to the visible text rather than reporting a fabricated zero.
+ */
+export function parseJsonLd(html) {
+  const blocks = String(html ?? '').matchAll(
+    /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+  );
+  for (const m of blocks) {
+    let data;
+    try {
+      data = JSON.parse(m[1].trim());
+    } catch {
+      continue;
+    }
+    // A single posting may ship an @graph array rather than one object.
+    const nodes = Array.isArray(data) ? data
+      : Array.isArray(data['@graph']) ? data['@graph']
+      : [data];
+    for (const node of nodes) {
+      if (!node || typeof node !== 'object') continue;
+      const type = node.jobBenefits || node.baseSalary || node.salary || '';
+      const raw = typeof type === 'string' ? type
+        : type?.value?.minValue != null ? moneyRange(type.value)
+        : type?.value != null ? String(type.value)
+        : '';
+      const salary = parseSalaryRange(raw);
+      if (!salary && !node.employmentType) continue;
+      return {
+        salary: salary || '',
+        salaryMin: salary ? Number(salary.min) : null,
+        salaryMax: salary ? Number(salary.max) : null,
+        // employmentType is an array on this site, and the join separator is
+        // load-bearing: joining with "," made ["Full-time","Part-time"] into
+        // "Full-time,Part-time", which classifyEmploymentType reads as
+        // full-time -- admitting a part-time vacancy. A unit test caught it.
+        // " / " keeps a multi-value range visibly a range, and the slash is the
+        // character classifyEmploymentType() already treats as disqualifying.
+        employmentType: Array.isArray(node.employmentType)
+          ? node.employmentType.map(String).join(' / ')
+          : node.employmentType ? String(node.employmentType) : '',
+        title: node.title ? String(node.title) : '',
+      };
+    }
+  }
+  return null;
+}
+
+function moneyRange(value) {
+  const lo = value?.minValue != null ? Number(value.minValue) : NaN;
+  const hi = value?.maxValue != null ? Number(value.maxValue) : NaN;
+  if (!Number.isFinite(lo)) return '';
+  return Number.isFinite(hi) ? `${lo} - ${hi}` : `${lo}`;
+}
+
+/**
+ * Pull a numeric range out of the comp string. Accepts the site's en-dash
+ * ("$70,653.00 – $74,955.00"), a hyphen, or a single figure. Returns an object
+ * rather than a display string so the comp gate can compare against a floor
+ * numerically instead of re-parsing formatted text.
+ */
+export function parseSalaryRange(raw) {
+  const s = String(raw ?? '');
+  if (!s.includes('$') && !/\d/.test(s)) return null;
+  const nums = [...s.matchAll(/\$?\s?([\d]{1,3}(?:,[\d]{3})+(?:\.\d+)?|\d+(?:\.\d+)?)/g)]
+    .map((m) => Number(m[1].replace(/,/g, '')))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (!nums.length) return null;
+  const min = Math.min(...nums);
+  const max = Math.max(...nums);
+  return { min: String(min), max: String(max) };
+}
+
+/**
  * Fetch one posting's rendered body. /job/ pages are not disallowed by
  * robots.txt, so this is the sanctioned way to enrich a listing that has already
  * earned a request.
@@ -205,17 +293,51 @@ export function parseDetail(html) {
     .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(+d))
     .replace(/\s+/g, ' ').trim();
 
-  const salary = /\$\s?([\d,]{4,})\s*(?:to|-|–)\s*\$?\s?([\d,]{4,})/.exec(text);
-  const perYear = /per year|annually|per annum/i.test(text);
+  const ld = parseJsonLd(html);
+  // JSON-LD first: it is the structured field. The text scan stays as a
+  // fallback for a posting that omits the block, and is labelled as such.
+  const fromText = parseSalaryRange(text);
+  const salary = ld?.salary || fromText?.min || '';
   const eligibility = /only open to[^.]{0,160}\./i.exec(text)?.[0]?.trim() || '';
   const borough = /in\s+([A-Z][a-z]+),\s*(?:NY|New York)/.exec(text)?.[1] || '';
+
+  // JSON-LD employmentType is authoritative when present -- it is a field, not
+  // a phrase mined from prose, so it cannot trip the subject-matter problem.
+  const jobShape = ld?.employmentType ? classifyEmploymentType(ld.employmentType) : employmentTypeOf(text);
+
   return {
     description: text,
-    salary: salary ? `${salary[1]}–${salary[2]}${perYear ? ' per year' : ''}` : '',
+    salary: salary ? `${formatMoney(salary.min)}–${formatMoney(salary.max)}` : '',
+    salaryMin: salary ? Number(salary.min) : null,
+    salaryMax: salary ? Number(salary.max) : null,
+    salarySource: ld?.salary ? 'json-ld' : fromText ? 'page-text' : 'absent',
     eligibilityNote: eligibility,
     borough,
-    employmentType: employmentTypeOf(text),
+    employmentType: jobShape,
+    employmentTypeRaw: ld?.employmentType || '',
   };
+}
+
+function formatMoney(n) {
+  return Number(n).toLocaleString('en-US');
+}
+
+/**
+ * Classify a structured employmentType field.
+ *
+ * "Full-time" -> full_time. Anything carrying a slash ("Full-time/Part-time"),
+ * or naming a part-time/per-diem/temporary/contract shape, -> excluded. The
+ * range case is the reason this exists: the site publishes a single-element
+ * array whose value can be a menu, and reading that as full-time would admit a
+ * part-time vacancy on the strength of an option.
+ */
+export function classifyEmploymentType(raw) {
+  const v = String(raw ?? '').trim();
+  if (!v) return null;
+  if (/\//.test(v)) return 'excluded';
+  if (/full[- ]?time/i.test(v)) return 'full_time';
+  if (/part[- ]?time|per diem|seasonal|intermittent|temporary|temp|contract|part-time/i.test(v)) return 'excluded';
+  return null;
 }
 
 /**
