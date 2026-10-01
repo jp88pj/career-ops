@@ -39,7 +39,9 @@ test('Chinese Minimal renders a complete mixed-language payload', () => {
   writeFileSync(input, JSON.stringify({
     lang: 'zh-CN',
     page_format: 'a4',
-    candidate: { name: '测试候选人', email: 'candidate@example.com', location: '中国｜杭州' },
+    // require: [] opts out of the builder's contact-completeness gate; see
+    // cv-title.test.mjs for why these fixtures legitimately have no phone/LinkedIn.
+    candidate: { name: '测试候选人', email: 'candidate@example.com', location: '中国｜杭州', require: [] },
     sections: {
       summary: '个人简介', competencies: '核心能力', experience: '工作经历',
       projects: '精选项目', education: '教育经历', certifications: '认证', skills: '技术栈',
@@ -75,7 +77,7 @@ test('Chinese Minimal preserves mixed-language and job order in PDF text extract
   writeFileSync(input, JSON.stringify({
     lang: 'zh-CN',
     page_format: 'a4',
-    candidate: { name: '测试候选人', email: 'candidate@example.com', location: '深圳' },
+    candidate: { name: '测试候选人', email: 'candidate@example.com', location: '深圳', require: [] },
     sections: {
       summary: '职业概述', competencies: '核心能力', experience: '工作经历',
       projects: '项目', education: '教育背景', certifications: '认证', skills: '技能',
@@ -135,6 +137,7 @@ test('Chinese Minimal keeps long mixed-language contacts inside the A4 page', {
       email: 'candidate-with-an-intentionally-long-address-for-print-regression@example-company.cn',
       location: '中国｜杭州',
       portfolio: 'https://example.com/一个很长的中英文混合项目地址/remote-agent-production-delivery',
+      require: [],
     },
     summary: '全栈工程师，负责 AI Agent 工作流与生产部署。',
     competencies: ['AI Agent 工作流'],

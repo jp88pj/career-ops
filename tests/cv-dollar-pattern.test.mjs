@@ -67,7 +67,9 @@ test('build-cv-html: a $& in a bullet does not re-insert the placeholder', () =>
   writeFileSync(payload, JSON.stringify({
     lang: 'en',
     page_format: 'letter',
-    candidate: { name: 'Test Candidate', email: 't@example.com' },
+    // require: [] opts out of the builder's contact-completeness gate; see
+// cv-title.test.mjs for why these fixtures legitimately have no phone/LinkedIn.
+  candidate: { name: 'Test Candidate', email: 't@example.com', require: [] },
     summary: 'Backend engineer.',
     competencies: ['Cloud'],
     projects: [], education: [], certifications: [], awards: [], skills: [],

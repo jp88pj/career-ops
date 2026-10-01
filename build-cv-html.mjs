@@ -680,7 +680,12 @@ function buildContactRow(candidate) {
  */
 function checkContactCompleteness(candidate) {
   const c = candidate || {};
-  const required = Array.isArray(c.require) && c.require.length
+  // An explicit `require: []` means "require nothing" and must not fall through
+  // to the default set -- an empty array is a deliberate opt-out, not an absent
+  // declaration. Testing `.length` here made the documented escape hatch a no-op,
+  // which is how six render fixtures that legitimately omit contact details
+  // started failing. `Array.isArray` alone is the presence check.
+  const required = Array.isArray(c.require)
     ? c.require
     : ['phone', 'email', 'linkedin'];
   const missing = [];
@@ -1051,6 +1056,19 @@ async function runSelfTest() {
   });
   if (!gateNarrowed.includes('Test Candidate')) {
     console.error('Self-test failed: candidate.require did not narrow the contact gate');
+    process.exit(1);
+  }
+  // require: [] is the documented opt-out: an EMPTY array must mean "require
+  // nothing", not fall through to the default set. Testing `.length` instead of
+  // Array.isArray made this a no-op and reddened every render fixture that
+  // omits contact details on purpose.
+  const { phone: _p, email: _e, ...noContactAtAll } = noLinkedin;
+  const gateEmpty = renderHtml(template, {
+    ...sample,
+    candidate: { ...noContactAtAll, require: [] },
+  });
+  if (!gateEmpty.includes('Test Candidate')) {
+    console.error('Self-test failed: candidate.require: [] did not disable the contact gate');
     process.exit(1);
   }
 

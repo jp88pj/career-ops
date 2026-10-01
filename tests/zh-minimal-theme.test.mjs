@@ -30,7 +30,9 @@ test('Chinese Minimal applies profile typography and colors without changing its
     const profile = join(dir, 'profile.yml');
     writeFileSync(input, JSON.stringify({
       lang: 'zh-CN', page_format: 'a4',
-      candidate: { name: '测试候选人', email: 'candidate@example.com', location: '中国｜杭州' },
+      // require: [] opts out of the builder's contact-completeness gate; see
+      // cv-title.test.mjs for why these fixtures legitimately have no phone/LinkedIn.
+      candidate: { name: '测试候选人', email: 'candidate@example.com', location: '中国｜杭州', require: [] },
       summary: 'Engineer building reliable tools.', competencies: ['TypeScript'],
       experience: [{ company: 'Example Company', role: 'Engineer', dates: '2025 - Present', bullets: ['Shipped reliable tools.'] }],
       projects: [{ name: 'Example Project', badge: 'Open source', tech: 'Node.js', description: 'A useful tool.' }],

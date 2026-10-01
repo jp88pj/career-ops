@@ -59,7 +59,9 @@ function workspaceEnv(dir) {
 
 const PAYLOAD = {
   lang: 'en',
-  candidate: { name: 'Test Candidate', email: 'test@example.com', location: 'City, State' },
+  // require: [] opts out of the builder's contact-completeness gate; see
+  // cv-title.test.mjs for why these fixtures legitimately have no phone/LinkedIn.
+  candidate: { name: 'Test Candidate', email: 'test@example.com', location: 'City, State', require: [] },
   summary: 'Backend engineer with a focus on cost-efficient systems.',
   competencies: ['Cloud Architecture'],
   experience: [{

@@ -13,7 +13,9 @@ const ONE_PIXEL_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCA
 function payload(photo = '', photo_style = 'rounded') {
   return {
     lang: 'en', page_format: 'a4',
-    candidate: { name: 'Test Candidate', email: 'test@example.com', photo, photo_style },
+    // require: [] opts out of the builder's contact-completeness gate; see
+// cv-title.test.mjs for why these fixtures legitimately have no phone/LinkedIn.
+candidate: { name: 'Test Candidate', email: 'test@example.com', photo, photo_style, require: [] },
     summary: 'Test summary', competencies: ['Testing'],
     experience: [{ company: 'Test Co', role: 'Engineer', dates: '2026', bullets: ['Built tests.'] }],
     projects: [], education: [{ title: 'BSc', org: 'Test University', year: '2025' }],
