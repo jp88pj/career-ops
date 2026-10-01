@@ -615,6 +615,14 @@ function buildContactRow(candidate) {
   if (c.location) {
     items.push(`<span>${escapeHtml(c.location)}</span>`);
   }
+  // ERN / employee-reference id. Rendered in the header because that is where a
+  // city-jobs reviewer looks for internal-candidate eligibility. Opt-in: absent
+  // from the payload means absent from the CV, so this can never leak onto a
+  // private-sector application by accident.
+  if (c.ern) {
+    const label = c.ern_label ? `${escapeHtml(c.ern_label)} ` : '';
+    items.push(`<span>${label}${escapeHtml(c.ern)}</span>`);
+  }
   const sep = '\n      <span class="separator">|</span>\n      ';
   return `<div class="contact-row">\n      ${items.join(sep)}\n    </div>`;
 }
@@ -904,6 +912,31 @@ async function runSelfTest() {
   }
   if (countSeparators(htmlWithoutGithub) !== countSeparators(html) - 1) {
     console.error('Self-test failed: omitting candidate.github left a dangling separator in the contact row');
+    process.exit(1);
+  }
+
+  // Guard the ERN contact-row case (cityjobs.nyc.gov internal-candidate
+  // eligibility): candidate.ern must render escaped, in the header.
+  const htmlWithErn = renderHtml(template, {
+    ...sample,
+    candidate: { ...sample.candidate, ern: '2033687', ern_label: 'ERN' },
+  });
+  if (!htmlWithErn.includes('<span>ERN 2033687</span>')) {
+    console.error('Self-test failed: candidate.ern did not render in the contact row');
+    process.exit(1);
+  }
+  // The scope half of the rule: a payload without candidate.ern must contain no
+  // trace of it, so the ERN cannot leak onto a private-sector CV by accident.
+  const htmlWithoutErn = renderHtml(template, {
+    ...sample,
+    candidate: { ...sample.candidate, ern: undefined, ern_label: undefined },
+  });
+  if (htmlWithoutErn.includes('2033687')) {
+    console.error('Self-test failed: ERN rendered on a payload that did not ask for it');
+    process.exit(1);
+  }
+  if (countSeparators(htmlWithoutErn) !== countSeparators(html)) {
+    console.error('Self-test failed: omitting candidate.ern left a dangling separator in the contact row');
     process.exit(1);
   }
 
