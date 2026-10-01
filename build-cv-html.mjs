@@ -584,6 +584,44 @@ function buildSkills(categories, partial) {
   return `<div class="skills-grid">\n${items}\n  </div>`;
 }
 
+/**
+ * Accept a link field written either as an object ({url, display}) or as a bare
+ * string. Payloads in the wild use both: a string used to be silently dropped
+ * because the code only read `.url`, so a CV could lose its LinkedIn line with
+ * no error anywhere. `github` and `portfolio` had the same hole.
+ *
+ * A bare domain such as "linkedin.com/in/jonpresser" gets an https:// scheme so
+ * the href is a valid absolute URL rather than a relative path.
+ */
+function normalizeLink(value) {
+  if (!value) return null;
+  // A bare domain gets an https:// scheme; a value that already declares ANY
+  // scheme is passed through untouched so sanitizeUrl() can reject it. Prefixing
+  // unconditionally would turn `javascript:alert(1)` into
+  // `https://javascript:alert(1)`, which sanitizeUrl() accepts -- a live XSS
+  // path through the very fix meant to close a silent-drop bug.
+  const withScheme = (raw) => {
+    const trimmed = raw.trim();
+    if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed;
+    return `https://${trimmed}`;
+  };
+  const bare = (raw) => raw.replace(/^https?:\/\//i, '');
+
+  if (typeof value === 'string') {
+    if (!value.trim()) return null;
+    const href = sanitizeUrl(withScheme(value));
+    if (!href) return null;
+    return { href, display: bare(value.trim()) };
+  }
+  if (typeof value === 'object' && typeof value.url === 'string' && value.url.trim()) {
+    const href = sanitizeUrl(withScheme(value.url));
+    if (!href) return null;
+    const display = (typeof value.display === 'string' && value.display.trim()) || bare(value.url.trim());
+    return { href, display };
+  }
+  return null;
+}
+
 // Rebuild the whole .contact-row block. Its markup uses fixed "|" separators
 // between phone / email / linkedin / github / portfolio / location, so an
 // absent optional field (phone, linkedin, github, portfolio) must drop BOTH
@@ -600,17 +638,17 @@ function buildContactRow(candidate) {
   if (c.email) {
     items.push(`<a href="${sanitizeUrl('mailto:' + c.email)}">${escapeHtml(c.email)}</a>`);
   }
-  if (c.linkedin && c.linkedin.url) {
-    items.push(`<a href="${sanitizeUrl(c.linkedin.url)}">${escapeHtml(c.linkedin.display || c.linkedin.url)}</a>`);
+  const linkedin = normalizeLink(c.linkedin);
+  if (linkedin) {
+    items.push(`<a href="${linkedin.href}">${escapeHtml(linkedin.display)}</a>`);
   }
-  if (c.github && c.github.url) {
-    const githubHref = sanitizeUrl(c.github.url);
-    if (githubHref) {
-      items.push(`<a href="${githubHref}">${escapeHtml(c.github.display || c.github.url)}</a>`);
-    }
+  const github = normalizeLink(c.github);
+  if (github) {
+    items.push(`<a href="${github.href}">${escapeHtml(github.display)}</a>`);
   }
-  if (c.portfolio && c.portfolio.url) {
-    items.push(`<a href="${sanitizeUrl(c.portfolio.url)}">${escapeHtml(c.portfolio.display || c.portfolio.url)}</a>`);
+  const portfolio = normalizeLink(c.portfolio);
+  if (portfolio) {
+    items.push(`<a href="${portfolio.href}">${escapeHtml(portfolio.display)}</a>`);
   }
   if (c.location) {
     items.push(`<span>${escapeHtml(c.location)}</span>`);
@@ -625,6 +663,35 @@ function buildContactRow(candidate) {
   }
   const sep = '\n      <span class="separator">|</span>\n      ';
   return `<div class="contact-row">\n      ${items.join(sep)}\n    </div>`;
+}
+
+/**
+ * Contact-detail completeness gate.
+ *
+ * A CV can lose its LinkedIn/phone/email line with no error anywhere in the
+ * pipeline: the builder renders whatever fields happen to be present and stays
+ * silent about the rest. That is how `cv-14-ixl-pls.html` shipped without a
+ * LinkedIn URL. Silent omission is the failure mode, so it is now an error.
+ *
+ * LinkedIn, phone and email are required because all three are needed for an
+ * employer to reach the candidate and to cross-check identity. Set
+ * `candidate.require` to narrow the set when a variant legitimately omits one.
+ * Failures are reported all at once rather than one per run.
+ */
+function checkContactCompleteness(candidate) {
+  const c = candidate || {};
+  const required = Array.isArray(c.require) && c.require.length
+    ? c.require
+    : ['phone', 'email', 'linkedin'];
+  const missing = [];
+  for (const field of required) {
+    if (field === 'linkedin' || field === 'github' || field === 'portfolio') {
+      if (!normalizeLink(c[field])) missing.push(field);
+    } else if (!c[field] || !String(c[field]).trim()) {
+      missing.push(field);
+    }
+  }
+  return missing;
 }
 
 function buildPhoto(candidate, name) {
@@ -667,12 +734,29 @@ function renderReport(payload, partials) {
 
 // Merge a payload into the template and return the final HTML (throws on any
 // unresolved {{PLACEHOLDER}} so a malformed payload fails loudly, not silently).
-function renderHtml(template, payload, templatePath) {
+function renderHtml(template, payload, templatePath, opts = {}) {
   // Load section partials from the sections/ directory co-located with the
   // template. Falls back to built-in builders when no partials directory exists.
   const partials = templatePath ? loadSectionPartials(templatePath) : new Map();
 
   const { substitutions, candidate } = renderReport(payload, partials);
+
+  // Gate before rendering, so an incomplete header can never reach a file. Opt
+  // out with require: [] for deliberately partial artifacts (test fixtures,
+  // render-only previews).
+  if (!opts.skipContactGate) {
+    const missing = checkContactCompleteness(candidate);
+    if (missing.length) {
+      // opts.source, not a payload key: adding __source to the payload would
+      // trip the section validator's "unknown key" warning.
+      const where = opts.source ? ` (${opts.source})` : '';
+      throw new Error(
+        `Incomplete contact details${where}: missing ${missing.join(', ')}. `
+        + 'A CV that ships without these cannot be reached back or identity-checked. '
+        + 'Set candidate.require to narrow the set if a variant truly omits one.'
+      );
+    }
+  }
 
   // The contact row and photo carry conditional markup (dropped separators /
   // no <img>), so they are rebuilt as whole blocks before placeholder fill.
@@ -805,7 +889,7 @@ async function main() {
 
   let html;
   try {
-    html = renderHtml(template, payload, templatePath);
+    html = renderHtml(template, payload, templatePath, { source: inputPath });
   } catch (err) {
     console.error(err.message);
     process.exit(1);
@@ -912,6 +996,61 @@ async function runSelfTest() {
   }
   if (countSeparators(htmlWithoutGithub) !== countSeparators(html) - 1) {
     console.error('Self-test failed: omitting candidate.github left a dangling separator in the contact row');
+    process.exit(1);
+  }
+
+  // Guard the bare-string link form. Payloads in the wild write linkedin either
+  // as {url, display} or as a bare string; the string form used to be dropped
+  // silently, which is how a CV shipped with no LinkedIn line and no error.
+  const htmlBareLinkedin = renderHtml(template, {
+    ...sample,
+    candidate: { ...sample.candidate, linkedin: 'linkedin.com/in/test' },
+  });
+  if (!htmlBareLinkedin.includes('href="https://linkedin.com/in/test"')
+    || !htmlBareLinkedin.includes('>linkedin.com/in/test<')) {
+    console.error('Self-test failed: a bare-string candidate.linkedin did not render as a contact link');
+    process.exit(1);
+  }
+  if (countSeparators(htmlBareLinkedin) !== countSeparators(html)) {
+    console.error('Self-test failed: bare-string candidate.linkedin changed the separator count');
+    process.exit(1);
+  }
+  // A string that already carries a scheme must not be double-prefixed.
+  const htmlSchemeLinkedin = renderHtml(template, {
+    ...sample,
+    candidate: { ...sample.candidate, linkedin: 'https://linkedin.com/in/test' },
+  });
+  if (htmlSchemeLinkedin.includes('href="https://https://')) {
+    console.error('Self-test failed: a scheme-qualified candidate.linkedin was double-prefixed');
+    process.exit(1);
+  }
+
+  // Guard the contact-completeness gate: a payload missing a required field must
+  // throw rather than render a CV the employer cannot reply to.
+  const { linkedin: _droppedLinkedin, ...noLinkedin } = sample.candidate;
+  let gateThrew = null;
+  try {
+    renderHtml(template, { ...sample, candidate: noLinkedin });
+  } catch (err) {
+    gateThrew = err;
+  }
+  if (!gateThrew || !/linkedin/.test(gateThrew.message)) {
+    console.error('Self-test failed: a payload missing candidate.linkedin rendered instead of failing the contact gate');
+    process.exit(1);
+  }
+  // require: [] is the documented opt-out for deliberately partial artifacts.
+  const gateOptOut = renderHtml(template, { ...sample, candidate: noLinkedin }, undefined, { skipContactGate: true });
+  if (!gateOptOut.includes('Test Candidate')) {
+    console.error('Self-test failed: skipContactGate did not render');
+    process.exit(1);
+  }
+  // A narrowed require list must not fail on a field it no longer demands.
+  const gateNarrowed = renderHtml(template, {
+    ...sample,
+    candidate: { ...noLinkedin, require: ['email'] },
+  });
+  if (!gateNarrowed.includes('Test Candidate')) {
+    console.error('Self-test failed: candidate.require did not narrow the contact gate');
     process.exit(1);
   }
 
