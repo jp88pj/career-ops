@@ -315,6 +315,60 @@ console.log('\nbuild-cv-docx.mjs — why it exists');
   }
 }
 
+// --- contact line: an object-form link field must not stringify
+// Regression. The contact line joined the raw candidate.linkedin, so the
+// DOCUMENTED object form {url, display} -- the form build-cv-html.mjs's own
+// self-test uses -- rendered a literal "[object Object]" in the header of every
+// DOCX. Found 2026-10-01 while building the NYCEM CV. It matters beyond
+// cosmetics: LinkedIn is how a recruiter follows up, and both cityjobs
+// submissions (#134 Ombuds, #238 Parks PDC) went through SmartRecruiters as
+// DOCX, so visible junk reached the header of a sent application.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'co-docx-link-'));
+  const build = (linkedin) => {
+    const payloadPath = join(dir, 'p.json');
+    const outPath = join(dir, 'o.docx');
+    writeFileSync(payloadPath, JSON.stringify({
+      lang: 'en',
+      page_format: 'letter',
+      candidate: { name: 'Test Candidate', phone: '123', email: 't@example.com', linkedin },
+      summary: 'Summary line.',
+      experience: [{ company: 'Test Corp', role: 'Tester', dates: '2024 - Present', bullets: ['Did a thing.'] }],
+      competencies: ['One thing'],
+    }));
+    execFileSync(process.execPath, [join(ROOT, 'build-cv-docx.mjs'), payloadPath, outPath], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    return paragraphs(readZip(readFileSync(outPath)).get('word/document.xml').toString('utf8')).join('\n');
+  };
+
+  const objText = build({ url: 'https://linkedin.com/in/test', display: 'linkedin.com/in/test' });
+  if (objText.includes('[object Object]')) {
+    fail('object-form candidate.linkedin rendered a literal [object Object] in the contact line');
+  } else {
+    pass('object-form candidate.linkedin does not stringify');
+  }
+  if (!objText.includes('linkedin.com/in/test')) {
+    fail('object-form candidate.linkedin lost its display text');
+  } else {
+    pass('object-form candidate.linkedin renders its display text');
+  }
+
+  // The bare-string form must render identically -- the two shapes are both in
+  // use across the payload corpus, so neither may be the only working one.
+  const strText = build('linkedin.com/in/test');
+  if (!strText.includes('linkedin.com/in/test')) {
+    fail('string-form candidate.linkedin did not render');
+  } else {
+    pass('string-form candidate.linkedin renders');
+  }
+  if (strText.includes('[object Object]')) {
+    fail('string-form candidate.linkedin rendered [object Object]');
+  } else {
+    pass('string-form candidate.linkedin does not stringify');
+  }
+
+  rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+}
+
 // No finish() here on purpose: discovered suites under tests/ run in-process and
 // share the harness counters, and test-all.mjs owns the summary and exit code.
 // Calling finish() (or process.exit) from here is a suite-level error.
