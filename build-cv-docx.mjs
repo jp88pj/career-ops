@@ -109,10 +109,11 @@ const rPrFor = (opts) => {
 };
 
 const p = (text, opts = {}) => {
-  const { bold = false, size = null, after = 60, before = 0 } = opts;
+  const { bold = false, size = null, after = 60, before = 0, asProse = false } = opts;
+  const out = asProse ? prose(text) : text;
   const rPr = rPrFor(opts);
   return `<w:p><w:pPr><w:spacing w:before="${before}" w:after="${after}"/>${rPr ? `<w:rPr>${rPr}</w:rPr>` : ''}</w:pPr>` +
-    `<w:r>${rPr ? `<w:rPr>${rPr}</w:rPr>` : ''}<w:t xml:space="preserve">${esc(text)}</w:t></w:r></w:p>`;
+    `<w:r>${rPr ? `<w:rPr>${rPr}</w:rPr>` : ''}<w:t xml:space="preserve">${esc(out)}</w:t></w:r></w:p>`;
 };
 // Heading as an ALL-CAPS line on its own paragraph, with no border and no
 // hanging indent anywhere in the document. Those are the two constructs
@@ -125,11 +126,56 @@ const heading = (text) => {
   return `<w:p><w:pPr><w:spacing w:before="200" w:after="60"/><w:rPr>${rPr}</w:rPr></w:pPr>` +
     `<w:r><w:rPr>${rPr}</w:rPr><w:t>${esc(String(text).toUpperCase())}</w:t></w:r></w:p>`;
 };
+// One job = ONE paragraph.
+//
+// Observed against SmartRecruiters (cityjobs.nyc.gov, oneclick-ui) on
+// 2026-09-30: it concatenates adjacent <w:p> text with no separator, so every
+// paragraph boundary inside a job became a fused string - "…sole decision-
+// makers" + "Delivered to each umpire" arrived as "…decision-makersDelivered",
+// and one job's last bullet ran straight into the next job's company name.
+// Nothing in the extracted text stream marks a paragraph break.
+//
+// So the fix is not a better delimiter, it is FEWER boundaries: put the header
+// and every bullet in a single paragraph. Fields stay pipe-delimited and bullets
+// stay glyph-separated, so a splitter still recovers them, but there is no
+// internal paragraph boundary left to fuse. One boundary per job remains
+// (between jobs) and it lands after a full stop, so a fused run still reads as
+// complete sentences.
+const BULLET = '\u2022 ';
+
+// Terminal punctuation, applied here rather than trusted to the payload.
+// SmartRecruiters strips trailing punctuation at a paragraph edge (a bullet
+// ending "…classroom," arrived as "…classroomadapted"), so a fused run has no
+// sentence boundary to fall back on. 12 of 12 bullets in the Ombuds payload
+// shipped without one, which is why the earlier delimiter-only attempt did not
+// help. Doing it in the builder means it cannot be forgotten per payload again.
+const terminate = (s) => {
+  const t = String(s ?? '').trim();
+  return /[.!?]$/.test(t) ? t : t + '.';
+};
+
+// Prose only: turn the spaced hyphen used as a dash into a comma.
+//
+// SmartRecruiters splits a description on " - " and discards the first part, so
+// "…throughout each session - managing inquiries…" arrived in the form with
+// everything before the hyphen gone. Replacing the dash removes the token it
+// splits on.
+//
+// Scoped deliberately. Date ranges use the same " - " ("Dec 2025 - Present"),
+// and the experience header line carries those, so this must never run on a
+// field that can hold a date. Callers below pass only free prose.
+const prose = (s) => String(s ?? '')
+  .replace(/\s+-\s+/g, ', ')          // the split token, gone
+  .replace(/,\s*,+/g, ', ')            // no doubled commas if one was already there
+  .replace(/\s+,/g, ',')
+  .replace(/,\s*\./g, '.');            // "detail." not "detail,."
+
 const bullet = (lead, rest) => {
   const leadRPr = rPrFor({ bold: true });
   return `<w:p><w:pPr><w:spacing w:after="40"/><w:rPr>${rPrFor({})}</w:rPr></w:pPr>` +
-    `<w:r><w:rPr>${leadRPr}</w:rPr><w:t xml:space="preserve">${esc(lead)}, </w:t></w:r>` +
-    `<w:r><w:rPr>${rPrFor({})}</w:rPr><w:t xml:space="preserve">${esc(rest)}</w:t></w:r></w:p>`;
+    `<w:r><w:rPr>${rPrFor({})}</w:rPr><w:t xml:space="preserve">${BULLET}</w:t></w:r>` +
+    (lead ? `<w:r><w:rPr>${leadRPr}</w:rPr><w:t xml:space="preserve">${esc(prose(lead))}, </w:t></w:r>` : '') +
+    `<w:r><w:rPr>${rPrFor({})}</w:rPr><w:t xml:space="preserve">${esc(prose(rest))}</w:t></w:r></w:p>`;
 };
 
 // ---------- payload -> document.xml ----------
@@ -140,17 +186,18 @@ function document(payload) {
   x.push(p(c.name || '', { bold: true, size: 34, after: 40 }));
   if (contact) x.push(p(contact, { size: 18, after: 30 }));
   if (c.ern) x.push(p(`ERN ${c.ern}`, { size: 18, after: 30 }));
-  if (payload.summary) { x.push(heading('Summary')); x.push(p(payload.summary)); }
+  if (payload.summary) { x.push(heading('Summary')); x.push(p(payload.summary, { asProse: true })); }
 
   if (Array.isArray(payload.experience) && payload.experience.length) {
     x.push(heading('Experience'));
     for (const e of payload.experience) {
-      // One line per record, in the order a resume parser reads them back:
-      // employer, then title/location/dates, then one bullet per paragraph.
-      x.push(p(e.company || '', { bold: true, before: 100, after: 10 }));
-      const meta = [e.role, e.location, e.dates].filter(Boolean);
-      if (meta.length) x.push(p(meta.join(' | '), { size: 18, after: 40 }));
-      for (const bl of e.bullets || []) x.push(bullet('', bl).replace('<w:t xml:space="preserve">, </w:t>', '<w:t xml:space="preserve"></w:t>'));
+      // One paragraph for the whole record: header fields, then every bullet.
+      const head = [e.company, e.role, e.location, e.dates].filter(Boolean).join(' | ');
+      // prose() here, not in bullet(): this refactor inlines the bullets into
+      // the record string, so bullet() is never called and prose() inside it
+      // would never run. Dates stay untouched because head is built separately.
+      const items = (e.bullets || []).map((bl) => BULLET + terminate(prose(bl)));
+      x.push(p(items.length ? `${head} ${items.join(' ')}` : head, { bold: false, before: 100, after: 40 }));
     }
   }
   if (Array.isArray(payload.education) && payload.education.length) {
@@ -165,8 +212,8 @@ function document(payload) {
     x.push(heading('Skills'));
     for (const s of payload.skills) {
       x.push(s.category
-        ? `<w:p><w:pPr><w:spacing w:after="40"/><w:rPr>${rPrFor({})}</w:rPr></w:pPr><w:r><w:rPr>${rPrFor({ bold: true })}</w:rPr><w:t xml:space="preserve">${esc(s.category)}: </w:t></w:r><w:r><w:rPr>${rPrFor({})}</w:rPr><w:t xml:space="preserve">${esc(s.items)}</w:t></w:r></w:p>`
-        : p(s.items));
+        ? `<w:p><w:pPr><w:spacing w:after="40"/><w:rPr>${rPrFor({})}</w:rPr></w:pPr><w:r><w:rPr>${rPrFor({ bold: true })}</w:rPr><w:t xml:space="preserve">${esc(s.category)}: </w:t></w:r><w:r><w:rPr>${rPrFor({})}</w:rPr><w:t xml:space="preserve">${esc(prose(s.items))}</w:t></w:r></w:p>`
+        : p(s.items, { asProse: true }));
     }
   }
   if (Array.isArray(payload.certifications) && payload.certifications.length) {

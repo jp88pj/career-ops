@@ -84,7 +84,22 @@ const payload = {
       role: 'Urban Park Service Security',
       location: 'New York, NY',
       dates: 'Dec 2025 - Present',
-      bullets: ['Uphold order and protect people, parks, and property with respect and integrity.'],
+      // Deliberately UNPUNCTUATED, and carrying a spaced-hyphen dash, matching
+      // how real payloads are written. An earlier version of this test ended the
+      // bullet with a period and had no dash, so the terminal-punctuation guard
+      // passed against a fixture no real payload resembled - it asserted nothing.
+      // SmartRecruiters strips trailing punctuation at a paragraph edge and
+      // splits on " - ", so both are the cases that matter.
+      bullets: [
+        'Uphold order and protect people, parks, and property with respect and integrity',
+        'Educate members of the public on rules and regulations - explaining requirements clearly',
+      ],
+    },
+    {
+      company: 'Camp Hillard',
+      role: 'Summer Camp Counselor, progressing to Program Lead',
+      dates: '2008 - 2013',
+      bullets: ['Progressed to directing and guiding co-counselors across daily sports and swimming'],
     },
   ],
   education: [{ title: 'Master of Education, Education Studies', org: 'University at Buffalo' }],
@@ -216,6 +231,60 @@ if (built) {
     // No tables at all: a table-based layout is the classic resume-parser trap.
     if (!/<w:tbl>/.test(doc)) pass('no tables (the classic resume-parser trap)');
     else fail('tables present in the resume body');
+
+    // --- SmartRecruiters concatenation contract.
+    // That parser joins adjacent paragraph text with no separator, so any
+    // boundary it does not respect becomes a fused string ("...decision-makers"
+    // + "Delivered to each umpire"). The countermeasure is FEWER boundaries: one
+    // paragraph per job, carrying the header and every bullet together.
+    const emp = 'City of New York Department of Parks & Recreation';
+    const recordParas = paras.filter((x) => x.includes(emp));
+    if (recordParas.length === 1) pass('a whole job record is one paragraph (no internal boundary to fuse)');
+    else fail(`job record spans ${recordParas.length} paragraphs — every boundary is a fusion risk`);
+
+    // The payload above supplies unpunctuated bullets on purpose. Assert the
+    // builder terminates them, because SmartRecruiters strips trailing
+    // punctuation at a paragraph edge and a fused run needs a sentence boundary.
+    // split(0) drops the header, which precedes the first glyph.
+    const bulletsInRecord = (recordParas[0] || '').split('\u2022').slice(1).filter((b) => b.trim());
+    if (bulletsInRecord.length === 2) pass('both payload bullets survive into the record');
+    else fail(`expected 2 bullets in the record, found ${bulletsInRecord.length}`);
+    const unterminated = bulletsInRecord.filter((b) => !/[.!?]\s*$/.test(b.trim()));
+    if (unterminated.length === 0) pass('builder terminates every bullet (payload supplied none punctuated)');
+    else fail(`${unterminated.length} bullets still lack terminal punctuation: ${JSON.stringify(unterminated)}`);
+
+    // Header must stay splittable into fields despite sharing the paragraph.
+    const rec = recordParas[0] || '';
+    if (rec.split(' | ').length >= 4) pass('header fields remain pipe-delimited and recoverable');
+    else fail('header lost its " | " field delimiters');
+
+    if (rec.includes('\u2022 ')) pass('bullets remain glyph-delimited inside the record');
+    else fail('no in-text bullet glyph — a fused run has no boundary signal');
+
+    // Two jobs must remain two paragraphs, or the whole section is one blob.
+    const campParas = paras.filter((x) => x.includes('Camp Hillard'));
+    // A second job must remain two paragraphs
+    if (campParas.length === 1) pass('a second job is still its own paragraph (records stay separable)');
+    else fail(`second job spans ${campParas.length} paragraphs`);
+
+    // --- dash-to-comma normalisation, scoped to prose.
+    // SmartRecruiters splits a description on " - " and drops the first part, so
+    // the token has to leave bullet text. It must NOT leave the header line,
+    // because date ranges use the same " - " ("Dec 2025 - Present"). These two
+    // assertions together are what prove prose() is scoped.
+    if (rec.includes('regulations, explaining')) pass('spaced hyphen in prose becomes a comma');
+    else fail('prose still contains " - " near "regulations"');
+
+    if (rec.includes('Dec 2025 - Present')) pass('date range in the header keeps its " - " (prose() is scoped)');
+    else fail('prose() leaked onto the header line and rewrote a date range');
+
+    const proseParas = paras.filter((x) => !x.includes('|'));
+    const leftover = proseParas.filter((x) => x.includes(' - '));
+    if (leftover.length === 0) pass('no " - " survives in any prose paragraph');
+    else fail(`${leftover.length} prose paragraphs still contain " - "`);
+
+    if (!/,\s*,/.test(doc)) pass('no doubled commas introduced by the rewrite');
+    else fail('doubled commas present');
   }
 
   // --- escaping: ampersand in the employer name above is the live case
