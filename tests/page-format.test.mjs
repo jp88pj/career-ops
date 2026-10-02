@@ -251,6 +251,13 @@ function coverSandbox() {
     copyFileSync(join(ROOT, f), join(dir, f));
   }
   copyFileSync(join(ROOT, 'lib', 'is-main-module.mjs'), join(dir, 'lib', 'is-main-module.mjs'));
+    // candidate-link.mjs is imported by generate-cover-letter.mjs. This sandbox
+    // copies each lib/ dependency by hand rather than importing from the repo,
+    // so any import a builder gains has to be added here too -- otherwise the
+    // sandbox dies on ERR_MODULE_NOT_FOUND before the assertion under test
+    // runs, and the failure surfaces as "the renderer chose its own paper size"
+    // rather than as the missing module it actually is.
+    copyFileSync(join(ROOT, 'lib', 'candidate-link.mjs'), join(dir, 'lib', 'candidate-link.mjs'));
   // The resolver is here so a cover letter that starts calling it fails on the
   // assertion below and not on a missing module. Resolving early is the quiet
   // form of this bug: it reads no profile path, so every letter gets the
