@@ -13,6 +13,7 @@
 // isolated below the document builder.
 import { readFileSync, writeFileSync } from 'fs';
 import { deflateRawSync } from 'zlib';
+import { normalizeCandidateLink } from './lib/candidate-link.mjs';
 
 // ---------- CRC32 (ZIP local/central headers) ----------
 const CRC_TABLE = (() => {
@@ -186,16 +187,8 @@ function document(payload) {
   // built from an object-form payload -- which is the documented form, so this
   // was the common case, not an edge case. Same accept-both-shapes rule as
   // build-cv-html.mjs's normalizeLink().
-  const linkText = (v) => {
-    if (!v) return '';
-    if (typeof v === 'string') return v.replace(/^https?:\/\//i, '');
-    if (typeof v === 'object') {
-      const d = v.display || v.url;
-      return typeof d === 'string' ? d.replace(/^https?:\/\//i, '') : '';
-    }
-    return '';
-  };
-  const contact = [c.location, c.phone, c.email, linkText(c.linkedin)].filter(Boolean).join(' | ');
+  const link = normalizeCandidateLink(c.linkedin);
+  const contact = [c.location, c.phone, c.email, link && link.display].filter(Boolean).join(' | ');
   const x = [];
   x.push(p(c.name || '', { bold: true, size: 34, after: 40 }));
   if (contact) x.push(p(contact, { size: 18, after: 30 }));

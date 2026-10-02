@@ -33,6 +33,7 @@ import { tmpdir } from 'os';
 import { stripEmptySections } from './cv-sections-core.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { hasRequiredFields, validatePayload } from './lib/cv-payload-schema.mjs';
+import { normalizeCandidateLink } from './lib/candidate-link.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_ROOT = getCareerOpsRoot();
@@ -594,32 +595,16 @@ function buildSkills(categories, partial) {
  * the href is a valid absolute URL rather than a relative path.
  */
 function normalizeLink(value) {
-  if (!value) return null;
-  // A bare domain gets an https:// scheme; a value that already declares ANY
-  // scheme is passed through untouched so sanitizeUrl() can reject it. Prefixing
-  // unconditionally would turn `javascript:alert(1)` into
-  // `https://javascript:alert(1)`, which sanitizeUrl() accepts -- a live XSS
-  // path through the very fix meant to close a silent-drop bug.
-  const withScheme = (raw) => {
-    const trimmed = raw.trim();
-    if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed;
-    return `https://${trimmed}`;
-  };
-  const bare = (raw) => raw.replace(/^https?:\/\//i, '');
-
-  if (typeof value === 'string') {
-    if (!value.trim()) return null;
-    const href = sanitizeUrl(withScheme(value));
-    if (!href) return null;
-    return { href, display: bare(value.trim()) };
-  }
-  if (typeof value === 'object' && typeof value.url === 'string' && value.url.trim()) {
-    const href = sanitizeUrl(withScheme(value.url));
-    if (!href) return null;
-    const display = (typeof value.display === 'string' && value.display.trim()) || bare(value.url.trim());
-    return { href, display };
-  }
-  return null;
+  // Shape resolution is shared (lib/candidate-link.mjs): the same payload field
+  // is written both as an object and as a bare string across the corpus, and
+  // three builders got that wrong three different ways before this existed.
+  // sanitizeUrl() still runs here, so a rejected scheme drops the contact item
+  // exactly as before.
+  const link = normalizeCandidateLink(value);
+  if (!link) return null;
+  const href = sanitizeUrl(link.href);
+  if (!href) return null;
+  return { href, display: link.display };
 }
 
 // Rebuild the whole .contact-row block. Its markup uses fixed "|" separators

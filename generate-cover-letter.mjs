@@ -21,6 +21,7 @@ import { parseArgs } from "util";
 import { assertFacts } from "./verify-cv-facts.mjs";
 import { resolveTemplate } from "./cv-templates.mjs";
 import { isMainModule } from "./lib/is-main-module.mjs";
+import { normalizeCandidateLink } from "./lib/candidate-link.mjs";
 import { getCareerOpsRoot } from "./path-resolver.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -112,13 +113,17 @@ function buildContactLine(candidate) {
     parts.push(`<a href="mailto:${email}">${email}</a>`);
   }
   if (candidate.phone) parts.push(escapeHtml(candidate.phone));
-  if (candidate.linkedin) {
-    const display = candidate.linkedin.replace(/^https?:\/\//i, "");
-    parts.push(`<a href="${escapeHtml(asUrl(candidate.linkedin))}">${escapeHtml(display)}</a>`);
-  }
-  if (candidate.github) {
-    const display = candidate.github.replace(/^https?:\/\//i, "");
-    parts.push(`<a href="${escapeHtml(asUrl(candidate.github))}">${escapeHtml(display)}</a>`);
+  // Accepts the object form {url, display} and the bare-string form alike. This
+  // previously called .replace() on the raw value, so the documented object shape
+  // threw `candidate.linkedin.replace is not a function` and killed the build.
+  // One shared normalizer now owns the rule (lib/candidate-link.mjs); asUrl()
+  // still runs on the href, so a rejected scheme drops the item as before.
+  for (const key of ['linkedin', 'github', 'portfolio']) {
+    const link = normalizeCandidateLink(candidate[key]);
+    if (!link) continue;
+    const href = asUrl(link.href);
+    if (!href) continue;
+    parts.push(`<a href="${escapeHtml(href)}">${escapeHtml(link.display)}</a>`);
   }
   return parts.join(" &nbsp;|&nbsp; ");
 }
