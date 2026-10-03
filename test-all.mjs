@@ -469,7 +469,18 @@ const scripts = [
   { name: 'agent-inbox-tests.mjs', expectExit: 0 },
   { name: 'followup-seed-tests.mjs', expectExit: 0 },
   { name: 'paste-reply-tests.mjs', expectExit: 0 },
-  { name: 'set-status-tests.mjs', expectExit: 0 },
+  // Same shape as #2906/#4010, measured on this machine 2026-10-02 rather
+    // than assumed: four isolated runs took 15.9s, 18.1s, 17.1s, 17.4s. That is
+    // 53-60% of the shared 30s budget BEFORE the rest of the suite adds load,
+    // and it was killed on 1 of 4 consecutive full-suite runs with
+    // `exit null, signal SIGTERM`. Its two slow siblings are already at 180s for
+    // the same reason; this script was the one outlier still on the default.
+    //
+    // As with those two, the cost being measured IS the behaviour under test --
+    // this suite contends the tracker writer lock -- so the budget is raised
+    // here rather than treated as slack to trim, and a NEW script that starts
+    // taking half a minute still fails loudly against the 30s default.
+    { name: 'set-status-tests.mjs', expectExit: 0, timeoutMs: 180_000 },
   // The one script in this list that genuinely needs longer than the shared
   // budget. It spawns competing writer processes for 27 contention cases, and
   // that cost is the behaviour under test rather than slack to be trimmed.
