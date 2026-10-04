@@ -71,6 +71,10 @@ import { normalizeCompanyName } from './invite-match.mjs';
 import { withPipelineLock } from './pipeline-lock.mjs';
 import { compileKeyword, compilePositiveKeyword, compileContentKeyword, buildTitleFilter, buildTitleFilterBySource, foldAccents } from './title-keywords.mjs';
 import { flagValue, hasFlag, validateFlags } from './lib/cli-flags.mjs';
+import {
+  buildShapePolicy, detectEmploymentShape, shouldSurfaceFlagged,
+  stripShapeNegatives, describeShape, NON_FULL_TIME,
+} from './lib/employment-shape.mjs';
 import { withPortalHealthLock } from './portal-health-lock.mjs';
 import { localToday } from './lib/local-today.mjs';
 import { printScanSummaryHeader } from './lib/scan-summary-marker.mjs';
@@ -3363,7 +3367,19 @@ async function main() {
   // `source_title_filters` in portals.yml this is the plain global predicate, so
   // the default path is byte-identical to before. See buildTitleFilterBySource()
   // for why one global list cannot serve both municipal and private ATS boards.
-  const titleFilter = buildTitleFilterBySource(config.title_filter, config.source_title_filters);
+  //
+  // Employment SHAPE is handled as a flag rather than a title veto. A hard veto
+  // hides a well-paid part-time role in the same breath as a badly-paid one, and
+  // on Workday it cannot even see the shape: only 3 of 11 part-time RFCUNY roles
+  // name it in the title, because employment type lives in the detail payload's
+  // `timeType`. So when the policy is active the shape words are lifted out of
+  // the title negatives, those postings reach the annotator below, and are
+  // reported with their real figure instead of being dropped.
+  const shapePolicy = buildShapePolicy(config.employment_shape);
+  const titleFilterConfig = shapePolicy.flagNotVeto
+    ? stripShapeNegatives(config.title_filter)
+    : config.title_filter;
+  const titleFilter = buildTitleFilterBySource(titleFilterConfig, config.source_title_filters);
 
   // Seniority tier classifier integration
   let classifyTier = null;
@@ -3472,8 +3488,7 @@ async function main() {
   const windows = loadReApplyWindows();
   const cooldownFilter = buildCooldownFilter(windows, date);
   let totalFilteredCooldown = 0;
-  const cooldownOffers = [];
-  let totalFound = 0;
+  const cooldownOffers = [];  let totalFound = 0;
   let totalFilteredTitle = 0;
   let totalFilteredTier = 0;
   let totalFilteredLocation = 0;
@@ -3485,6 +3500,14 @@ async function main() {
   let totalFilteredBlacklist = 0;
   let annotatedBlacklisted = 0;
   let totalFilteredVisa = 0;
+  // Shape flags. A flagged role is ANNOTATED, never silently dropped: if it
+  // clears surfaceMin it is queued carrying its real figure, and if it does not
+  // it is still counted here so the number is visible in the run summary rather
+  // than disappearing. That is the whole point of the flag.
+  let shapeFlaggedSurfaced = 0;
+  let shapeFlaggedBelowFloor = 0;
+  let shapeUndetermined = 0;
+  const shapeFlaggedOffers = [];
   let totalDupes = 0;
   const newOffers = [];
   const errors = [...resolveErrors];
@@ -3649,6 +3672,46 @@ async function main() {
         if (!visaFilter(job.description)) {
           totalFilteredVisa++;
           continue;
+        }
+        // Employment shape, resolved from the platform rather than the title.
+        //
+        // Placement is BEFORE dedup on purpose. The flag is a REPORT about the
+        // board, not a property of the new-offer set: placed after the dedup
+        // check it would report zero on every run after a board's first, which
+        // reads as "no part-time roles here" rather than "already seen". It
+        // still runs only for postings that already cleared every other filter,
+        // so the detail fetch is bounded by the surviving set.
+        if (shapePolicy.active) {
+          const shape = await detectEmploymentShape(job, shapePolicy, { api: company.api });
+          if (shape.shape === 'unknown') {
+            // An unknown shape is reported, not assumed to be full-time.
+            shapeUndetermined++;
+          } else if (NON_FULL_TIME.has(shape.shape)) {
+            if (shouldSurfaceFlagged(shape, shapePolicy)) {
+              shapeFlaggedSurfaced++;
+              shapeFlaggedOffers.push({
+                company: company.name, title: job.title, url: job.url,
+                reqId: shape.reqId || null, shape: shape.shape,
+                rate: shape.rateHi, hours: shape.hoursPerWeek,
+                annualHi: shape.annualHi, annualLo: shape.annualLo, note: describeShape(shape),
+              });
+              job.employmentShape = shape.shape;
+              job.note = job.note ? `${job.note} ${describeShape(shape)}` : describeShape(shape);
+            } else {
+              // Below the surfacing floor: not queued, but COUNTED, so the run
+              // summary shows it existed. Silently dropping is the failure mode
+              // this whole mechanism exists to avoid.
+              shapeFlaggedBelowFloor++;
+              shapeFlaggedOffers.push({
+                company: company.name, title: job.title, url: job.url,
+                reqId: shape.reqId || null, shape: shape.shape,
+                rate: shape.rateHi, hours: shape.hoursPerWeek,
+                annualHi: shape.annualHi, annualLo: shape.annualLo,
+                note: `${describeShape(shape)} — below surface_min, not queued`,
+              });
+              continue;
+            }
+          }
         }
         const dedupUrl = normalizeUrlForDedup(job.url);
         if (seenUrls.has(dedupUrl)) {
@@ -3880,6 +3943,19 @@ async function main() {
   }
   console.log(`New offers added:      ${verifiedOffers.length}`);
 
+  // Employment-shape summary. Printed whenever the policy is on, including when
+  // it flagged nothing, because a silent zero reads as "no part-time roles
+  // existed" rather than "the check ran and found none".
+  if (shapePolicy.active) {
+    console.log(`Shape flags:           ${shapeFlaggedSurfaced} queued, ${shapeFlaggedBelowFloor} below floor, ${shapeUndetermined} undetermined`);
+    for (const f of shapeFlaggedOffers.slice(0, 20)) {
+      const money = f.annualHi != null ? `~$${Number(f.annualHi).toLocaleString()}`
+        : f.rate != null ? `$${f.rate}/hr` : 'no figure';
+      console.log(`   · ${f.shape.padEnd(11)} ${money.padEnd(12)} ${f.reqId || '-'.padEnd(9)} ${String(f.title).slice(0, 46)}`);
+    }
+    if (shapeFlaggedOffers.length > 20) console.log(`   … and ${shapeFlaggedOffers.length - 20} more flagged`);
+  }
+
   // Trust validation summary (only when trust_filter is configured)
   if (config.trust_filter && config.trust_filter.enabled !== false && verifiedOffers.length > 0) {
     const trustHigh = verifiedOffers.filter(o => o.trustLevel === 'high').length;
@@ -4054,6 +4130,16 @@ async function main() {
       added_urls: verifiedOffers.map(offer => offer.url),
       errors: errors.map(({ company, error }) => ({ company, error })),
       unverified_zero: unverifiedZeroTargets,
+      ...(shapePolicy.active ? {
+        // Emitted ONLY when the policy is on, so a run without `employment_shape`
+        // produces a byte-identical receipt and this stays an additive,
+        // opt-in extension of the v1 contract rather than a change to it. The
+        // same reason `unverified_zero` is a list and not a count.
+        shape_flagged_surfaced: shapeFlaggedSurfaced,
+        shape_flagged_below_floor: shapeFlaggedBelowFloor,
+        shape_undetermined: shapeUndetermined,
+        shape_offers: shapeFlaggedOffers,
+      } : {}),
       dry_run: dryRun,
     }, errors.length > 0 ? 2 : 0);
   }
