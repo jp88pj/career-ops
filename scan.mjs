@@ -69,7 +69,7 @@ import { workdayDedupKey, stripWorkdayRepostSuffix, isWorkdayJobUrl } from './pr
 import { normalizeCompany } from './tracker-utils.mjs';
 import { normalizeCompanyName } from './invite-match.mjs';
 import { withPipelineLock } from './pipeline-lock.mjs';
-import { compileKeyword, compilePositiveKeyword, compileContentKeyword, buildTitleFilter, foldAccents } from './title-keywords.mjs';
+import { compileKeyword, compilePositiveKeyword, compileContentKeyword, buildTitleFilter, buildTitleFilterBySource, foldAccents } from './title-keywords.mjs';
 import { flagValue, hasFlag, validateFlags } from './lib/cli-flags.mjs';
 import { withPortalHealthLock } from './portal-health-lock.mjs';
 import { localToday } from './lib/local-today.mjs';
@@ -178,7 +178,7 @@ export function emitJsonReceipt(receipt, exitCode) {
 // sections 11b and 44 among them — keep resolving it from here.
 // compileContentKeyword shares the `word:`/`stem:` prefix machinery but skips
 // the title filter's short-acronym auto-anchor (#3274).
-export { compileKeyword, compilePositiveKeyword, compileContentKeyword, buildTitleFilter };
+export { compileKeyword, compilePositiveKeyword, compileContentKeyword, buildTitleFilter, buildTitleFilterBySource };
 
 // ── Title filter overrides (per-company broadened title net) ───────
 // Optional. `title_filter_overrides` in portals.yml lets specific companies
@@ -3359,7 +3359,11 @@ async function main() {
   const config = rawConfig && typeof rawConfig === 'object' ? rawConfig : {};
   const companies = Array.isArray(config.tracked_companies) ? config.tracked_companies : [];
   const boards = Array.isArray(config.job_boards) ? config.job_boards : [];
-  const titleFilter = buildTitleFilter(config.title_filter);
+  // Per-SOURCE title rules layered over the global filter. With no
+  // `source_title_filters` in portals.yml this is the plain global predicate, so
+  // the default path is byte-identical to before. See buildTitleFilterBySource()
+  // for why one global list cannot serve both municipal and private ATS boards.
+  const titleFilter = buildTitleFilterBySource(config.title_filter, config.source_title_filters);
 
   // Seniority tier classifier integration
   let classifyTier = null;
@@ -3595,7 +3599,20 @@ async function main() {
           }
         }
 
-        if (!titleFilter(job.title)) {
+        // Per-source rules need to know where the posting came from. The job's own
+        // URL is the most reliable host (it is the posting, not the board root);
+        // the portal entry's careers_url/api/host are the fallback for providers
+        // that return a rewritten or board-level URL. Both are offered so a rule
+        // can match on either, and a null host is simply skipped by the matcher.
+        if (!titleFilter(job.title, {
+          company: company?.name || job.company || '',
+          hosts: [
+            extractCareersUrlDomain(job.url),
+            extractCareersUrlDomain(company?.careers_url),
+            company?.host,
+            extractCareersUrlDomain(company?.api),
+          ],
+        })) {
           totalFilteredTitle++;
           continue;
         }

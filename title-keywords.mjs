@@ -244,3 +244,118 @@ export function buildTitleFilter(titleFilter) {
     return hasPositive && !hasNegative;
   };
 }
+
+/**
+ * Compile one host pattern from a `source_title_filters[].match_hosts` entry.
+ * Accepts an exact host ("jobs.lever.co"), a leading-dot suffix (".lever.co"),
+ * or a `*.` wildcard ("*.recruitee.com"). Anything else is matched literally.
+ *
+ * @param {string} pattern
+ * @returns {(host: string) => boolean}
+ */
+function compileHostMatcher(pattern) {
+  const p = String(pattern || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  if (!p) return () => false;
+  if (p.startsWith('*.')) {
+    const base = p.slice(2);
+    return (host) => host === base || host.endsWith('.' + base);
+  }
+  if (p.startsWith('.')) {
+    const base = p.slice(1);
+    return (host) => host === base || host.endsWith(p);
+  }
+  // Exact host, or any subdomain of it. "boards.greenhouse.io" therefore matches
+  // "job-boards.greenhouse.io" too, which is what an ATS host rule intends.
+  return (host) => host === p || host.endsWith('.' + p);
+}
+
+/**
+ * Per-SOURCE title filter. One global `title_filter` cannot serve two populations.
+ *
+ * The problem this solves, measured 2026-10-03: the global positive list contains
+ * bare function nouns (Manager, Specialist, Director, Officer, Representative) and
+ * bare domain nouns (Product, Data, Services, Affairs, Design, Research) that were
+ * each measured against cityjobs' own vacancy sitemap, where "Operations Manager"
+ * and "Management Analyst" are real civil-service titles. The same nouns on a
+ * private AI/tech board resolve overwhelmingly to commercial or engineering roles:
+ * a single scan returned 38 postings from one board, every one of them sales,
+ * marketing, engineering, data science, or product, for a candidate whose
+ * archetypes are L&D, training, instructional design and program coordination.
+ *
+ * A rule can therefore REPLACE the positive list for the sources it matches. What
+ * it cannot do is widen past the global negatives: `title_filter.negative` is
+ * re-applied on every path, so a rule can only ever be stricter than the global
+ * filter. That is the safety property that makes this safe to add to a config
+ * someone else tuned -- the worst outcome is a role being hidden, never a globally
+ * vetoed shape being admitted.
+ *
+ * Config shape (all keys optional except the matcher and one of positive/negative):
+ *   source_title_filters:
+ *     - name: Private-sector ATS boards
+ *       match_hosts: ["jobs.ashbyhq.com", "boards.greenhouse.io", "*.recruitee.com"]
+ *       match_companies: ["Elise AI"]
+ *       positive: ["Instructional Designer"]   # replaces the global positive list
+ *       negative: ["word:Engagement"]          # adds to the global negatives
+ *
+ * Backward compatible by construction: with no `source_title_filters` (or none that
+ * compile) the returned predicate is the plain buildTitleFilter() result, so every
+ * existing caller and test behaves exactly as before.
+ *
+ * @param {{positive?: unknown, negative?: unknown}} [titleFilter] global config
+ * @param {unknown} sourceRules the `source_title_filters` array
+ * @returns {(title: string, ctx?: {company?: unknown, hosts?: unknown}) => boolean}
+ */
+export function buildTitleFilterBySource(titleFilter, sourceRules) {
+  const base = buildTitleFilter(titleFilter);
+  if (!Array.isArray(sourceRules) || sourceRules.length === 0) return base;
+
+  const normalize = (arr, compile) => (Array.isArray(arr) ? arr : [])
+    .filter(k => typeof k === 'string')
+    .map(k => foldAccents(k.trim().toLowerCase()))
+    .filter(k => k.length > 0)
+    .map(compile);
+
+  // Global negatives are re-applied on EVERY path, matched or not.
+  const globalNegative = normalize(titleFilter?.negative, compileKeyword);
+
+  const rules = [];
+  for (const rule of sourceRules) {
+    if (!rule || typeof rule !== 'object' || Array.isArray(rule)) continue;
+    const hostMatchers = (Array.isArray(rule.match_hosts) ? rule.match_hosts : [])
+      .filter(h => typeof h === 'string' && h.trim())
+      .map(compileHostMatcher);
+    const companyMatchers = (Array.isArray(rule.match_companies) ? rule.match_companies : [])
+      .filter(c => typeof c === 'string' && c.trim())
+      .map(c => foldAccents(c.trim().toLowerCase()));
+    const positive = normalize(rule.positive, compilePositiveKeyword);
+    const negative = normalize(rule.negative, compileKeyword);
+    // A rule with no matcher can never fire; one with neither list is a no-op.
+    // Skip both rather than carrying a rule that cannot change an outcome.
+    if (hostMatchers.length === 0 && companyMatchers.length === 0) continue;
+    if (positive.length === 0 && negative.length === 0) continue;
+    rules.push({ hostMatchers, companyMatchers, positive, negative });
+  }
+  if (rules.length === 0) return base;
+
+  // Hosts the caller supplied, lowercased once per call site rather than per rule.
+  const hostList = (hosts) => (Array.isArray(hosts) ? hosts : [])
+    .filter(h => typeof h === 'string' && h.trim())
+    .map(h => h.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, ''));
+
+  return (title, ctx) => {
+    const lower = foldAccents(String(title ?? '').toLowerCase());
+    const hosts = hostList(ctx?.hosts);
+    const company = foldAccents(String(ctx?.company ?? '').trim().toLowerCase());
+
+    for (const rule of rules) {
+      const hostHit = hosts.length > 0 && rule.hostMatchers.some(m => hosts.some(h => m(h)));
+      const companyHit = company.length > 0 && rule.companyMatchers.some(c => company === c);
+      if (!hostHit && !companyHit) continue;
+
+      const hasPositive = rule.positive.length === 0 || rule.positive.some(m => m(lower));
+      const vetoed = globalNegative.some(m => m(lower)) || rule.negative.some(m => m(lower));
+      return hasPositive && !vetoed;
+    }
+    return base(title);
+  };
+}
