@@ -961,6 +961,40 @@ function sourceContainsFact(sourceText, value) {
  * @returns {{ verdict: 'pass'|'warn'|'block', invented: string[], unsupportedFacts: object[], forbidden: string[], warnings: string[] }}
  * @throws when the config is invalid
  */
+// ── Rendered-markup leak guard ─────────────────────────────────────────────
+// A CV is a document a stranger reads. Markdown blockquote syntax or this
+// repo's own QA vocabulary appearing in the OUTPUT means a provenance note was
+// flattened into the body instead of being consumed as a source.
+//
+// Measured 2026-10-04: 77 generated artifacts carried
+// `> **REPLAY OPERATOR SCOPE CORRECTED ... READ BEFORE REUSING**` into the
+// visible document, above the candidate's own name. The phrase gate passed all
+// of them, because "READ BEFORE REUSING" is not a CLAIM about the candidate --
+// it is the renderer's own failure mode, which is exactly why it needs its own
+// check rather than being left to the phrase lists.
+//
+// Two independent signals, so a hit is corroborated rather than one regex:
+//   1. line-initial ">" then whitespace then a word or "*" -- the blockquote
+//      signature. Precise enough not to trip on "grew by > 20%", which has a
+//      digit after the ">" and is not at line start.
+//   2. the QA vocabulary itself, matched on the STRIPPED text, because
+//      stripMarkup() removes the ** markers but leaves the ">" and the words.
+const MARKUP_LEAK_BQUOTE_RE = /^[ \t]*>[ \t]+(?=[A-Za-z*(])/m;
+const MARKUP_LEAK_VOCAB_RE = /\b(?:READ BEFORE REUSING|SCOPE CORRECTED|LANGUAGE CORRECTION|NEVER auto-updated|Re-evaluate from|user-stated|user-confirmed|Do not write)\b/i;
+
+/** Find internal annotations that leaked into a rendered document. */
+export function findMarkupLeaks(rawText, strippedText) {
+  const hits = [];
+  const raw = String(rawText ?? '');
+  if (MARKUP_LEAK_BQUOTE_RE.test(raw)) {
+    const m = raw.match(/^[ \t]*>[ \t]+[^\n]{0,90}/m);
+    hits.push(`markdown blockquote rendered into output${m ? `: ${m[0].trim().slice(0, 80)}` : ''}`);
+  }
+  const v = String(strippedText ?? raw).match(MARKUP_LEAK_VOCAB_RE);
+  if (v) hits.push(`internal QA annotation rendered into output: "${v[0]}"`);
+  return hits;
+}
+
 export function verifyFacts(targetText, {
   sourcePaths = DEFAULT_SOURCES,
   configPath = DEFAULT_CONFIG,
@@ -982,11 +1016,15 @@ export function verifyFacts(targetText, {
   const warnings = config.warn_phrases
       .filter(Boolean)
       .filter(phrase => stripMarkup(targetText).toLowerCase().includes(String(phrase).toLowerCase()));
+  // A leaked annotation BLOCKS rather than warns. It is not a borderline call
+  // about the candidate's wording: the document is unusable as-is, and shipping
+  // it would put "READ BEFORE REUSING" in front of a recruiter.
+  const markupLeaks = findMarkupLeaks(targetText, stripMarkup(targetText));
   // Never downgrades a block and never creates one: a document that fails on
   // real evidence still fails on that, and a coverage gap only turns a would-be
   // 'pass' into 'warn' so the caller is told the gate could not read it.
   const coverage = diagnoseCoverage(targetText);
-  const blocked = invented.length || unsupportedFacts.length || forbidden.length;
+  const blocked = invented.length || unsupportedFacts.length || forbidden.length || markupLeaks.length;
   return {
     verdict: blocked ? 'block' : (warnings.length || coverage) ? 'warn' : 'pass',
     invented,
@@ -994,6 +1032,7 @@ export function verifyFacts(targetText, {
     forbidden,
     warnings,
     coverage,
+    markupLeaks,
     // Deliberately outside the verdict: no config is a normal state, not a
     // finding. It rides along so a caller can say the phrase lists were never
     // loaded instead of printing a clean result the reader takes for "checked".
@@ -1009,6 +1048,7 @@ export function assertFacts(targetText, options = {}) {
     if (result.invented.length) details.push(`metric-like claims absent from sources: ${result.invented.join(', ')}`);
     if (result.unsupportedFacts.length) details.push(`non-metric facts absent from sources: ${result.unsupportedFacts.map(({ kind, value }) => `${kind}=${value}`).join(', ')}`);
     if (result.forbidden.length) details.push(`forbidden phrases found: ${result.forbidden.join(', ')}`);
+    if (result.markupLeaks?.length) details.push(`rendered-markup leak: ${result.markupLeaks.join('; ')}`);
     throw new Error(`Fact check failed${options.label ? ` for ${options.label}` : ''}: ${details.join('; ')}`);
   }
   return result;
@@ -1440,6 +1480,12 @@ export function runCli(args = process.argv.slice(2)) {
     if (result.forbidden.length) {
       console.error('\nForbidden phrases found:');
       for (const phrase of result.forbidden) console.error(`  - ${phrase}`);
+    }
+    if (result.markupLeaks?.length) {
+      console.error('\nRendered-markup leak — an internal annotation reached the document:');
+      for (const leak of result.markupLeaks) console.error(`  - ${leak}`);
+      console.error('  The source note was flattened into the body instead of consumed as a source.');
+      console.error('  This is not fixable by editing cv.md: rebuild the artifact so the note is not rendered.');
     }
     console.error('\nAdd real evidence to cv.md/article-digest.md, or allow a verified exception in config/cv-facts.json.');
     return 1;

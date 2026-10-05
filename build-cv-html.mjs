@@ -352,7 +352,7 @@ function buildExperience(entries, partial) {
   if (!partial) {
     return entries.filter(e => hasRequiredFields(e, 'experience', 'html')).map(e => {
       const bullets = Array.isArray(e.bullets)
-        ? e.bullets.filter(Boolean).map(b => `        <li>${escapeHtml(b)}</li>`).join('\n')
+        ? e.bullets.map(bulletText).filter(Boolean).map(b => `        <li>${escapeHtml(b)}</li>`).join('\n')
         : '';
       const location = e.location
         ? `\n    <div class="job-location">${escapeHtml(e.location)}</div>`
@@ -373,7 +373,7 @@ ${bullets}
   const { entryTemplate, blocks } = partial;
   return entries.filter(e => hasRequiredFields(e, 'experience', 'html')).map(e => {
     const bullets = Array.isArray(e.bullets)
-      ? e.bullets.filter(Boolean).map(b => `<li>${escapeHtml(b)}</li>`).join('\n    ')
+      ? e.bullets.map(bulletText).filter(Boolean).map(b => `<li>${escapeHtml(b)}</li>`).join('\n    ')
       : '';
     const blockValues = new Map([
       ['LOCATION_BLOCK', { value: escapeHtml(e.location || ''), present: Boolean(e.location) }],
@@ -405,7 +405,7 @@ function buildProjects(entries, partial) {
       // Prefer a single description; fall back to joining bullets into one line so
       // a bullets-shaped payload still renders inside the .project-desc block.
       const descText = e.description
-        || (Array.isArray(e.bullets) ? e.bullets.filter(Boolean).join(' ') : '');
+        || (Array.isArray(e.bullets) ? e.bullets.map(bulletText).filter(Boolean).join(' ') : '');
       const desc = descText
         ? `\n    <div class="project-desc">${escapeHtml(descText)}</div>`
         : '';
@@ -421,7 +421,7 @@ function buildProjects(entries, partial) {
   const { entryTemplate, blocks } = partial;
   return entries.filter(e => hasRequiredFields(e, 'projects', 'html')).map(e => {
     const descText = e.description
-      || (Array.isArray(e.bullets) ? e.bullets.filter(Boolean).join(' ') : '');
+      || (Array.isArray(e.bullets) ? e.bullets.map(bulletText).filter(Boolean).join(' ') : '');
     const blockValues = new Map([
       ['BADGE_BLOCK', { value: escapeHtml(e.badge || ''), present: Boolean(e.badge) }],
       ['DESC_BLOCK',  { value: escapeHtml(descText),      present: Boolean(descText) }],
@@ -591,6 +591,31 @@ function buildSkills(categories, partial) {
  * because the code only read `.url`, so a CV could lose its LinkedIn line with
  * no error anywhere. `github` and `portfolio` had the same hole.
  *
+/**
+ * Resolve one bullet to its display text.
+ *
+ * A bullet is written two ways across the corpus: a bare string, or
+ * `{ text, source_line }` / `{ text, source_text }` when it carries provenance.
+ * `verify-bullet-sources.mjs` REQUIRES the object form -- a bare string is
+ * reported as unsourced -- so following this repo's own documented discipline
+ * fed objects to a builder that only ever handled strings.
+ *
+ * The result was silent and total: `escapeHtml({text: '...'})` produced an
+ * EMPTY `<li></li>` for every experience bullet, and `.join(' ')` produced
+ * "[object Object]" for every project bullet. A CV with 21 blank bullets then
+ * passed verify-cv-facts.mjs (no claims, so nothing invented) and scored
+ * 100/100 on verify-ats.mjs, because there was no text left to fail on.
+ *
+ * Same shape-resolution rationale as normalizeLink() below: one helper owns the
+ * rule, so a caller cannot get it right in one place and wrong in another.
+ */
+function bulletText(bullet) {
+  if (typeof bullet === 'string') return bullet;
+  if (bullet && typeof bullet === 'object' && typeof bullet.text === 'string') return bullet.text;
+  return '';
+}
+
+/**
  * A bare domain such as "linkedin.com/in/jonpresser" gets an https:// scheme so
  * the href is a valid absolute URL rather than a relative path.
  */
