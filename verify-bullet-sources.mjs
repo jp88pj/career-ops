@@ -108,15 +108,43 @@ function support(bullet, sourceLine) {
 export function verifyBulletSources(payload, sourceText) {
   const sourceLines = String(sourceText).split(/\r?\n/);
   const unsourced = [];
+  // Roles that would render as a job header with nothing under it.
+  //
+  // Measured 2026-10-04: build-cv-html.mjs only ever handled string bullets, so
+  // every `{text, source_line}` bullet rendered as an EMPTY `<li></li>`. The CV
+  // carried 21 blank bullets and still passed verify-cv-facts.mjs (no claims, so
+  // nothing invented) and scored 100/100 on verify-ats.mjs (no text left to
+  // score). A blank CV with a perfect score is the worst failure mode a gate
+  // can have, and nothing caught it -- the bullets here were skipped by the
+  // `if (!text) return` below before any count was taken.
+  const emptyRoles = [];
   let checked = 0;
 
   for (const entry of payload.experience || []) {
     const where = `${entry.company || '?'} — ${entry.role || '?'}`;
-    (entry.bullets || []).forEach((raw, i) => {
+    const bullets = Array.isArray(entry.bullets) ? entry.bullets : [];
+    let usable = 0;
+    bullets.forEach((raw, i) => {
       // A bullet is either a bare string (no citation - always a failure) or an
       // object with text plus a citation.
       const text = typeof raw === 'string' ? raw : raw?.text;
-      if (!text) return;
+      // A present-but-textless bullet is a FINDING, not a skip. It renders as
+      // nothing, so it is the same defect as an empty role one level down.
+      if (!text) {
+        if (raw != null && (bullets.length > usable)) {
+          unsourced.push({
+            where,
+            index: i,
+            text: '',
+            reason: raw === '' || raw == null
+              ? 'bullet has no text (renders as an empty list item)'
+              : 'bullet object has no text field (renders as an empty list item)',
+            support: null,
+          });
+        }
+        return;
+      }
+      usable++;
       checked++;
 
       if (typeof raw === 'string' || raw.source_line == null && raw.source_text == null) {
@@ -159,9 +187,15 @@ export function verifyBulletSources(payload, sourceText) {
         unsourced.push({ where, index: i, text, reason: 'not supported by the cited line', support: Number(ratio.toFixed(2)) });
       }
     });
+    // A role whose header would print with nothing beneath it. Reported apart
+    // from `unsourced` because the fix is different: drop the role from the
+    // selection, rather than cite a line for it.
+    if (usable === 0) {
+      emptyRoles.push({ where, bullets: bullets.length });
+    }
   }
 
-  return { verdict: unsourced.length ? 'block' : 'pass', checked, unsourced };
+  return { verdict: (unsourced.length || emptyRoles.length) ? 'block' : 'pass', checked, unsourced, emptyRoles };
 }
 
 /** Collect experience bullets from every payload path given. */
@@ -206,20 +240,33 @@ function main() {
     console.log(JSON.stringify({ source: args.source, results }, null, 2));
   } else {
     let totalUnsourced = 0;
+    let totalEmptyRoles = 0;
     for (const r of results) {
       if (r.error) { console.log(`  ERROR ${r.path}: ${r.error}`); continue; }
       totalUnsourced += r.unsourced.length;
-      const mark = r.unsourced.length ? 'BLOCK' : 'pass ';
-      console.log(`  [${mark}] ${r.path} — ${r.checked} bullet(s) checked, ${r.unsourced.length} unsourced`);
+      const empties = r.emptyRoles?.length || 0;
+      totalEmptyRoles += empties;
+      const mark = (r.unsourced.length || empties) ? 'BLOCK' : 'pass ';
+      const emptyNote = empties ? `, ${empties} empty role(s)` : '';
+      console.log(`  [${mark}] ${r.path} — ${r.checked} bullet(s) checked, ${r.unsourced.length} unsourced${emptyNote}`);
+      for (const e of (r.emptyRoles || [])) {
+        console.log(`      ${e.where}: renders as a job header with NO bullets (${e.bullets} present) — drop the role from the selection, don't cite it`);
+      }
       for (const u of r.unsourced) {
         const sup = u.support == null ? '' : ` (support ${u.support})`;
         console.log(`      ${u.where} #${u.index}: ${u.reason}${sup}`);
         console.log(`        "${String(u.text).slice(0, 100)}"`);
       }
     }
-    console.log(totalUnsourced
-      ? `\n  ${totalUnsourced} bullet(s) not traceable to cv.md — fix the citation or the wording.`
-      : '\n  All bullets trace to a cited cv.md line.');
+    if (totalUnsourced) {
+      console.log(`\n  ${totalUnsourced} bullet(s) not traceable to cv.md — fix the citation or the wording.`);
+    }
+    if (totalEmptyRoles) {
+      console.log(`  ${totalEmptyRoles} role(s) would render with no bullets — a role with nothing under it is worse than no role.`);
+    }
+    if (!totalUnsourced && !totalEmptyRoles) {
+      console.log('\n  All bullets trace to a cited cv.md line.');
+    }
   }
   return results.some((r) => r.error || r.verdict === 'block') ? 1 : 0;
 }
