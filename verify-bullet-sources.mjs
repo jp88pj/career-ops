@@ -74,21 +74,53 @@ function resolvePath(p, cwd) {
 
 /**
  * Locate the source line for a citation.
- * `source_line` wins; `source_text` finds the first line containing the phrase.
- * Returns null when neither resolves, which the caller treats as a failure.
+ *
+ * Three forms, tried in this order:
+ *   source_line  — 1-indexed into cv.md. Precise but BRITTLE: inserting or
+ *                  deleting any line above it silently repoints every citation
+ *                  below. Measured 2026-10-04, one source line drifted 71 → 106
+ *                  → 107 across two ordinary edits to cv.md.
+ *   source_anchor — a phrase that must match EXACTLY ONE line. Durable, because
+ *                  it survives any amount of editing above the content. The
+ *                  uniqueness requirement is the whole point: the loose form
+ *                  below takes the first match, which is how "Taught between 75
+ *                  and 90 students" silently resolved to Hudson's line when the
+ *                  bullet belonged to Newark.
+ *   source_text  — the loose legacy form, first match wins. Kept working, not
+ *                  recommended.
+ *
+ * Returns { line, reason } so the caller can distinguish "not found" from
+ * "ambiguous" — those are different defects with different fixes, and reporting
+ * an ambiguous anchor as a missing one sends someone to re-typing a citation
+ * that was never wrong.
  */
 function resolveCitation(sourceLines, cite) {
   if (cite.source_line != null) {
     const n = Number(cite.source_line);
-    if (!Number.isInteger(n) || n < 1 || n > sourceLines.length) return null;
-    return sourceLines[n - 1];
+    if (!Number.isInteger(n) || n < 1 || n > sourceLines.length) {
+      return { line: null, reason: `source_line ${cite.source_line} does not exist in cv.md` };
+    }
+    return { line: sourceLines[n - 1], reason: null };
   }
-  if (cite.source_text) {
-    const needle = String(cite.source_text).toLowerCase();
-    const hit = sourceLines.find((l) => l.toLowerCase().includes(needle));
-    if (hit) return hit;
+  for (const key of ['source_anchor', 'source_text']) {
+    const raw = cite[key];
+    if (!raw) continue;
+    const needle = String(raw).toLowerCase();
+    const hits = [];
+    sourceLines.forEach((l, i) => { if (l.toLowerCase().includes(needle)) hits.push({ line: l, n: i + 1 }); });
+    if (hits.length === 0) {
+      return { line: null, reason: `${key} "${String(raw).slice(0, 60)}" not found in cv.md` };
+    }
+    if (hits.length > 1 && key === 'source_anchor') {
+      // Loud, because the alternative is silently citing the wrong role.
+      return {
+        line: null,
+        reason: `source_anchor "${String(raw).slice(0, 60)}" is AMBIGUOUS — matches ${hits.length} lines (${hits.map((h) => h.n).join(', ')}). Make the anchor unique.`,
+      };
+    }
+    return { line: hits[0].line, reason: null };
   }
-  return null;
+  return { line: null, reason: null };
 }
 
 /** Fraction of a bullet's content words that appear in its cited line. */
@@ -147,7 +179,8 @@ export function verifyBulletSources(payload, sourceText) {
       usable++;
       checked++;
 
-      if (typeof raw === 'string' || raw.source_line == null && raw.source_text == null) {
+      if (typeof raw === 'string'
+        || (raw.source_line == null && raw.source_text == null && raw.source_anchor == null)) {
         // Reported here rather than left to fall through to resolveCitation(),
         // which rejects it too but as "source_text not found in cv.md" - true,
         // yet it describes a missing citation as a failed search, which is the
@@ -162,27 +195,28 @@ export function verifyBulletSources(payload, sourceText) {
         return;
       }
 
-      const line = resolveCitation(sourceLines, raw);
-      // `line === null` is the failure signal, not `!line`. A citation can
+      const resolved = resolveCitation(sourceLines, raw);
+      // `resolved.line === null` is the failure signal, not `!line`. A citation can
       // legitimately resolve to an empty line - an empty or minimal cv.md, or a
       // blank line the author cited - and testing truthiness there reported a
       // successful resolution as "does not exist", which is a different defect
       // with a different fix. Mutation-testing is what surfaced it: the range
       // check was reachable, but the empty-line path was not distinguishable.
-      if (line === null) {
+      if (resolved.line === null) {
         unsourced.push({
           where,
           index: i,
           text,
-          reason: raw.source_line != null
-            ? `source_line ${raw.source_line} does not exist in cv.md`
-            : 'source_text not found in cv.md',
+          reason: resolved.reason
+            || (raw.source_line != null
+              ? `source_line ${raw.source_line} does not exist in cv.md`
+              : 'source_text not found in cv.md'),
           support: null,
         });
         return;
       }
 
-      const ratio = support(text, line);
+      const ratio = support(text, resolved.line);
       if (ratio < SUPPORT_RATIO) {
         unsourced.push({ where, index: i, text, reason: 'not supported by the cited line', support: Number(ratio.toFixed(2)) });
       }
