@@ -530,10 +530,48 @@ export function classifyReply(cand) {
   };
 
   // 1. Noise keywords (checked first to separate alerts/leads from actual interviews)
+  //
+  // SPLIT BY STRENGTH, because checking all noise wording first and returning
+  // immediately let boilerplate in a careers-portal footer type a rejection as
+  // Noise. Found 2026-10-05 on a real Pfizer Workday rejection for req 4964318
+  // (tracker #201): "We really appreciate your interest ... After a comprehensive
+  // review, we have elected to pursue other qualified candidates ..." — the
+  // rejection tier already matched 'pursue other candidates', but the noise tier
+  // ran first and matched 'job alert' from the closing footer "monitor the status
+  // of any other application(s), set job alerts and view current opportunities",
+  // so Noise returned before the rejection tier was ever consulted.
+  //
+  // STRONG entries (below) only fire when the message shows no personal marker:
+  // no salutation by name, no applicant-specific reference, no requisition. Those
+  // are marketing blasts by construction, and one of the strong entries matched
+  // on its own is the intended signal.
   const noiseKeywords = [
     '邀请投递', '抢面试先机', '近期热招', '立即投递', '热招职位', '订阅职位', '职位推荐', '推荐职位',
     'job alert', 'invitation to apply', 'recommended jobs', 'newsletter', 'marketing digest', 'job recommendation', 'suggested jobs'
   ];
+  // Wording that is decisive when it is the WHOLE message, but appears verbatim
+  // as a footer link inside genuine candidate-specific mail. These may only
+  // classify as Noise in the absence of a personal marker.
+  const noiseWeakKeywords = [
+    'job alert', 'invitation to apply', 'recommended jobs', 'job recommendation', 'suggested jobs', 'subscribe'
+  ];
+  // Personal markers. Any one of these means the mail was written for this
+  // candidate, so footer noise wording must not decide the type on its own.
+  const personalMarkerRe = [
+    /\bdear\s+[A-Z][a-z]+/i,                       // "Dear Jonathan"
+    /\b(?:hi|hello|hey)\s+[A-Z][a-z]+/i,            // "Hi Jonathan"
+    /\b(?:thank|thanks)\s+you(?:\s+for)?\s+(?:applying|your application|your interest|the time)/i,
+    /\bwe\s+(?:really\s+)?(?:appreciate|thank)\b/i,
+    /\bcandidate\s+experience\s+team\b/i,
+    /\b(?:have|has)\s+(?:elected|decided|chosen|selected)\s+to\s+pursue\s+other\b/i,
+    /\bafter\s+a\s+(?:comprehensive|thorough|careful)\s+review\b/i,
+    /\bapplication(?:\s+|\s*\()?\s*\(?\d{4,}\)?/i,   // "(4964318)", "application 12345"
+    /\bplease\s+do\s+not\s+respond\s+to\s+this\s+message\b/i,
+    /\bre(?:qs?\.?|requisition)\s*(?:id\s*)?[:#]?\s*\d{3,}/i,
+    /\b(?:job|posting|requisition|req)\s*(?:id\s*)?[:#]?\s*\d{3,}/i,
+  ];
+  const hasPersonalMarker = personalMarkerRe.some(re => re.test(text));
+
 
   // 2. Offer keywords — specific phrases only. A bare 'offer' substring is deliberately
   //    excluded: it collides with rejection wording such as 'unable to offer' (see
@@ -583,6 +621,16 @@ export function classifyReply(cand) {
     'decided not to move forward', 'not to move forward with your application',
     'not be moving forward', 'unable to move forward', 'will not be proceeding',
     'decided to move forward with other', 'moving forward with other candidates',
+    // "we have elected to pursue other qualified candidates" is the standard
+    // big-pharma rejection phrasing (Pfizer / Merck / BMS / J&J Workday
+    // templates). The older 'pursue other candidates' entry missed it: the
+    // template inserts "qualified" between "other" and "candidates". Found
+    // 2026-10-05 on tracker #201 (req 4964318), which classified as Unknown with
+    // no rejection phrase hit.
+    'pursue other qualified candidates', 'pursuing other qualified candidates',
+    'elected to pursue other', 'elected to proceed with other',
+    'other candidates whose combination of education',
+    'we have elected to pursue', 'have elected to pursue',
     'pursue other candidates', 'pursuing other candidates', 'another candidate',
     'other applicants', 'were not selected', 'was not selected', 'not selected for this'
   ];
@@ -591,6 +639,32 @@ export function classifyReply(cand) {
     '感谢您的时间',       // "thank you for your time" - appears in confirmations too
     'unfortunately',
     'unable to offer'
+  ];
+  // Variable-word rejection phrasings that substring matching cannot express,
+  // because one pronoun or noun decides whether the entry hits at all.
+  //
+  // Found 2026-10-05 on two real rejections the user pasted the same day:
+  //   DREAM (#171)      "we are unable to move YOU forward in our selection
+  //                     process" - the 'unable to move forward' entry above does
+  //                     NOT match it, because of the single word "you". With no
+  //                     decisive hit, the mail fell through to respondedKeywords,
+  //                     where the talent-community boilerplate "may reach out
+  //                     should another opportunity arise" matched 'reach out' and
+  //                     typed an interview-stage REJECTION as "Responded".
+  //   Talkspace (#177)  "although your qualifications did not match our needs for
+  //                     this position" - matched nothing at all and classified
+  //                     Unknown with zero evidence. Nearest entry, 'not a match',
+  //                     requires the literal "not a match".
+  //
+  // Kept unambiguous: each states the decision outright, and none of them appear
+  // in confirmation or scheduling mail.
+  const rejectionDecisiveRe = [
+    /unable to move (?:you|us|candidate|forward)/i,
+    /(?:unable|not able) to (?:take|continue) (?:you|us) (?:forward|to the next)/i,
+    /qualifications? did not match/i,
+    /(?:did|do) not match (?:our|the) (?:needs|requirements|criteria)/i,
+    /not (?:a|an) (?:good|strong) match for (?:our|the)/i,
+    /(?:are|is) not moving forward with your application/i,
   ];
   // An acknowledgement that suppresses a Tier 2 match. Only consulted when no
   // Tier 1 phrase matched, so it can never mask a real rejection.
@@ -630,8 +704,14 @@ export function classifyReply(cand) {
     'would like to chat', 'reach out', 'connect with you', 'hiring manager responded'
   ];
 
+  // A message carrying a personal marker was written FOR this candidate, so
+  // footer noise wording never decides its type on its own - it falls through to
+  // the decision tiers below. When none of them match, the message lands in the
+  // needs-review bucket instead of being silently discarded as Noise, which is
+  // the safe direction to err: surfacing an untypeable candidate mail costs one
+  // glance, while discarding a real rejection costs the application.
   const isNoise = check(noiseKeywords);
-  if (isNoise) {
+  if (isNoise && !hasPersonalMarker) {
     return {
       type: 'Noise',
       evidence: Array.from(new Set(evidence)),
@@ -644,7 +724,12 @@ export function classifyReply(cand) {
   // which still contains the 'offer letter' phrase) must win even when offer-ish
   // phrasing is present. Deciding Offer first would type such replies as Offer and
   // push a spurious Offer tracker update.
-  const hasDecisiveRejection = check(rejectionDecisiveKeywords);
+  const hasDecisiveRejection = check(rejectionDecisiveKeywords) ||
+    rejectionDecisiveRe.some(re => {
+      if (!re.test(text)) return false;
+      evidence.push(re.source);
+      return true;
+    });
   const hasWeakRejection = hasDecisiveRejection ? false : check(rejectionWeakKeywords);
   // An acknowledgement only suppresses a WEAK match, never a decisive one — see
   // the "WHY NOT A BLANKET CONFIRMATION VETO" note above.
