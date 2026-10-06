@@ -511,8 +511,29 @@ export async function probeVendor(company, candidate, ctx) {
   if (!cfg || !cfg.provider.detect(entry)) {
     return { status: 'error', jobCount: 0, error: 'no API URL derivable' };
   }
+  // PROBE WITH A ONE-PAGE BUDGET.
+  //
+  // Providers distinguish a probe from a full walk by a finite ctx.maxPages
+  // (providers/rippling.mjs: `const probing = ctxCap !== Infinity`). In probing
+  // mode they PROPAGATE a fetch failure; in a full walk they swallow it, log
+  // "truncated at page 1", and return the jobs gathered so far — which for a
+  // page-1 failure is an empty array.
+  //
+  // Probe discovery was calling every provider with the unbounded httpCtx, so a
+  // vendor that 404s has its 404 converted into a successful empty result. That
+  // is what made 12 real companies resolve to `ats.rippling.com/<slug>` — boards
+  // that return HTTP 404 Not Found — and report them as "board(s) found but
+  // currently list 0 jobs - re-run later". Re-running cannot help: the retry
+  // advice is impossible to satisfy because the board does not exist. Written
+  // with --write, those phantom boards land in portals.yml as live config.
+  //
+  // resolveWorkday already built its one-page ctx for exactly this reason; this
+  // brings probeVendor in line with it. One page is sufficient to decide whether
+  // a board EXISTS and has at least one posting, which is all probeVendor
+  // reports, and it makes each probe cheaper.
+  const probeCtx = { ...ctx, maxPages: 1 };
   try {
-    const jobs = await cfg.provider.fetch(entry, ctx);
+    const jobs = await cfg.provider.fetch(entry, probeCtx);
     const jobCount = Array.isArray(jobs) ? jobs.length : 0;
     return { status: jobCount > 0 ? 'match' : 'empty', jobCount };
   } catch (err) {
