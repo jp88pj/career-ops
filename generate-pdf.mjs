@@ -1273,6 +1273,15 @@ async function generatePDF() {
   const args = process.argv.slice(2);
   let skipFactCheck = false;
 
+  // Which platform this CV is FOR, which decides the ERN expectation. Defaults
+  // to 'other', i.e. the ERN must be ABSENT — the safe direction, because
+  // cv.md's scope rule allows the ERN on cityjobs.nyc.gov postings ONLY and
+  // warns that an unexplained municipal employee ID "reads as irrelevant"
+  // anywhere else. A cityjobs CV that legitimately carries the ERN therefore
+  // has to say so with --ern-scope=cityjobs, and gets a loud failure rather
+  // than a silently stripped or silently leaked ID.
+  let ernScope = 'other';
+
   // Parse arguments
   // No flag seen yet: null, not a paper size. The default belongs to
   // lib/page-format.mjs, which ranks it below the user's config/profile.yml.
@@ -1289,6 +1298,8 @@ async function generatePDF() {
     } else if (arg.startsWith('--max-pages=')) {
       maxPagesInput = arg.slice('--max-pages='.length);
       maxPages = Number(maxPagesInput);
+    } else if (arg.startsWith('--ern-scope=')) {
+      ernScope = arg.slice('--ern-scope='.length).trim().toLowerCase();
     } else if (arg === '--allow-reorder') {
       allowReorder = true;
     } else if (arg === '--allow-nonchronological') {
@@ -1306,6 +1317,11 @@ async function generatePDF() {
 
   if (!Number.isInteger(maxPages) || maxPages < 1) {
     console.error(`Invalid --max-pages "${maxPagesInput}". Use a positive integer, e.g. --max-pages=1 or --max-pages=2.`);
+    process.exit(1);
+  }
+
+  if (ernScope !== 'other' && ernScope !== 'cityjobs') {
+    console.error(`Invalid --ern-scope "${ernScope}". Use --ern-scope=cityjobs for a cityjobs.nyc.gov posting, or --ern-scope=other (default) for everything else.`);
     process.exit(1);
   }
 
@@ -1352,6 +1368,14 @@ async function generatePDF() {
     console.error('The input HTML is produced by the pdf mode: the agent fills cv-template.html');
     console.error('with content tailored to the specific job (see modes/pdf.md) — there is no');
     console.error('mechanical markdown-to-HTML step by design. Run `/career-ops pdf` in your AI');
+    console.error('');
+    console.error('After rendering, the built PDF is read back and the ERN scope rule is');
+    console.error('enforced against the PDF itself, not the HTML:');
+    console.error('  --ern-scope=other      (default) ERN must be ABSENT - right for every');
+    console.error('                         platform except cityjobs.nyc.gov postings.');
+    console.error('  --ern-scope=cityjobs   ERN must be PRESENT - a cityjobs.nyc.gov posting.');
+    console.error('A mismatch throws after the PDF is written. Suppress the gates with');
+    console.error('--skip-fact-check.');
     console.error('CLI to drive the full flow end to end.');
     process.exit(1);
   }
@@ -1453,7 +1477,7 @@ async function generatePDF() {
     }
   }
 
-  return renderHtmlToPdf(html, outputPath, {
+  const rendered = await renderHtmlToPdf(html, outputPath, {
     format,
     baseDir: dirname(inputPath),
     reportNum,
@@ -1462,6 +1486,105 @@ async function generatePDF() {
     strictPages,
     styleTokens: readStyleTokens(resolve(workspaceRoot, 'config', 'profile.yml')),
   });
+
+  // Now that the PDF exists on disk, enforce the rules only it can answer.
+  // Deliberately after the render: the artifact is written first, so a gate
+  // failure leaves something to inspect rather than nothing at all.
+  if (!skipFactCheck && cvMarkdown) {
+    await verifyBuiltPdf({ pdfPath: outputPath, cvMarkdown, ernScope, label: basename(inputPath) });
+  }
+
+  return rendered;
+}
+
+/**
+ * Read the built PDF back and enforce the rules that only exist in the PDF.
+ *
+ * WHY THIS IS NOT THE SAME AS THE FACT GATE ABOVE
+ * -----------------------------------------------
+ * assertFacts() reads the HTML. The HTML is an intermediate: the employer
+ * receives the PDF. So a rule the HTML cannot see was unenforceable, and one
+ * such rule exists — the ERN scope rule in modes/_custom.md, which allows the
+ * ERN on cityjobs.nyc.gov postings ONLY and says an unexplained municipal
+ * employee ID reads as irrelevant anywhere else. The ERN is never mentioned in
+ * prose; it is only ever rendered into the document, so before this the rule
+ * had no automated check at all.
+ *
+ * WHY IT BLOCKS RATHER THAN WARNS
+ * ------------------------------
+ * The fact gate warns because a phrase list is advisory and its config is
+ * optional. This is different in kind: an ERN on the wrong platform is a
+ * factual error in the submitted document, and the failure is invisible on
+ * inspection — the CV looks correct either way. Warning would have produced
+ * exactly the silent pass this gate exists to prevent. So a scope mismatch
+ * throws, after the PDF has been written, so the artifact is inspectable.
+ *
+ * WHY THE IMPORT IS LAZY
+ * ----------------------
+ * Same reason as assertFacts above: the page-budget and batch suites copy
+ * generate-pdf.mjs alone into a temp workspace, and a static import of a
+ * sibling that is not copied kills them with ERR_MODULE_NOT_FOUND before they
+ * reach the behaviour under test. Those fixtures ship no cv.md either, so this
+ * branch does not run there.
+ *
+ * @param {{pdfPath: string, cvMarkdown: string, ernScope: 'other'|'cityjobs',
+ *          label: string}} opts
+ */
+export async function verifyBuiltPdf({ pdfPath, cvMarkdown, ernScope, label }) {
+  const { checkPdf } = await import('./verify-pdf-text.mjs');
+  const { readFileSync } = await import('fs');
+
+  // The ERN number is user data and lives in the user's own cv.md. Nothing here
+  // hardcodes anyone's identifier: no ERN in cv.md means no ERN rule to enforce.
+  const ernMatch = String(cvMarkdown).match(/\*\*ERN:\*\*\s*([0-9]{3,})/i);
+  if (!ernMatch) {
+    console.warn('⚠️  No ERN in cv.md — the ERN scope rule was not enforced on this PDF.');
+    return;
+  }
+  const ern = ernMatch[1];
+
+  // minChars is deliberately low here. verify-pdf-text.mjs defaults to a
+  // content-verdict threshold; this gate is not making content claims, it only
+  // needs enough decoded text to know whether a number is present, so a
+  // short-but-real document must not be reported as unreadable.
+  const result = checkPdf(readFileSync(pdfPath), {
+    minChars: 1,
+    ...(ernScope === 'cityjobs' ? { must: [ern] } : { forbid: [ern] }),
+  });
+
+  // An empty decode means the check below did not actually run, so reporting a
+  // clean ERN result off it would be a false all-clear. Block instead.
+  if (result.errors.length) {
+    throw new Error(
+      `PDF text could not be read back from ${label}: ${result.errors[0]}\n` +
+      'The ERN scope rule was NOT verified for this document.',
+    );
+  }
+
+  if (ernScope === 'cityjobs') {
+    // `must` failures land in `missing`, not `forbidden`. An earlier version of
+    // this gate checked only `forbidden` and so logged "ERN present" for a CV
+    // that contained no ERN at all — the precise silent pass this tool exists to
+    // prevent, introduced by the wiring rather than by the tool.
+    if (result.missing.includes(ern)) {
+      throw new Error(
+        `ERN ${ern} is required on a cityjobs.nyc.gov posting but does not appear in ${label}.\n` +
+        'The internal-candidate gate on that posting cannot be satisfied without it. ' +
+        "Add the ERN line from cv.md, or drop --ern-scope=cityjobs if this is not a cityjobs posting.",
+      );
+    }
+    console.log(`✅ PDF ERN check (cityjobs): ${ern} present in ${result.chars} decoded chars`);
+    return;
+  }
+
+  if (result.forbidden.includes(ern)) {
+    throw new Error(
+      `ERN ${ern} appears in ${label}, but this CV is not for a cityjobs.nyc.gov posting.\n` +
+      "cv.md's scope rule allows the ERN on cityjobs postings ONLY. Rebuild without " +
+      'the ERN line, or pass --ern-scope=cityjobs if this really is a cityjobs posting.',
+    );
+  }
+  console.log(`✅ PDF ERN check (other): ${ern} correctly absent (${result.chars} decoded chars)`);
 }
 
 /**
