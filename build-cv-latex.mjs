@@ -73,6 +73,33 @@ function buildEducation(entries) {
   return blocks.join('\n\n');
 }
 
+// Unwrap a bullet to its prose before any string work.
+//
+// The payload contract carries every bullet as {text, source_anchor} so each
+// line stays traceable to cv.md, and verify-bullet-sources.mjs REQUIRES that
+// object form — a bare string bullet is reported as unsourced. The HTML and
+// DOCX builders unwrap it; this one did not, and `escapeLatex` on a plain
+// object yielded no characters, so EVERY bullet rendered as an empty
+// `\resumeItem{}`. That is the LaTeX twin of the DOCX bug fixed in 5669c31e
+// ("[object Object]" for every bullet), and it is worse here: the .tex still
+// compiled, still had the right number of records, and said nothing -- so a
+// fully traceable payload produced a CV with no bullets and no warning.
+//
+// The Array.isArray guard matters: skills items are arrays, and a bare
+// `typeof x === 'object'` test matches those too.
+const unwrapBullet = (b) => (b && typeof b === 'object' && !Array.isArray(b) ? (b.text ?? '') : b);
+
+// Render a bullet list, dropping anything with no prose rather than emitting an
+// empty \resumeItem{}, so a malformed bullet is visible as a gap instead of
+// silently vanishing into a blank resume line.
+function renderBullets(list) {
+  if (!Array.isArray(list)) return '';
+  const items = list
+    .map((b) => escapeLatexBullet(String(unwrapBullet(b) ?? '').trim()))
+    .filter((tex) => tex.trim() !== '');
+  return items.map((t) => `            \\resumeItem{${t}}`).join('\n');
+}
+
 /**
  * Render the Work Experience section as \resumeSubheading blocks.
  *
@@ -84,7 +111,7 @@ function buildExperience(entries) {
   const blocks = [];
   for (const e of entries) {
     if (!hasRequiredFields(e, 'experience', 'tex')) continue;
-    const bullets = Array.isArray(e.bullets) ? e.bullets.map(b => `            \\resumeItem{${escapeLatexBullet(b)}}`).join('\n') : '';
+    const bullets = renderBullets(e.bullets);
     blocks.push(`    \\resumeSubheading\n      {${escapeLatex(e.company)}}{${escapeLatex(e.dates)}}\n      {${escapeLatex(e.role)}}{${escapeLatex(e.location)}}\n      \\resumeItemListStart\n${bullets}\n      \\resumeItemListEnd`);
   }
   return blocks.join('\n\n');
@@ -109,7 +136,7 @@ function buildProjects(entries) {
     const nameFormatted = url
       ? `\\href{${escapeLatex(url, 'url')}}{\\textbf{${escapeLatex(e.name)}}}`
       : `\\textbf{${escapeLatex(e.name)}}`;
-    const bullets = Array.isArray(e.bullets) ? e.bullets.map(b => `            \\resumeItem{${escapeLatexBullet(b)}}`).join('\n') : '';
+    const bullets = renderBullets(e.bullets);
     blocks.push(`    \\resumeProjectHeading\n      {${nameFormatted}${context}}{${escapeLatex(e.dates || '')}}\n      \\resumeItemListStart\n${bullets}\n      \\resumeItemListEnd`);
   }
   return blocks.join('\n\n');
