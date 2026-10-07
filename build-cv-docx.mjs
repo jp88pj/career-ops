@@ -165,7 +165,20 @@ const terminate = (s) => {
 // Scoped deliberately. Date ranges use the same " - " ("Dec 2025 - Present"),
 // and the experience header line carries those, so this must never run on a
 // field that can hold a date. Callers below pass only free prose.
-const prose = (s) => String(s ?? '')
+// Unwrap a bullet to its text before any string work. The payload contract
+// carries every bullet as {text, source_anchor} so each line stays traceable to
+// cv.md, and the HTML builder unwraps it (4c19657e added object-form bullets
+// there). This builder did not, so `String(s)` produced "[object Object]" for
+// EVERY bullet in the document - a DOCX that rendered with the right number of
+// records and paragraphs and contained no readable prose at all. Unwrap once,
+// here, so every caller is covered: experience bullets and project bullets both
+// pass through prose().
+// The array guard matters: skills entries pass an ARRAY of items to prose(), and
+// a bare `typeof x === 'object'` test matched arrays too, so every skill
+// category rendered its label followed by nothing.
+const unwrap = (b) => (b && typeof b === 'object' && !Array.isArray(b) ? (b.text ?? '') : b);
+
+const prose = (s) => String(unwrap(s) ?? '')
   .replace(/\s+-\s+/g, ', ')          // the split token, gone
   .replace(/,\s*,+/g, ', ')            // no doubled commas if one was already there
   .replace(/\s+,/g, ',')
@@ -193,20 +206,48 @@ function document(payload) {
   x.push(p(c.name || '', { bold: true, size: 34, after: 40 }));
   if (contact) x.push(p(contact, { size: 18, after: 30 }));
   if (c.ern) x.push(p(`ERN ${c.ern}`, { size: 18, after: 30 }));
-  if (payload.summary) { x.push(heading('Summary')); x.push(p(payload.summary, { asProse: true })); }
+// The payload contract carries the summary as {text, source_anchor} so it can
+  // be cited to cv.md like every other line. Passing the object straight to p()
+  // rendered the literal "[object Object]" under a Summary heading - a DOCX that
+  // looked complete and read as broken. Accept both shapes: the HTML builder
+  // already unwraps {text}, so this only removes a divergence between them.
+  if (payload.summary) {
+    const summaryText = typeof payload.summary === 'string'
+      ? payload.summary
+      : (payload.summary.text || '');
+    if (summaryText) { x.push(heading('Summary')); x.push(p(summaryText, { asProse: true })); }
+  }
 
   if (Array.isArray(payload.experience) && payload.experience.length) {
     x.push(heading('Experience'));
     for (const e of payload.experience) {
       // One paragraph for the whole record: header fields, then every bullet.
-      const head = [e.company, e.role, e.location, e.dates].filter(Boolean).join(' | ');
-      // prose() here, not in bullet(): this refactor inlines the bullets into
-      // the record string, so bullet() is never called and prose() inside it
-      // would never run. Dates stay untouched because head is built separately.
+      // `period` first: it is the key the payload contract and the HTML builder
+      // both use. Reading only `e.dates` meant every record rendered with an
+      // employer and a role and NO DATES - the one field a CV cannot omit.
+      const head = [e.company, e.role, e.location, e.period || e.dates].filter(Boolean).join(' | ');
+      // prose() here, not in bullet(): this refactor inlines the bullets into the
+      // record string, so bullet() is never called and prose() inside it would
+      // never run. Dates stay untouched because head is built separately.
       const items = (e.bullets || []).map((bl) => BULLET + terminate(prose(bl)));
       x.push(p(items.length ? `${head} ${items.join(' ')}` : head, { bold: false, before: 100, after: 40 }));
     }
   }
+  // Projects were absent entirely, so a payload carrying the curriculum-design
+  // portfolio produced a DOCX with neither the portfolio link nor its
+  // answer-keyed assessment bullet. Same entry shape the HTML builder reads
+  // (name / badge / url / bullets), rendered in this file's own idioms.
+  if (Array.isArray(payload.projects) && payload.projects.length) {
+    x.push(heading('Projects'));
+    for (const pr of payload.projects) {
+      const label = [pr.name, pr.badge].filter(Boolean).join(' | ');
+      x.push(p(label, { bold: true, before: 60, after: 10 }));
+      if (pr.url) x.push(p(pr.url, { size: 18, after: 20 }));
+      const items = (pr.bullets || []).map((bl) => BULLET + terminate(prose(bl)));
+if (items.length) x.push(p(items.join(' '), { after: 40 }));
+    }
+  }
+
   if (Array.isArray(payload.education) && payload.education.length) {
     x.push(heading('Education'));
     for (const ed of payload.education) {
