@@ -411,6 +411,19 @@ pattern reports published data as absent. Use the project's own loader. Treat a
 suspiciously round result (`0/98`, `100%`, a count equal to the input) as a
 symptom to investigate, not an answer.
 
+**A checked HTML file is not a checked PDF.** The PDF is what gets submitted, so
+a content rule proven against the payload or the HTML has not been proven against
+the document the employer receives. `node verify-pdf-text.mjs <file.pdf> --must
+"a,b" --forbid "x,y"` reads the text back out of the built PDF and is the only
+gate that covers it — use it for rules with no other enforcement point, above all
+the ERN scope rule (`cityjobs.nyc.gov postings only`, `modes/_custom.md`), which
+otherwise has no automated check at all because the ERN is only ever rendered
+into the PDF. Chromium subsets fonts, so the bytes in the PDF are glyph IDs and a
+naive read finds nothing; `verify-pdf-text.mjs` decodes the ToUnicode CMaps, and
+it **blocks rather than reporting success when it decodes too little to judge**,
+because a forbidden-term check that passes because it read nothing is worse than
+no check.
+
 **Sample before building.** Before investing in a filter, scorer, or triage tool
 over a backlog, run a spread sample — evenly spaced, never the head of the file —
 and report the hit rate. Read the hits by eye as part of the measurement;
