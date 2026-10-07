@@ -266,6 +266,21 @@ function moneyRange(value) {
  * rather than a display string so the comp gate can compare against a floor
  * numerically instead of re-parsing formatted text.
  */
+/**
+ * Lowest plausible ANNUAL salary for a single full-time US municipal role.
+ *
+ * Used only to reject a figure that is arithmetically impossible as an annual
+ * salary, not to normalise one. Found 2026-10-06: jid-33840 "Supervisor
+ * Dockbuilder" publishes `Salary range: $469.44` in its annual field — that is a
+ * daily or per-shift rate. It happened to be excluded by the $60K comp floor
+ * anyway, but by luck rather than by logic: a per-diem rate multiplied by
+ * nothing is small, so the floor catches most of them, while a role publishing
+ * something like "$1,000 per week" would sail through a $60K floor and be
+ * filed as a $1,000 SALARY. Returning null makes the absence explicit instead
+ * of letting an implausible number be stored as fact.
+ */
+const MIN_PLAUSIBLE_ANNUAL = 10000;
+
 export function parseSalaryRange(raw) {
   const s = String(raw ?? '');
   if (!s.includes('$') && !/\d/.test(s)) return null;
@@ -275,6 +290,9 @@ export function parseSalaryRange(raw) {
   if (!nums.length) return null;
   const min = Math.min(...nums);
   const max = Math.max(...nums);
+  // Every figure in the string is implausible as an annual salary, so this is a
+  // daily/hourly/per-shift rate in an annual field - not a salary.
+  if (max < MIN_PLAUSIBLE_ANNUAL) return null;
   return { min: String(min), max: String(max) };
 }
 
@@ -297,7 +315,14 @@ export function parseDetail(html) {
   // JSON-LD first: it is the structured field. The text scan stays as a
   // fallback for a posting that omits the block, and is labelled as such.
   const fromText = parseSalaryRange(text);
-  const salary = ld?.salary || fromText?.min || '';
+  // The WHOLE object, not `fromText?.min`. That took the bare min string, and
+  // the two lines below then read `salary.min` / `salary.max` off it - which is
+  // `undefined` on a string, so any posting resolved through the page-text
+  // fallback produced the literal salary "undefined-undefined" and
+  // salaryMax: NaN. Same class of error as the `detectEmploymentShape` read in
+  // the CUNY triage: taking one field off an object that is not there. Both
+  // shapes are {min, max}, so hand the object through unchanged.
+  const salary = ld?.salary || fromText;
   const eligibility = /only open to[^.]{0,160}\./i.exec(text)?.[0]?.trim() || '';
   const borough = /in\s+([A-Z][a-z]+),\s*(?:NY|New York)/.exec(text)?.[1] || '';
 
