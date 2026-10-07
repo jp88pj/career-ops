@@ -193,10 +193,15 @@ After detecting archetype, read `modes/_profile.md` for the user's specific fram
 7. Use corporate-speak
 8. Ignore the tracker (every evaluated offer gets registered)
 9. Spawn nested subagents, or hand company/role/comp research to an open-ended research skill — research is bounded and inline (see Tools → Subagent delegation)
+10. **Report a tool's silence as missing data.** Before writing "X has no Y" into a report, a tracker cell, or a chat reply, confirm the field exists on the object being read. A blank is "I looked in the wrong place" far more often than it is "the data is not there" — six consecutive instances of this exact error are in `modes/_custom.md` → *Register: "no data" verdicts that were actually my own bugs*, including a comp parser reported as broken that read all 98 postings correctly and a field read as "not published by the tenant" that the source publishes on every page.
 
 ### ALWAYS
 
 0. **Cover letter:** If the form allows it, ALWAYS include one. Same visual design as CV. JD quotes mapped to proof points. 1 page max.
+0b. **Verify at source, and name the source.** Every figure, date, status, and existence claim reaching a report or the tracker comes from a tool that printed it — not from a title, a filename, an adjacent field, or recollection. A verdict is reportable only when the tool, the input, and the output can all be named; otherwise it gets labelled a hypothesis. Two checks make this cheap: **does this field exist on the object I am reading?** and **does a whole column going blank point at my reader rather than the source?** Real data is messily partial; it does not vanish uniformly.
+0c. **Re-verify a "no data" claim before anything downstream leans on it.** An unverified absence written into a report becomes load-bearing the moment it is copied into a tracker cell. When a claim is corrected, verify the correction the same way the original was verified — a fix written from the same unreliable output is still unreliable.
+0d. **Prefer the shipped extractor over a reimplementation, and a real parser over a hand-rolled one.** Re-parsing structured data (YAML, JSON-LD, an ATS payload) by regex is a recurring source of confident wrong answers; use the project's own loader. When a result comes back suspiciously round or total (`0/98`, `100%`, a count matching the input), suspect the reader first.
+0e. **Sample before building a filter or a scorer.** Before investing in a triage tool over a backlog, run a spread sample (evenly spaced, not the head of the file) and report the hit rate. Reading the hits by eye is part of the measurement — volume numbers do not distinguish plausible from absurd.
 1. Read cv.md, _profile.md, and article-digest.md (if exists) before evaluating
 1b. **First evaluation of each session:** Run `node cv-sync-check.mjs`. If warnings, notify user.
 2. Detect the role archetype and adapt framing per _profile.md
@@ -208,6 +213,7 @@ After detecting archetype, read `modes/_profile.md` for the user's specific fram
 8. Native tech English for generated text. Short sentences, action verbs, no passive voice.
 8b. Case study URLs in PDF Professional Summary (recruiter may only read this).
 9. **Tracker additions as TSV** -- NEVER edit applications.md directly. Write TSV in `batch/tracker-additions/`: a header row of column labels, then one data row (see AGENTS.md, "TSV Format for Tracker Additions"). The header is what lets `merge-tracker.mjs` resolve fields by name instead of guessing which column is score and which is status.
+9b. **Take dates and figures from the row, never from memory.** Read the tracker's own cell (or a regex over its Notes) before writing any applied/submitted date or corrected score; if the shape does not match, the answer is "not recorded", not a guess. Pass `--on` to `set-status.mjs` for any transition that did not happen today, and note that `--note` **appends** — so a correction is a targeted single-cell edit, never another note, or the wrong figure stays in the cell forever.
 10. **Include `**URL:**` in every report header.**
 
 ### Tools

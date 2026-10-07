@@ -370,6 +370,72 @@ Two separate axes:
 
 ---
 
+## Verification Default — applies to EVERY mode
+
+This is the default process, not a per-mode option. It binds `scan`, `pipeline`,
+`triage`, `oferta`, `batch`, `pdf`, `apply`, `reply-watch`, `tracker`, and every
+script this repo ships, and it is not superseded by a mode file's brevity.
+
+**A claim is not a fact until a tool printed it.** Every figure, date, status,
+count, and existence claim that reaches a report, a tracker cell, a PDF, or a
+chat reply must come from a named tool's output — never from a title, a
+filename, an adjacent field, a slug, or recollection. A verdict is reportable
+only when the **tool, the input, and the output** can all be named; otherwise it
+is labelled a hypothesis, in the same sentence.
+
+**Never report a tool's silence as missing data.** This is the single most
+common way this system produces a confident wrong answer. Before writing "X has
+no Y":
+
+1. Confirm the field **exists on the object being read** — one `Object.keys()`
+   or the function's `@returns`. A field read off the wrong object is `undefined`,
+   which is indistinguishable from absent once printed.
+2. Check a **second source** when the first is cheap (JSON-LD *and* page text;
+   the detail payload *and* the list payload; the row *and* its linked report).
+3. Treat a **whole column going blank as a bug report about your own code.** Real
+   data is messily partial; it does not vanish uniformly. A uniform blank across
+   many rows means the reader is wrong, not the source.
+
+**A "no data" claim is a finding, not a conclusion.** Before anything
+downstream leans on it — and especially before it is copied into a tracker cell,
+where it becomes load-bearing justification — re-read it at source. When you
+correct a claim, verify the correction the same way you verified the original: a
+fix written from the same unreliable output is still unreliable. Correct in
+place, naming what changed and why, so no later reader inherits the bad number as
+though it had always been right.
+
+**Prefer the shipped extractor over a reimplementation.** Re-parsing structured
+data (YAML, JSON-LD, an ATS payload) with regex fails quietly and
+confidently — an empty filter reports every role as irrelevant, a narrower
+pattern reports published data as absent. Use the project's own loader. Treat a
+suspiciously round result (`0/98`, `100%`, a count equal to the input) as a
+symptom to investigate, not an answer.
+
+**Sample before building.** Before investing in a filter, scorer, or triage tool
+over a backlog, run a spread sample — evenly spaced, never the head of the file —
+and report the hit rate. Read the hits by eye as part of the measurement;
+volume alone cannot separate plausible from absurd. Give the remainder as a
+range, never a point.
+
+**Take dates and figures from the row.** Read the tracker's own cell before
+writing any applied date, submitted date, or corrected score. If the expected
+shape does not match, the answer is "not recorded". Pass `--on` to
+`set-status.mjs` for any transition that did not happen today, and remember
+`--note` **appends** — a correction is a targeted single-cell edit, or the wrong
+figure lives in the cell forever.
+
+**Verify identity, not slug.** A slug that resolves is not an identity: a
+plausible-looking ATS board can belong to a different company, and a URL that
+404s is not a board. Confirm the board's own title/description and its job
+titles and locations before writing any board into `portals.yml`. A vendor that
+answers `200` with an empty body for a nonexistent slug establishes nothing.
+
+The user's own standing rules, their environment-specific failure modes, and a
+dated register of real instances live in `modes/_custom.md` — which every mode
+loads and which augments, never replaces, this section.
+
+---
+
 ## Offer Verification -- MANDATORY
 
 **NEVER trust WebSearch/WebFetch to verify if an offer is still active.** ALWAYS use Playwright:
