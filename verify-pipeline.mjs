@@ -29,7 +29,7 @@ import { fileURLToPath } from 'url';
 import { getCareerOpsRoot, resolveTrackerPath } from './path-resolver.mjs';
 import {
   looksLikeScoreCell, isSeparatorRow, isHeaderRow, resolveColumns,
-  normalizeTextKey, normalizeVia,
+  normalizeTextKey, normalizeVia, extractReqNumber,
 } from './tracker-parse.mjs';
 import { CONTROL_CHARS } from './tracker-utils.mjs';
 import { checkTrackerSync } from './tracker-sync-check.mjs';
@@ -155,11 +155,30 @@ for (const e of entries) {
   companyRoleMap.get(key).push(e);
 }
 for (const [key, group] of companyRoleMap) {
-  if (group.length > 1) {
-    warn(`Possible duplicates: ${group.map(e => `#${e.num}`).join(', ')} (${group[0].company} — ${group[0].role})`);
-    dupes++;
+    if (group.length > 1) {
+      // A req/job number in the Notes cell proves two same-titled rows are
+      // DISTINCT openings, not duplicates — merge-tracker.mjs and scan.mjs both
+      // already honour this (#1524, #2009), and this checker did not, so it
+      // re-reported as a possible duplicate exactly the pair the merge path had
+      // deliberately kept apart. Found 2026-10-07 on RFCUNY's two "Program
+      // Manager" requisitions: JR3338 at $80-85K (grants and vendors) and JR178
+      // at $65K (higher-education programme management) — different URLs,
+      // different bands, different duties, one shared title.
+      //
+      // Only suppresses the warning on a CONFIRMED mismatch. Rows with no number
+      // on either side, or the same number on both, still report — so a genuine
+      // duplicate is not silenced by the fix.
+      const nums = group.map((e) => extractReqNumber(e.notes));
+      const allNumbered = nums.every((n) => n);
+      const allDistinct = new Set(nums).size === nums.length;
+      if (allNumbered && allDistinct) {
+        ok(`Distinct requisitions, not duplicates: ${group.map((e) => `#${e.num}`).join(', ')} (${group[0].company} — ${group[0].role}; reqs ${nums.join(' vs ')})`);
+        continue;
+      }
+      warn(`Possible duplicates: ${group.map(e => `#${e.num}`).join(', ')} (${group[0].company} — ${group[0].role})`);
+      dupes++;
+    }
   }
-}
 if (dupes === 0) ok('No exact duplicates found');
 
 // --- Check 3: Report links ---
