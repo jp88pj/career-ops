@@ -561,6 +561,38 @@ const REJECTION_PHRASES_STRONG = [
   'not able to offer you a position',
 ];
 
+// "The role is already filled" is a rejection family that the strong list cannot
+// hold, because matching is `lower.includes(p)` and every bare verb form fails
+// the strong-tier bar documented above:
+//   - 'been filled'  also appears as "that time slot has been filled" (benign)
+//   - 'filled our'   also appears as "we filled our calendar for that week"
+// So the discriminator is a SEAT NOUN in the same clause, which substring
+// matching cannot express. Two orderings, each bounded so it cannot cross a
+// sentence or clause boundary:
+//   noun-first  "the position has now been filled"
+//   verb-first  "we've filled our {job title} role"   <- the Ashby template
+//
+// Bounding to [^,.!?\n] is what keeps the benign cases out: in "that time slot
+// has been filled for us, but we'd love to discuss the role", the seat noun sits
+// AFTER the verb but past a comma, so the verb-first branch cannot reach it.
+const ROLE_NOUN_SRC = 'roles?|positions?|openings?|requisitions?|vacancies?';
+const ROLE_FILLED_RE = new RegExp(
+  '\\b(' + ROLE_NOUN_SRC + ')\\b[^,.!?\\n]{0,60}\\b(?:been\\s+)?(?:now\\s+)?filled\\b'
+  + '|\\bfilled\\b[^,.!?\\n]{0,80}\\b(' + ROLE_NOUN_SRC + ')\\b',
+  'i',
+);
+
+/**
+ * True when the text says a seat/role/position itself is filled — the "role
+ * already taken" rejection. Distinct from a scheduling slot being filled.
+ *
+ * @param {string} lower lowercased email text
+ * @returns {boolean}
+ */
+function detectRoleFilled(lower) {
+  return ROLE_FILLED_RE.test(lower);
+}
+
 // Corroborating-only: too generic to trigger a `rejection` classification by
 // itself (e.g. "Unfortunately we need to reschedule your interview" is a
 // benign reschedule, not a rejection). Only counts toward `rejection` when
@@ -648,6 +680,11 @@ export function classifyEmail(text) {
   const lower = text.toLowerCase();
   const strongMatches = REJECTION_PHRASES_STRONG.filter(p => lower.includes(p));
   const weakMatches = REJECTION_PHRASES_WEAK.filter(p => lower.includes(p));
+  // A seat noun adjacent to "filled" counts as a strong marker: it cleared the
+  // strong-tier bar that the bare verb forms cannot. Reported in matchedPhrases
+  // so a human reading the digest can see WHY it classified as a rejection.
+  const roleFilled = detectRoleFilled(lower);
+  if (roleFilled) strongMatches.push('role/position has been filled');
   const isStrongRejection = strongMatches.length > 0;
   const isRejection = isStrongRejection || weakMatches.length >= 2;
   if (isRejection) {
@@ -1097,6 +1134,22 @@ function runSelfTest() {
   check(classifyEmail('We would like to invite you to schedule your phone screen for next week.').classification === 'invite', 'detects invite phrasing as "invite"');
   check(classifyEmail('Looking forward to interviewing with you next Tuesday.').classification === 'invite', 'detects "interviewing with" as "invite"');
   check(classifyEmail('Thanks for your recent purchase, here is your receipt.').classification === 'unknown', 'unrelated text classifies as "unknown"');
+
+  // --- "role has been filled" family (two real ATS templates, verbatim) ---
+  // Both classified as 'unknown' before this was added, and neither can be
+  // rescued by the phrase lists: the Greenhouse text yields a single WEAK match
+  // and the Ashby text yields none at all. Both arrived in the same session.
+  const roleFilledGreenhouse = classifyEmail('Dear Jamie,\n\nThank you for the dedication and effort you invested in your application for the Operations Coordinator role at Ashby Academy. The position has now been filled, and we will not be moving forward with additional candidates at this time.\n\nWe value your interest in joining our team and invite you to review our Ashby Academy and Ashby Academy job boards to see if any other roles interest you.\n\nWith warmest regards,\nAshby Academy');
+  check(roleFilledGreenhouse.classification === 'rejection', 'detects "the position has now been filled" (real Greenhouse template)');
+  check(roleFilledGreenhouse.matchedPhrases.includes('role/position has been filled'), 'the role-filled marker is reported in matchedPhrases');
+  const roleFilledAshby = classifyEmail('Hi Jamie,\n\nThanks so much for your interest in joining Ashby Academy - we really appreciate you taking the time to apply.\n\nWe\'ve filled our Operations Associate (Test Kit) role, but encourage you to keep an eye out for future openings as we are hiring actively.\n\nWishing you all the best,\n\nThe the Ashby Hiring Team');
+  check(roleFilledAshby.classification === 'rejection', 'detects "we have filled our {title} role" (real Ashby template)');
+  // The benign cases the bare verb forms would have captured. These are the
+  // reason 'been filled' and 'filled our' are NOT list entries.
+  check(classifyEmail('Unfortunately that time slot has been filled for us, but we would love to discuss the role with you next week.').classification !== 'rejection', 'a filled SCHEDULING slot does not classify as a rejection');
+  check(classifyEmail('We have filled our calendar for that week, so we need to move your interview to Thursday.').classification !== 'rejection', '"filled our calendar" does not classify as a rejection');
+  check(classifyEmail('We have filled our quota for the quarter.').classification !== 'rejection', '"filled our quota" does not classify as a rejection');
+  check(classifyEmail('The Operations Coordinator role is no longer accepting applications.').classification !== 'rejection', 'a no-longer-accepting role is still NOT auto-rejected (WEAK-tier bar preserved)');
   check(classifyEmail('').classification === 'unknown', 'empty text classifies as "unknown"');
   check(classifyEmail('Thank you for interviewing with us last week. Unfortunately, we will not be moving forward with your application.').classification === 'rejection', 'rejection language wins when both invite and rejection phrasing appear (references a past interview)');
 

@@ -827,3 +827,79 @@ test('classifyReply - a weak rejection word alone still rejects', () => {
   });
   assert.equal(bare.type, 'Rejected');
 });
+
+test('role-filled / "position has (now) been filled" family', () => {
+  // Two real ATS templates, verbatim. Both typed Unknown before this was added.
+  //
+  // reply-watch.mjs calls classifyReply() HERE, not invite-match.mjs's
+  // classifyEmail() — two independent classifiers, and fixing only the latter
+  // left the digest still reporting Unknown. Verified on two real "role already
+  // filled" emails in one session - one Ashby, one Greenhouse.
+  //
+  // The older literal 'position has been filled' entry looked like it covered
+  // this and did not: Greenhouse inserts an adverb ("has NOW been filled"), and
+  // Ashby is verb-first with a variable job title ("filled our {title} role").
+
+  const greenhouse = classifyReply({
+    subject: 'Update on Your Application | Ashby Academy',
+    body_snippet: 'Dear Jamie, Thank you for the dedication and effort you invested in your application for the Operations Coordinator role at Ashby Academy. The position has now been filled, and we will not be moving forward with additional candidates at this time. We value your interest in joining our team.'
+  });
+  assert.equal(greenhouse.type, 'Rejected', 'Greenhouse "has now been filled" is a rejection');
+
+  const ashby = classifyReply({
+    subject: 'Update from Ashby Academy',
+    body_snippet: "Hi Jamie, Thanks so much for your interest in joining Ashby Academy - we really appreciate you taking the time to apply. We've filled our Operations Associate (Test Kit) role, but encourage you to keep an eye out for future openings as we are hiring actively."
+  });
+  assert.equal(ashby.type, 'Rejected', 'Ashby verb-first "filled our {title} role" is a rejection');
+
+  // The literal entry must still work in its original, no-adverb form.
+  assert.equal(
+    classifyReply({ subject: 'Update', body_snippet: 'The Software Engineer role has been filled.' }).type,
+    'Rejected',
+    'noun-first without an adverb still classifies'
+  );
+  assert.equal(
+    classifyReply({ subject: 'Update', body_snippet: 'The opening has been filled.' }).type,
+    'Rejected',
+    '"the opening has been filled" classifies'
+  );
+
+  // A seat noun is required, so the bare verb forms cannot sneak in. These are
+  // why 'been filled' / 'filled our' are regex+companion-noun rather than plain
+  // additions to rejectionDecisiveKeywords.
+  // NOTE: no leading "Unfortunately" here on purpose. With that weak-tier word
+  // present this types Rejected on the bare word alone — pre-existing, tested
+  // behaviour — which would assert the wrong thing. Omitting it isolates the
+  // role-filled detector: Unknown here proves the regex stayed quiet.
+  assert.notEqual(
+    classifyReply({ subject: 'Scheduling', body_snippet: 'That time slot has been filled for us, but we would love to discuss the role with you next week.' }).type,
+    'Rejected',
+    'a filled SCHEDULING slot is not a rejection'
+  );
+  // And the detector specifically is not among the evidence, whatever the weak
+  // tier independently decides.
+  const slotEvidence = classifyReply({ subject: 'Scheduling', body_snippet: 'Unfortunately that time slot has been filled for us, but we would love to discuss the role with you next week.' }).evidence || [];
+  assert.equal(
+    slotEvidence.some(e => e.includes('requisitions') || e.includes('vacancies')),
+    false,
+    'the role-filled detector does not fire on a filled scheduling slot'
+  );
+  assert.notEqual(
+    classifyReply({ subject: 'Scheduling', body_snippet: 'We have filled our calendar for that week, so we need to move your interview to Thursday.' }).type,
+    'Rejected',
+    '"filled our calendar" is not a rejection'
+  );
+  assert.notEqual(
+    classifyReply({ subject: 'Scheduling', body_snippet: 'We have filled our quota for the quarter.' }).type,
+    'Rejected',
+    '"filled our quota" is not a rejection'
+  );
+
+  // Regression: the Ashby submission CONFIRMATION for the same company and role
+  // must not become a rejection just because the rejection did.
+  const confirmation = classifyReply({
+    subject: "You've submitted your application to Ashby Academy!",
+    body_snippet: 'Hi Jamie, Thank you so much for applying for the Operations Associate (Test Kit) position at Ashby Academy! We received your application.'
+  });
+  assert.notEqual(confirmation.type, 'Rejected', 'an application confirmation is never a rejection');
+});

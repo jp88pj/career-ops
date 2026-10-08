@@ -465,3 +465,49 @@ const mistypedResult = runCli(['--sumary']);
 eq('CLI: mistyped flag (--sumary) exits non-zero (code 1)', mistypedResult.status, 1);
 eq('CLI: mistyped flag stderr names the mistyped flag', mistypedResult.stderr.includes('--sumary'), true);
 
+// ---------------------------------------------------------------------------
+// "role has been filled" family — two REAL ATS templates, verbatim.
+//
+// Both classified as 'unknown' before detectRoleFilled() existed, and neither is
+// reachable by the phrase lists alone: the Greenhouse text yields exactly one
+// WEAK-tier match (below the two-phrase bar) and the short Ashby text yields
+// none. Both required a human read in the same session, and Ashby recurs —
+// no-reply@ashbyhq.com is the sender for every tracked Ashby board.
+// ---------------------------------------------------------------------------
+
+// Ashby template: verb-first, job title between verb and noun.
+// Greenhouse template: noun-first, "has now been filled".
+const roleFilledAshbyEmail = 'Hi Jamie,\n\nThanks so much for your interest in joining Ashby Academy - we really appreciate you taking the time to apply.\n\nWe\'ve filled our Operations Associate (Test Kit) role, but encourage you to keep an eye out for future openings as we are hiring actively.\n\nWishing you all the best,\n\nThe the Ashby Hiring Team';
+const roleFilledGreenhouseEmail = 'Dear Jamie,\n\nThank you for the dedication and effort you invested in your application for the Operations Coordinator role at Ashby Academy. The position has now been filled, and we will not be moving forward with additional candidates at this time.\n\nWe value your interest in joining our team and invite you to review our Ashby Academy and Ashby Academy job boards to see if any other roles interest you. Additionally, you can always stay connected with us on LinkedIn to see our latest updates.\n\nWith warmest regards,\nAshby Academy';
+
+const roleFilledAshby = classifyEmail(roleFilledAshbyEmail);
+eq('role-filled: real Ashby template ("we have filled our {title} role") classifies as rejection', roleFilledAshby.classification, 'rejection');
+eq('role-filled: real Ashby template reports strong strength', roleFilledAshby.phraseStrength, 'strong');
+
+const roleFilledGreenhouse = classifyEmail(roleFilledGreenhouseEmail);
+eq('role-filled: real Greenhouse template ("position has now been filled") classifies as rejection', roleFilledGreenhouse.classification, 'rejection');
+eq('role-filled: real Greenhouse template reports strong strength', roleFilledGreenhouse.phraseStrength, 'strong');
+eq('role-filled: the marker is surfaced in matchedPhrases so a human can see why', roleFilledGreenhouse.matchedPhrases.includes('role/position has been filled'), true);
+
+// Other real-world orderings of the same family.
+eq('role-filled: "the Software Engineer role has been filled" classifies as rejection', classifyEmail('Thank you for applying. Unfortunately the Software Engineer role has been filled.').classification, 'rejection');
+eq('role-filled: "role is now filled" classifies as rejection', classifyEmail('The role is now filled, so we are closing the req.').classification, 'rejection');
+eq('role-filled: "requisition has been filled" classifies as rejection', classifyEmail('Your requisition has been filled by another candidate.').classification, 'rejection');
+eq('role-filled: "opening has been filled" classifies as rejection', classifyEmail('We regret to inform you the opening has been filled.').classification, 'rejection');
+
+// The benign cases that stopped 'been filled' and 'filled our' being plain list
+// entries: both fail this file's strong-tier bar on their own. Locked here so a
+// future "simplification" back to substring entries reintroduces the false
+// positive visibly rather than silently.
+eq('role-filled: a filled SCHEDULING slot plus "discuss the role" is NOT a rejection', classifyEmail('Unfortunately that time slot has been filled for us, but we would love to discuss the role with you next week.').classification !== 'rejection', true);
+eq('role-filled: "filled our calendar" is NOT a rejection', classifyEmail('We have filled our calendar for that week, so we need to move your interview to Thursday.').classification !== 'rejection', true);
+eq('role-filled: "filled our quota" is NOT a rejection', classifyEmail('We have filled our quota for the quarter.').classification !== 'rejection', true);
+// A role closed to applicants is adjacent to "filled" but stays below the strong
+// bar — it must not flip this file's WEAK-tier discipline.
+eq('role-filled: "role is no longer accepting applications" is NOT auto-rejected', classifyEmail('The Operations Coordinator role is no longer accepting applications.').classification !== 'rejection', true);
+
+// Regression: the pre-existing benign fixtures must be unaffected.
+eq('role-filled: existing reschedule fixture still not a rejection', classifyEmail('Hi Jamie,\n\nThanks for your flexibility — we need to reschedule your interview to next week. Something came up on our end and we want to make sure we can give you our full attention. Would Tuesday or Thursday afternoon work?\n\nSorry for the back and forth.\n\nBest,\nRecruiting Team').classification !== 'rejection', true);
+eq('role-filled: existing delay-apology fixture still not a rejection', classifyEmail("Hi Alex,\n\nApologies for the delay in getting back to you — we're still reviewing candidates for this role and expect to have an update within the next week. Thanks so much for your patience.\n\nBest,\nTalent Acquisition Team").classification !== 'rejection', true);
+eq('role-filled: invite phrasing still classifies as invite', classifyEmail('We would like to invite you to schedule your phone screen for next week.').classification, 'invite');
+eq('role-filled: unrelated text still unknown', classifyEmail('Thanks for your recent purchase, here is your receipt.').classification, 'unknown');

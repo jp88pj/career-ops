@@ -659,6 +659,12 @@ export function classifyReply(cand) {
   // Kept unambiguous: each states the decision outright, and none of them appear
   // in confirmation or scheduling mail.
   const rejectionDecisiveRe = [
+    // "role/position has been filled" -- both word orders, either side of the
+    // adverb. Greenwoods emit "has now been filled" (the 'now' is why the older
+    // literal entry missed it); Ashby emits the verb-first form. Seat noun
+    // required, so a filled scheduling slot is not a rejection.
+    /\b(?:roles?|positions?|openings?|requisitions?|vacancies)\b[^,.!?\n]{0,60}\b(?:been\s+)?(?:now\s+)?filled\b/i,
+    /\bfilled\b[^,.!?\n]{0,80}\b(?:roles?|positions?|openings?|requisitions?|vacancies)\b/i,
     /unable to move (?:you|us|candidate|forward)/i,
     /(?:unable|not able) to (?:take|continue) (?:you|us) (?:forward|to the next)/i,
     /qualifications? did not match/i,
