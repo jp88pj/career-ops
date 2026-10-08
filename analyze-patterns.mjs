@@ -673,14 +673,37 @@ requirement_importance:
     failures.push('node.js case variants failed to canonicalize');
   }
 
+  // A REJECTED: reason must be harvested, and stripped of its prefix. Before
+  // this, recordedDiscardReasons() matched only DISCARD:/SKIP:, so a rejection
+  // reason was unreachable no matter how it was written -- "Rejected records THAT
+  // it ended, never WHY" was a parsing gap, not a discipline gap.
+  const rjReasons = recordedDiscardReasons({ outcome: 'negative', notes: 'REJECTED: role_filled' });
+  if (!rjReasons.has('role_filled')) failures.push('reasons: a REJECTED: reason must be harvested');
+  if (rjReasons.has('rejected: role_filled')) failures.push('reasons: the REJECTED: prefix leaked into the reason text');
+  if (rjReasons.size !== 1) failures.push('reasons: a REJECTED: reason must yield exactly one reason');
+  if (recordedDiscardReasons({ outcome: 'awaiting', notes: 'REJECTED: role_filled' }).size !== 0) {
+    failures.push('reasons: an awaiting (still-Applied) row must never harvest a reason');
+  }
+  if (!recordedDiscardReasons({ outcome: 'discarded', notes: 'DISCARD: salary_too_low' }).has('salary_too_low')) {
+    failures.push('reasons: the pre-existing DISCARD: prefix must still work');
+  }
+
   // Production aggregation regressions. The fixture distinguishes the fixed
   // denominator from the old full-tracker base: 3 tags among 20 eligible rows
   // trigger a recommendation, while 3 among all 30 rows would not.
   const baseFixture = [];
   for (let i = 0; i < 20; i++) {
+    // Row 19 is the one 'negative' outcome, i.e. what a Rejected row classifies
+    // to. It carries a REJECTED: reason so the harvest of that prefix is
+    // covered: the prefix was previously unparseable, so a rejection reason
+    // written into a note contributed nothing and every share read as if no
+    // reason had ever been recorded.
+    const notes = i === 19
+      ? 'REJECTED: role_filled'
+      : (i < 3 ? `SKIP: geo-block${i === 0 ? '; SKIP: geo-block' : ''}` : '');
     baseFixture.push({
       outcome: i === 19 ? 'negative' : 'self_filtered',
-      notes: i < 3 ? `SKIP: geo-block${i === 0 ? '; SKIP: geo-block' : ''}` : '',
+      notes,
       report: { gaps: [] },
     });
   }
@@ -1147,11 +1170,17 @@ function extractBlockerType(gap) {
   return 'other';
 }
 
-function recordedDiscardReasons(entry) {
+export function recordedDiscardReasons(entry) {
   if (!REASON_BEARING.has(entry.outcome)) return new Set();
-  const matches = (entry.notes || '').match(/(?:DISCARD|SKIP):\s*([^,;\n]+)/gi) || [];
+  // REJECTED is a reason-bearing outcome (classifyOutcome maps it to 'negative',
+  // which REASON_BEARING already includes), but the prefix below only ever matched
+  // DISCARD:/SKIP: -- so a rejection reason written into a note was unreadable
+  // here and silently dropped from every share. "Rejected records THAT it ended,
+  // never WHY" was a data problem with a parsing cause, not a discipline problem:
+  // there was no way to record one in a form this function could see.
+  const matches = (entry.notes || '').match(/(?:DISCARD|SKIP|REJECTED):\s*([^,;\n]+)/gi) || [];
   return new Set(matches
-    .map(match => match.replace(/^(?:DISCARD|SKIP):\s*/i, '').trim().toLowerCase())
+    .map(match => match.replace(/^(?:DISCARD|SKIP|REJECTED):\s*/i, '').trim().toLowerCase())
     .filter(Boolean));
 }
 
