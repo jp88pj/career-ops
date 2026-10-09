@@ -277,8 +277,23 @@ export function verifyBulletSources(payload, sourceText) {
   const emptyRoles = [];
   let checked = 0;
 
-  for (const entry of payload.experience || []) {
-    const where = `${entry.company || '?'} — ${entry.role || '?'}`;
+  // Projects are gated exactly like experience entries.
+  //
+  // Measured 2026-10-08: this loop covered only `payload.experience`, so a
+  // fabricated bullet filed under `projects[]` scored checked=0 and PASSED while
+  // the identical bullet under `experience[]` blocked. Both remaining Projects
+  // carry CV bullets, so that was an unchecked path into a submitted document —
+  // the same class of gap as the blank-`Source_line` bug above, one level up.
+  //
+  // `where` uses the project name in place of company, so a failure names the
+  // project rather than printing "?" for every project bullet.
+  const entries = [
+    ...(payload.experience || []).map((e) => ({ kind: 'experience', entry: e, label: e.company || '?' })),
+    ...(payload.projects || []).map((p) => ({ kind: 'project', entry: p, label: p.name || p.company || '?' })),
+  ];
+
+  for (const { kind, entry, label } of entries) {
+    const where = kind === 'project' ? `Project ${label}` : `${label} — ${entry.role || '?'}`;
     const bullets = Array.isArray(entry.bullets) ? entry.bullets : [];
     let usable = 0;
     bullets.forEach((raw, i) => {
