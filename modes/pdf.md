@@ -132,7 +132,18 @@ To show the user their options (e.g. "what CV templates do I have?"), run `node 
 
 ### JSON Input Schema
 
-Write a JSON file with this structure, then run `node build-cv-html.mjs <input.json> <output.html> [template.html]` (the optional third argument is the template path from **Selecting the template**; omit it for the base `cv-template.html`).
+Write a JSON file with this structure, then run `node build-cv-html.mjs <input.json> <output.html> [template.html]`
+
+**Every experience and project bullet MUST be an object carrying its own citation** — never a bare string:
+
+```json
+{ "text": "<the bullet exactly as it should appear on the page>", "source_line": 128 }
+{ "text": "<another bullet>", "source_text": "<a distinctive phrase to locate in cv.md>" }
+```
+
+`text` is what the reader sees; the citation is what proves it came from the user's own record. `source_line` is a 1-indexed line number in `cv.md` — precise, but brittle if `cv.md` is edited. `source_text` is a phrase to search for — looser, first match wins. `verify-bullet-sources.mjs` reports a bare string as **unsourced** and fails the build, so this is a requirement, not a style preference.
+
+`text` must also be the **presentation** form of the claim. `cv.md` carries internal provenance markers — `User-stated`, `CORRECTED <date>`, `Scope ceiling`, `Provenance:`, `Recorded as self-assessment`, `Never write`, `Do not write` — and those must be **consumed as a source, never rendered**. Copying a `cv.md` bullet verbatim into `text` puts the annotation on the page, and `verify-cv-facts.mjs` blocks the document for it even when the underlying claim is sound. Strip the marker, keep the claim, point the citation at the source line. (the optional third argument is the template path from **Selecting the template**; omit it for the base `cv-template.html`).
 
 ```json
 {
@@ -169,7 +180,10 @@ Write a JSON file with this structure, then run `node build-cv-html.mjs <input.j
       "location": "Remote",
       "context": "Early-stage startup, ~40 people; acquired by BigCo in 2023.",
       "dates": "June 2022 - Present",
-      "bullets": ["Achievement bullet with JD keywords injected", "Another quantified-impact bullet"]
+      "bullets": [
+        { "text": "Achievement bullet with JD keywords injected", "source_line": 128 },
+        { "text": "Another quantified-impact bullet", "source_text": "a distinctive phrase from cv.md" }
+      ]
     }
   ],
   "projects": [
@@ -232,7 +246,7 @@ Do **not** substitute the LaTeX builder's vocabulary — `institution`/`degree`/
 Wrap a span in `**…**` to emphasise it — typically the quantified result a recruiter should catch in the six-second scan:
 
 ```json
-"bullets": ["Cut p99 latency from 840 ms to **120 ms** across 14 services"]
+"bullets": [{ "text": "Cut p99 latency from 840 ms to **120 ms** across 14 services", "source_line": 128 }]
 ```
 
 `generate-pdf.mjs` converts it to `<strong>` during ATS normalization (#1728), and the template styles it in both the summary and job bullets. On the HTML path the conversion walks every text node, so **any** field can carry `**…**`.

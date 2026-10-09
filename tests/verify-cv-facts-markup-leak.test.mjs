@@ -31,6 +31,40 @@ for (const [label, text] of CLEAN) {
 }
 
 console.log('');
+console.log('  === the 2026-10-08 vocabulary extension ===');
+// Every marker form actually present in cv.md, each tested ON ITS OWN. Testing
+// them bundled is what hid a gap: a `Provenance:` sentence that also said
+// `user-stated` came back "caught", but only incidentally, by the other token.
+const MUST_BLOCK = [
+  ['User-stated ... (camera sync)', 'User-stated 2026-10-08 (camera sync): synced the camera feeds to a beacon light.'],
+  ['CORRECTED <date> by the user', 'CORRECTED 2026-09-29 by the user: this role did not include making rulings.'],
+  ['Scope ceiling: ...', 'Scope ceiling: relatively short period compared with primary duties.'],
+  ['Scope ceiling em-dash ...', 'Scope ceiling — READ BEFORE RESTATING.'],
+  ['Scope ceiling, stated by the user', 'Scope ceiling, stated by the user: he has no journalism training.'],
+  ['Recorded as self-assessment', 'Recorded as self-assessment / characterisation, NOT as evidence.'],
+  ['Never write ...', 'Never write "edited", "trimmed" for this work.'],
+  ['Provenance: with no other token', 'Provenance: supplied directly by the user in conversation.'],
+];
+for (const [label, text] of MUST_BLOCK) {
+  const h = findMarkupLeaks(text, text);
+  ok(h.length > 0, `blocks: ${label}${h.length ? '' : ' -> NOT BLOCKED'}`);
+}
+
+// Honest prose carrying the same ordinary words must survive. This is why the
+// date is required on CORRECTED and punctuation on Scope ceiling, and why the
+// pattern has no trailing \b (a \b after a colon can never match).
+const MUST_PASS = [
+  ['corrected data', 'Corrected inaccurate figures in the quarterly enrolment report.'],
+  ['provenance of data', 'Tracked the provenance of every number in the published report.'],
+  ['scope ceiling in ops', 'Maintained a strict scope ceiling on delegated work to avoid compliance risk.'],
+  ['never write it off', 'Never wrote off a disputed claim without a second reviewer.'],
+];
+for (const [label, text] of MUST_PASS) {
+  const h = findMarkupLeaks(text, text);
+  ok(h.length === 0, `no false positive: ${label}${h.length ? ' -> ' + h.join(';') : ''}`);
+}
+
+console.log('');
 console.log('  === the guard BLOCKS, it does not warn ===');
 // A document with no invented claims and no forbidden phrases, but a leaked
 // annotation, must still come back 'block'.

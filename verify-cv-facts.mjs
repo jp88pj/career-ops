@@ -980,7 +980,29 @@ function sourceContainsFact(sourceText, value) {
 //   2. the QA vocabulary itself, matched on the STRIPPED text, because
 //      stripMarkup() removes the ** markers but leaves the ">" and the words.
 const MARKUP_LEAK_BQUOTE_RE = /^[ \t]*>[ \t]+(?=[A-Za-z*(])/m;
-const MARKUP_LEAK_VOCAB_RE = /\b(?:READ BEFORE REUSING|SCOPE CORRECTED|LANGUAGE CORRECTION|NEVER auto-updated|Re-evaluate from|user-stated|user-confirmed|Do not write)\b/i;
+// Extended 2026-10-08 after the guard was measured against every marker form
+// actually present in cv.md. Four forms this repo writes into its own records
+// were NOT covered, and each would render verbatim into a submitted CV:
+//   - `CORRECTED <date> by the user:` — the replay-operator correction. The list
+//     had `SCOPE CORRECTED`, which this form does not contain. Requiring the date
+//     keeps ordinary prose safe: "corrected data" is legitimate CV text,
+//     "CORRECTED 2026-09-29" never is.
+//   - `Scope ceiling:` — the list had `SCOPE CORRECTED`; these are different
+//     labels for different things. Punctuation-anchored so honest prose ("a strict
+//     scope ceiling on delegated work") cannot trip it.
+//   - `Never write` — the list had `Do not write`. Same rule, other polarity.
+//   - `Recorded as self-assessment` — how a self-assessment ceiling is marked.
+//   - `Provenance:` — the note header.
+//
+// WHY THERE IS NO TRAILING \b ON THIS PATTERN
+// A word boundary requires a word character on exactly one side. These labels are
+// PUNCTUATION-TERMINATED ("Scope ceiling:", "Provenance:"), and `:` is not a word
+// character, so `\b` between the colon and the following space never matches. A
+// trailing `\b` therefore silently disables every punctuation-terminated entry —
+// which is precisely how `Provenance:` looked listed and was not. A leading \b is
+// kept; the tokens are specific enough that a suffix collision ("user-stateds")
+// is not a realistic concern, and losing the whole class is a far worse trade.
+const MARKUP_LEAK_VOCAB_RE = /\b(?:READ BEFORE REUSING|SCOPE CORRECTED|LANGUAGE CORRECTION|NEVER auto-updated|Re-evaluate from|user-stated|user-confirmed|Do not write|Never write|Recorded as self-assessment|CORRECTED \d{4}-\d{2}-\d{2}|Scope ceiling\s*[:,\u2014]|Provenance:)/i;
 
 /** Find internal annotations that leaked into a rendered document. */
 export function findMarkupLeaks(rawText, strippedText) {
