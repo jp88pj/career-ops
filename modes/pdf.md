@@ -35,7 +35,7 @@ Run `npm run jd:similarity -- {bundle-root}/jd/current.md {bundle-root}/jd/previ
 9. Build an internal recruiter-side risk map from the JD using `modes/heuristics/recruiter-side.md`: likely doubts, matching evidence, and which document section should address each doubt
 10. Rewrite Professional Summary by injecting JD keywords + exit narrative bridge ("Built and sold a business. Now applying systems thinking to [JD domain].")
 11. Select top 3-4 most relevant projects for the job. If `cv.md` carries an Awards / Honors section, populate `awards[]` with the entries that support this role — for an early-career candidate a contest medal or dean's list often outranks a thin project. Omit the key when there is nothing to list and the section disappears entirely; never invent an award to fill it
-12. Reorder experience bullets by JD relevance and by the risk map: strongest matching evidence first
+12. **Select for comprehension first, keyword coverage second.** Pick the bullets that make the role *legible* — the ones carrying a concrete method, a real number, a specific constraint, or the shape of the work. Then confirm keyword coverage on what you picked. JD relevance is a proxy for keyword density, so selecting on it first systematically discards exactly the low-density, high-comprehension bullets that tell a reader what the job actually was ("synced every camera to a blinking beacon light with frame-by-frame offsets" loses to "coordinated with in-stadium workers", and is worth ten times the information). Reorder the survivors by JD relevance and by the risk map: strongest matching evidence first
 13. Build competency grid from JD requirements (6-8 keyword phrases), prioritizing `existing` and `supportedByResume` skills from Step 4 — never a `gap` skill
 14. Inject keywords naturally into existing achievements (NEVER invent)
 15. Apply the six-second clarity gate from `modes/heuristics/recruiter-side.md`: top third must make target role, strongest fit, and proof obvious
@@ -224,7 +224,7 @@ Write a JSON file with this structure, then run `node build-cv-html.mjs <input.j
 | `sections` | object | Optional localized section titles; any omitted key falls back to the English default shown above. |
 | `summary` | string | Personalized summary with keywords. Supports `**…**` emphasis (see **Markdown bold** below). |
 | `competencies` | string[] | 6-8 keyword phrases → competency tags. |
-| `experience[]` | object | `company`, `role`, `location` (optional), `context` (optional), `dates`, `bullets` (reordered, keyword-injected; `**…**` emphasis supported). `context` is an un-bulleted italic line rendered directly under the role, for one line of background about the company (stage, size, an acquisition), not an achievement. Use only facts already in `cv.md`: when it states none for that role, omit `context` rather than write one. Keep it short; keep achievements in `bullets`. Optional section — omit the key or pass `[]` and the whole block is dropped, header included. Only for candidates with no professional history to list (students, new graduates, career changers); never drop it to hide a gap. |
+| `experience[]` | object | `company`, `role`, `location` (optional), `context` (optional — **company context OR role scope framing**, see below), `dates`, `bullets` (reordered, keyword-injected; `**…**` emphasis supported). `context` is an un-bulleted italic line rendered directly under the role, for one line of background about the company (stage, size, an acquisition), not an achievement. Use only facts already in `cv.md`: when it states none for that role, omit `context` rather than write one. Keep it short; keep achievements in `bullets`. Optional section — omit the key or pass `[]` and the whole block is dropped, header included. Only for candidates with no professional history to list (students, new graduates, career changers); never drop it to hide a gap. |
 | `projects[]` | object | `name`, `url` (optional project/repo link), `badge` (optional), `tech` (optional), `description` (a `bullets` array is also accepted and joined into the description line). |
 | `education[]` | object | `title` (degree), `org` (institution), `location` (optional, city/state), `year`, `description` (optional). |
 | `certifications[]` | object | `title`, `org`, `year`. |
@@ -240,6 +240,37 @@ Write a JSON file with this structure, then run `node build-cv-html.mjs <input.j
 - **A top-level section name the builder does not read → warning**, naming the nearest known key. A payload with `educations` instead of `education` used to validate clean and drop the section silently; it now says so.
 
 Do **not** substitute the LaTeX builder's vocabulary — `institution`/`degree`/`dates`/`coursework` is the `modes/latex.md` education schema, **not** this one — nor `employer` for a company or `name` for a certification. Such an entry used to render as an empty block while the report still said `"valid": true`, and CVs went out with no education section at all. It is now rejected by name. When in doubt, check `counts.educationEntries` (and its siblings) in the JSON report: a zero there means the section is empty in the PDF.
+
+### Role scope lines (`context`)
+
+`experience[].context` renders as a short line under the role heading (`CONTEXT_BLOCK`
+in `build-cv-html.mjs`) and is **optional**. It has two uses and both are legitimate:
+
+- **Company context** — "~40 people; acquired by BigCo in 2023", funding, stage, or
+  reporting line. Fast context a recruiter wants before reading a single bullet.
+- **Role scope framing** — one or two sentences that let a reader *picture the job*
+  before they read evidence. Use this when the job title under-describes the work:
+  a reader who sees "Replay Operator" imagines a person watching replays and pressing
+  a button, and no bullet corrects that as quickly as a sentence does.
+
+Scope framing earns its place when the role has a shape a title cannot convey: a
+long build cycle, a multi-party coordination system, a hard physical or regulatory
+constraint, or a decision loop under time pressure. It is **not** a place to
+duplicate the bullets, and it is **not** a second summary.
+
+Rules for the line itself:
+
+- **Presentation prose only.** No `User-stated`, `CORRECTED`, `Scope ceiling`, or any
+  other internal marker — those are consumed as a source and block the document if
+  rendered (see the citation requirement above).
+- **Every claim in it must trace to `cv.md`.** It is prose, so it gets no keyword
+  credit it has not earned; `verify-bullet-sources.mjs` does not read it, so it is
+  the one field where an unsourced claim would go unchecked. Keep it to facts you can
+  point at.
+- **One or two sentences.** A paragraph per role is how a CV stops surviving a
+  six-second scan.
+- **Do not use it on every role.** It is for roles where the title misleads. On a
+  role the reader already understands, it is space spent on nothing.
 
 ### Markdown bold
 
