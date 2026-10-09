@@ -35,7 +35,7 @@ Run `npm run jd:similarity -- {bundle-root}/jd/current.md {bundle-root}/jd/previ
 9. Build an internal recruiter-side risk map from the JD using `modes/heuristics/recruiter-side.md`: likely doubts, matching evidence, and which document section should address each doubt
 10. Rewrite Professional Summary by injecting JD keywords + exit narrative bridge ("Built and sold a business. Now applying systems thinking to [JD domain].")
 11. Select top 3-4 most relevant projects for the job. If `cv.md` carries an Awards / Honors section, populate `awards[]` with the entries that support this role — for an early-career candidate a contest medal or dean's list often outranks a thin project. Omit the key when there is nothing to list and the section disappears entirely; never invent an award to fill it
-12. **Select for comprehension first, keyword coverage second.** Pick the bullets that make the role *legible* — the ones carrying a concrete method, a real number, a specific constraint, or the shape of the work. Then confirm keyword coverage on what you picked. **Also apply the per-role bullet cap and its overflow condition from `modes/_custom.md` → CV Length Policy** — comprehension-first selection makes vivid roles compete for space on merit, which is exactly what the cap exists to bound. JD relevance is a proxy for keyword density, so selecting on it first systematically discards exactly the low-density, high-comprehension bullets that tell a reader what the job actually was ("synced every camera to a blinking beacon light with frame-by-frame offsets" loses to "coordinated with in-stadium workers", and is worth ten times the information). Reorder the survivors by JD relevance and by the risk map: strongest matching evidence first
+12. **Select for comprehension first, keyword coverage second.** Pick the bullets that make the role *legible* — the ones carrying a concrete method, a real number, a specific constraint, or the shape of the work. Then confirm keyword coverage on what you picked. **Also apply the default per-role shape from `modes/_custom.md` → CV Length Policy** — comprehension-first selection makes vivid roles compete for space on merit, which is what the default bounds. Treat it as a *default*, not a ceiling: when a posting's core requirement is a role's function and that role holds more genuinely on-target evidence than the default allows, keep the evidence and let the document run long, noting in the payload why it exceeded the default. What may never be cut to save space is a *verified, on-target* claim; what may never be added is an *unverified* one. JD relevance is a proxy for keyword density, so selecting on it first systematically discards exactly the low-density, high-comprehension bullets that tell a reader what the job actually was ("synced every camera to a blinking beacon light with frame-by-frame offsets" loses to "coordinated with in-stadium workers", and is worth ten times the information). Reorder the survivors by JD relevance and by the risk map: strongest matching evidence first
 13. Build competency grid from JD requirements (6-8 keyword phrases), prioritizing `existing` and `supportedByResume` skills from Step 4 — never a `gap` skill
 14. Inject keywords naturally into existing achievements (NEVER invent)
 15. Apply the six-second clarity gate from `modes/heuristics/recruiter-side.md`: top third must make target role, strongest fit, and proof obvious
@@ -137,13 +137,28 @@ Write a JSON file with this structure, then run `node build-cv-html.mjs <input.j
 **Every experience and project bullet MUST be an object carrying its own citation** — never a bare string:
 
 ```json
-{ "text": "<the bullet exactly as it should appear on the page>", "source_line": 128 }
-{ "text": "<another bullet>", "source_text": "<a distinctive phrase to locate in cv.md>" }
+{ "text": "<the bullet exactly as it should appear on the page>", "source_anchor": "<a phrase matching exactly one cv.md line>" }
+{ "text": "<a bullet fused from several source lines>", "source_anchor": ["<anchor 1>", "<anchor 2>", "<anchor 3>"] }
 ```
 
-`text` is what the reader sees; the citation is what proves it came from the user's own record. `source_line` is a 1-indexed line number in `cv.md` — precise, but brittle if `cv.md` is edited. `source_text` is a phrase to search for — looser, first match wins. `verify-bullet-sources.mjs` reports a bare string as **unsourced** and fails the build, so this is a requirement, not a style preference.
+`text` is what the reader sees; the citation is what proves it came from the user's own record. Three citation forms are accepted, and **`source_anchor` is the durable one**:
 
-`text` must also be the **presentation** form of the claim. `cv.md` carries internal provenance markers — `User-stated`, `CORRECTED <date>`, `Scope ceiling`, `Provenance:`, `Recorded as self-assessment`, `Never write`, `Do not write` — and those must be **consumed as a source, never rendered**. Copying a `cv.md` bullet verbatim into `text` puts the annotation on the page, and `verify-cv-facts.mjs` blocks the document for it even when the underlying claim is sound. Strip the marker, keep the claim, point the citation at the source line. (the optional third argument is the template path from **Selecting the template**; omit it for the base `cv-template.html`).
+| form | durable | caveat |
+|---|---|---|
+| `source_anchor` | **yes** | the phrase must match **exactly one** `cv.md` line, or the build **blocks** as ambiguous |
+| `source_line` | no | a 1-indexed `cv.md` line — precise, but repoints silently when anything is inserted above it |
+| `source_text` | no | loosest; first match wins, so it can cite the wrong role |
+
+**Use an array** when one bullet states facts from several source lines — which is normal for a hand-authored presentation sentence that fuses a role's scope, a method, and a metric. Support is pooled across every cited line (maximum 6). Measured 2026-10-08: a fused bullet scored 0.42–0.56 against a single cited line and was blocked, because one line cannot support a sentence drawing on four; with its real anchors it passes.
+
+Two limits worth knowing, both enforced by `verify-bullet-sources.mjs`:
+
+- **Ambiguity in ANY anchor fails the whole bullet.** A bullet cannot be honest by pointing at three good sources and one typo.
+- **Overlap scoring cannot detect a claim assembled from genuine vocabulary.** Measured: a fabricated clause scored **0.827 — higher than a legitimate bullet at 0.759** — because "umpiring" stems to "umpir" and matches "umpire", already in the file. The gate catches invented *nouns* (names of systems, tools, credentials appear nowhere in the document and block), not invented *claims* built from real words. Every CV is still reviewed before sending; a green gate run is not proof of honesty.
+
+`verify-bullet-sources.mjs` reports a bare string as **unsourced** and fails the build, so this is a requirement, not a style preference.
+
+`text` must also be the **presentation** form of the claim. `cv.md` carries internal provenance markers — `User-stated`, `CORRECTED <date>`, `Scope ceiling`, `Provenance:`, `Recorded as self-assessment`, `Never write`, `Do not write` — and those must be **consumed as a source, never rendered**. Copying a `cv.md` bullet verbatim into `text` puts the annotation on the page, and `verify-cv-facts.mjs` blocks the document for it even when the underlying claim is sound. Strip the marker, keep the claim, point the citation at the source line. **This applies to every role in the CV, not only the ones with an approved twin set** — check whether a role has approved presentation sentences before using it, and author them if it does not. (the optional third argument is the template path from **Selecting the template**; omit it for the base `cv-template.html`).
 
 ```json
 {

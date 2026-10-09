@@ -116,7 +116,7 @@ if (![L_EDUCATE, L_PROTECT, L_RECORD, L_CAMP].every(Boolean)) {
     // for the wrong reason, and one that sends the reader hunting through
     // cv.md for a phrase that was never there. Asserting the reason is what
     // makes this guard distinguishable from its accidental twin.
-    if (r.unsourced[0]?.reason === 'no source_line or source_text citation') {
+    if (r.unsourced[0]?.reason === 'no source_line, source_anchor or source_text citation') {
       pass('  reported as a missing citation, not a failed search');
     } else {
       fail(`  wrong reason: "${r.unsourced[0]?.reason}"`);

@@ -30,15 +30,21 @@
 // the tool only verifies the citation is honest. That is a check a human can
 // pass, which is the only kind worth having.
 //
-// A missing or unresolvable citation is a FAILURE, not a skip. Silence is the
-// failure mode that let the original three through.
+// FUSED BULLETS (measured 2026-10-08): a hand-authored presentation sentence that
+// fuses several source bullets failed this gate at support 0.42-0.56 against a
+// 0.60 threshold — not because it was dishonest, but because one line cannot
+// support a sentence drawing on four. A citation field may now be an ARRAY of
+// anchors, and support is pooled across every cited line. The honesty property
+// is unchanged: an invented clause appears in no cited line, so it remains in
+// the denominator and cannot be bought with extra citations. MAX_CITATIONS
+// bounds the loosening, so "cite everything" is not a bypass.
 //
 // Usage:
 //   node verify-bullet-sources.mjs <payload.json> [--source cv.md] [--json]
 //
 // Payload shape: bullets are either plain strings, or objects carrying a
-// `source_line` (1-indexed into cv.md) and/or `source_text` (a phrase to locate
-// in cv.md when line numbers are fragile).
+// `source_line` (1-indexed into cv.md), `source_anchor`, or `source_text`
+// (each a phrase, or an ARRAY of phrases for a bullet fused from several lines).
 
 import { readFileSync, existsSync } from 'fs';
 import { resolve, isAbsolute } from 'path';
@@ -94,42 +100,161 @@ function resolvePath(p, cwd) {
  * an ambiguous anchor as a missing one sends someone to re-typing a citation
  * that was never wrong.
  */
-function resolveCitation(sourceLines, cite) {
-  if (cite.source_line != null) {
-    const n = Number(cite.source_line);
+/**
+ * Most citations one bullet may carry. A fused bullet legitimately draws on
+ * several source lines, so this is a ceiling rather than a restriction to one.
+ * It exists because union scoring makes each extra citation easier, and a cap is
+ * what stops "cite the whole file" from becoming a bypass for the support check.
+ * Measured need: the largest real fused bullet (MLB B3) draws on four.
+ */
+const MAX_CITATIONS = 6;
+
+/**
+ * Content words a bullet may introduce that appear NOWHERE in the source
+ * document.
+ *
+ * Pooling support across several citations makes the ratio easier to satisfy, so
+ * this is the backstop against a citation list used as a licence. It catches the
+ * common fabrication mode — inventing a named system, framework, tool or
+ * credential, whose vocabulary is absent from everything the author wrote.
+ *
+ * IT IS NOT A FABRICATION DETECTOR, and the tests say so explicitly. A claim
+ * assembled from genuine vocabulary evades it: measured 2026-10-08, an invented
+ * clause reading "while also running the umpires' scoring system and training the
+ * umpiring crew" scored 0.827 — HIGHER than the clean B2 twin at 0.759 — because
+ * "umpiring" stems to "umpir" and matches "umpire", which is already in cv.md.
+ * No overlap threshold separates those. Detecting a fabricated CLAIM built from
+ * real words needs a reader, which is why every CV is reviewed before it is sent.
+ */
+const MAX_NOVEL_WORDS = 2;
+
+/**
+ * Expand a citation object into an ordered list of single citations.
+ *
+ * Each field may be a string (the historical form) or an array of strings. Order
+ * of precedence between fields is unchanged — source_line, then source_anchor,
+ * then source_text — so existing single-citation payloads resolve exactly as
+ * before. Arrays are additional citations, not a replacement for the old form.
+ *
+ * An empty array contributes nothing, so `{source_anchor: []}` is correctly
+ * treated as an uncited bullet rather than silently passing as "zero lines".
+ */
+function citationList(raw) {
+  const out = [];
+  const add = (key, value) => {
+    for (const v of (Array.isArray(value) ? value : [value])) out.push({ key, value: v });
+  };
+  if (raw.source_line != null) add('source_line', raw.source_line);
+  for (const key of ['source_anchor', 'source_text']) {
+    if (raw[key] == null) continue;
+    add(key, raw[key]);
+  }
+  return out;
+}
+
+/**
+ * Locate the source line for ONE citation.
+ *
+ * Three forms, tried in this order:
+ *   source_line  — 1-indexed into cv.md. Precise but BRITTLE: inserting or
+ *                  deleting any line above it silently repoints every citation
+ *                  below. Measured 2026-10-04, one source line drifted 71 → 106
+ *                  → 107 across two ordinary edits to cv.md.
+ *   source_anchor — a phrase that must match EXACTLY ONE line. Durable, because
+ *                  it survives any amount of editing above the content. The
+ *                  uniqueness requirement is the whole point: the loose form
+ *                  below takes the first match, which is how "Taught between 75
+ *                  and 90 students" silently resolved to Hudson's line when the
+ *                  bullet belonged to Newark.
+ *   source_text  — the loose legacy form, first match wins. Kept working, not
+ *                  recommended.
+ *
+ * Returns { line, reason } so the caller can distinguish "not found" from
+ * "ambiguous" — those are different defects with different fixes, and reporting
+ * an ambiguous anchor as a missing one sends someone to re-typing a citation
+ * that was never wrong.
+ */
+function resolveOne(sourceLines, { key, value }) {
+  if (key === 'source_line') {
+    const n = Number(value);
     if (!Number.isInteger(n) || n < 1 || n > sourceLines.length) {
-      return { line: null, reason: `source_line ${cite.source_line} does not exist in cv.md` };
+      return { line: null, reason: `source_line ${value} does not exist in cv.md` };
     }
     return { line: sourceLines[n - 1], reason: null };
   }
-  for (const key of ['source_anchor', 'source_text']) {
-    const raw = cite[key];
-    if (!raw) continue;
-    const needle = String(raw).toLowerCase();
-    const hits = [];
-    sourceLines.forEach((l, i) => { if (l.toLowerCase().includes(needle)) hits.push({ line: l, n: i + 1 }); });
-    if (hits.length === 0) {
-      return { line: null, reason: `${key} "${String(raw).slice(0, 60)}" not found in cv.md` };
-    }
-    if (hits.length > 1 && key === 'source_anchor') {
-      // Loud, because the alternative is silently citing the wrong role.
-      return {
-        line: null,
-        reason: `source_anchor "${String(raw).slice(0, 60)}" is AMBIGUOUS — matches ${hits.length} lines (${hits.map((h) => h.n).join(', ')}). Make the anchor unique.`,
-      };
-    }
-    return { line: hits[0].line, reason: null };
+  const needle = String(value).toLowerCase();
+  const hits = [];
+  sourceLines.forEach((l, i) => { if (l.toLowerCase().includes(needle)) hits.push({ line: l, n: i + 1 }); });
+  if (hits.length === 0) {
+    return { line: null, reason: `${key} "${String(value).slice(0, 60)}" not found in cv.md` };
   }
-  return { line: null, reason: null };
+  if (hits.length > 1 && key === 'source_anchor') {
+    // Loud, because the alternative is silently citing the wrong role.
+    return {
+      line: null,
+      reason: `source_anchor "${String(value).slice(0, 60)}" is AMBIGUOUS — matches ${hits.length} lines (${hits.map((h) => h.n).join(', ')}). Make the anchor unique.`,
+    };
+  }
+  return { line: hits[0].line, reason: null };
 }
 
-/** Fraction of a bullet's content words that appear in its cited line. */
-function support(bullet, sourceLine) {
+/**
+ * Resolve every citation a bullet carries.
+ *
+ * Returns { line, lines, reason }. `line` is the FIRST resolved line and is kept
+ * for the existing single-citation code path; `lines` is the full set, used for
+ * support scoring. `line === null` remains the failure signal.
+ *
+ * ANY citation failing fails the whole bullet — a bullet cannot be honest by
+ * pointing at three good sources and one typo.
+ */
+function resolveCitation(sourceLines, raw) {
+  const cites = citationList(raw);
+  if (cites.length > MAX_CITATIONS) {
+    return {
+      line: null,
+      lines: [],
+      reason: `bullet carries ${cites.length} citations; at most ${MAX_CITATIONS} are allowed. A fused bullet draws on several source lines, but citing the whole file is not a citation.`,
+    };
+  }
+  const lines = [];
+  for (const c of cites) {
+    const r = resolveOne(sourceLines, c);
+    if (r.line === null) return { line: null, lines: [], reason: r.reason };
+    lines.push(r.line);
+  }
+  return { line: lines.length ? lines[0] : null, lines, reason: null };
+}
+
+/**
+ * Fraction of a bullet's content words that appear in its cited source material.
+ *
+ * With several citations the words are pooled across all of them, because a
+ * fused bullet states one fact per source line. This does NOT weaken the
+ * honesty property it exists to enforce: an invented clause's words appear in no
+ * cited line, so they stay in the denominator and cannot be bought with extra
+ * citations. See tests/verify-bullet-sources-multi.test.mjs for the case that
+ * proves it.
+ */
+function support(bullet, sourceLines) {
   const b = words(bullet);
   if (!b.length) return 1;
-  const src = new Set(words(sourceLine));
+  const src = new Set();
+  for (const l of [].concat(sourceLines)) for (const w of words(l)) src.add(w);
   if (!src.size) return 0;
   return b.filter((w) => src.has(w)).length / b.length;
+}
+
+/**
+ * Content words in a bullet that appear in NO line of the document at all.
+ * See MAX_NOVEL_WORDS for what this does and does not catch.
+ */
+function novelWords(bullet, allLines) {
+  const whole = new Set();
+  for (const l of allLines) for (const w of words(l)) whole.add(w);
+  const out = [];
+  for (const w of new Set(words(bullet))) if (!whole.has(w)) out.push(w);
+  return out;
 }
 
 /**
@@ -179,17 +304,20 @@ export function verifyBulletSources(payload, sourceText) {
       usable++;
       checked++;
 
-      if (typeof raw === 'string'
-        || (raw.source_line == null && raw.source_text == null && raw.source_anchor == null)) {
+      if (typeof raw === 'string' || citationList(raw).length === 0) {
         // Reported here rather than left to fall through to resolveCitation(),
         // which rejects it too but as "source_text not found in cv.md" - true,
         // yet it describes a missing citation as a failed search, which is the
         // wrong diagnosis to hand someone fixing a payload.
+        // `citationList(...).length` rather than a null check on the three fields,
+        // so `{source_anchor: []}` lands here too — an empty array is not a
+        // citation, and treating it as one would report a fabricated bullet as
+        // merely unsourced.
         unsourced.push({
           where,
           index: i,
           text,
-          reason: 'no source_line or source_text citation',
+          reason: 'no source_line, source_anchor or source_text citation',
           support: null,
         });
         return;
@@ -216,9 +344,32 @@ export function verifyBulletSources(payload, sourceText) {
         return;
       }
 
-      const ratio = support(text, resolved.line);
+      // Pool every cited line, not just the first: a fused bullet states one
+      // fact per source line. `resolved.lines` is empty on the uncited path,
+      // which cannot reach here — resolveCitation returns line === null then.
+      const citedLines = resolved.lines && resolved.lines.length ? resolved.lines : [resolved.line];
+      const ratio = support(text, citedLines);
+      const novel = novelWords(text, sourceLines);
+      if (novel.length > MAX_NOVEL_WORDS) {
+        unsourced.push({
+          where,
+          index: i,
+          text,
+          reason: `introduces ${novel.length} content words absent from the whole document: ${novel.slice(0, 6).join(', ')}${novel.length > 6 ? '...' : ''}. Invented systems, tools and credentials show up here; a claim assembled from real wording does not.`,
+          support: Number(ratio.toFixed(2)),
+        });
+        return;
+      }
       if (ratio < SUPPORT_RATIO) {
-        unsourced.push({ where, index: i, text, reason: 'not supported by the cited line', support: Number(ratio.toFixed(2)) });
+        unsourced.push({
+          where,
+          index: i,
+          text,
+          reason: citedLines.length > 1
+            ? 'not supported by the cited lines'
+            : 'not supported by the cited line',
+          support: Number(ratio.toFixed(2)),
+        });
       }
     });
     // A role whose header would print with nothing beneath it. Reported apart
@@ -252,8 +403,10 @@ function main() {
   if (args.help || !args.positional.length) {
     console.log('Usage: node verify-bullet-sources.mjs <payload.json...> [--source cv.md] [--json]');
     console.log('');
-    console.log('Each bullet must be an object: { "text": "...", "source_line": 28 }');
+    console.log('Each bullet must be an object: { "text": "...", "source_anchor": "a unique phrase" }');
     console.log('A bare string bullet is reported as unsourced - citations are required.');
+    console.log('For a bullet fused from several source lines, the field may be an array of');
+    console.log('anchors; support is pooled across them (max 6).');
     return args.help ? 0 : 1;
   }
 

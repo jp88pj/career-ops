@@ -105,7 +105,7 @@ test('source_line and source_text keep working (backward compatible)', () => {
 test('a bullet with no citation at all is still unsourced', () => {
   const r = verifyBulletSources(payload([{ text: 'Recorded required data such as scores and time as necessary.' }]), CV);
   assert.equal(r.verdict, 'block');
-  assert.match(r.unsourced[0].reason, /no source_line or source_text citation/);
+  assert.match(r.unsourced[0].reason, /no source_line, source_anchor or source_text citation/);
 });
 
 test('a role with no usable bullets blocks', () => {
