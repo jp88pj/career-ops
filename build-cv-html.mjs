@@ -420,11 +420,26 @@ function buildProjects(entries, partial) {
 
   const { entryTemplate, blocks } = partial;
   return entries.filter(e => hasRequiredFields(e, 'projects', 'html')).map(e => {
-    const descText = e.description
-      || (Array.isArray(e.bullets) ? e.bullets.map(bulletText).filter(Boolean).join(' ') : '');
+    // Bullets render as a real <ul>, matching buildExperience (L375-377).
+    //
+    // Before 2026-10-09 this was `bullets.join(' ')`, which flattened every bullet
+    // into one space-separated run inside .project-desc. A project with 3 bullets
+    // rendered as a single run-on paragraph with no visible separation — the user
+    // read it as "bullet uncertainty". Experience bullets never had this problem
+    // because they always went through the `<li>` path; projects had no equivalent.
+    //
+    // A joined string is still the right fallback for `description`, which is
+    // genuinely prose. `description` is preferred when both are present, so a
+    // payload that means to be one paragraph still gets one.
+    const descText = e.description || '';
+    const bulletList = Array.isArray(e.bullets)
+      ? e.bullets.map(bulletText).filter(Boolean).map(b => `<li>${escapeHtml(b)}</li>`).join('\n      ')
+      : '';
+    const hasBullets = Boolean(bulletList);
     const blockValues = new Map([
       ['BADGE_BLOCK', { value: escapeHtml(e.badge || ''), present: Boolean(e.badge) }],
       ['DESC_BLOCK',  { value: escapeHtml(descText),      present: Boolean(descText) }],
+      ['BULLETS_BLOCK', { value: bulletList,              present: hasBullets && !descText }],
       ['TECH_BLOCK',  { value: escapeHtml(e.tech || ''),  present: Boolean(e.tech) }],
     ]);
     const nameText = escapeHtml(e.name || '');
@@ -436,6 +451,7 @@ function buildProjects(entries, partial) {
       NAME:  nameHtml,
       BADGE: escapeHtml(e.badge || ''),
       DESC:  escapeHtml(descText),
+      BULLETS: bulletList,
       TECH:  escapeHtml(e.tech || ''),
     }, blockValues);
   }).join('\n  ');
