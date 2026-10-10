@@ -50,16 +50,22 @@ test('a failure names the PROJECT, not a blank company/role pair', () => {
 });
 
 test('a multi-anchor project bullet works, including the pooled support path', () => {
+  // Uses the CURRENT approved Good Press wording. An earlier version of this test
+  // quoted the superseded wording ("...as of 2026-10-07", present tense) and began
+  // failing the moment the project was recorded as COMPLETE on 2026-10-08 — a test
+  // encoding retired phrasing is a test that rots. Keep these strings in step with
+  // modes/_custom.md, and do not quote a superseded phrase here.
   const r = verifyBulletSources({
     projects: [{
       name: 'The Good Press',
       bullets: [{
-        text: 'Writes and edits every issue himself as sole author and editor of record, with 64 issues as of 2026-10-07.',
-        source_anchor: ['sole author and editor of record', '64 issues as of 2026-10-07'],
+        text: 'Wrote and edited all 64 consecutive weekly issues alone, as sole author and editor of record.',
+        source_anchor: ['sole author and editor of record', '64 consecutive weekly issues in total'],
       }],
     }],
   }, CV);
   assert.equal(r.verdict, 'pass');
+  assert.equal(r.checked, 1);
 });
 
 test('a payload with both experience and projects checks both', () => {
