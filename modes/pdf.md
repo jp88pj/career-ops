@@ -158,7 +158,14 @@ Two limits worth knowing, both enforced by `verify-bullet-sources.mjs`:
 
 `verify-bullet-sources.mjs` reports a bare string as **unsourced** and fails the build, so this is a requirement, not a style preference.
 
-`text` must also be the **presentation** form of the claim. `cv.md` carries internal provenance markers — `User-stated`, `CORRECTED <date>`, `Scope ceiling`, `Provenance:`, `Recorded as self-assessment`, `Never write`, `Do not write` — and those must be **consumed as a source, never rendered**. Copying a `cv.md` bullet verbatim into `text` puts the annotation on the page, and `verify-cv-facts.mjs` blocks the document for it even when the underlying claim is sound. Strip the marker, keep the claim, point the citation at the source line. **This applies to every role in the CV, not only the ones with an approved twin set** — check whether a role has approved presentation sentences before using it, and author them if it does not. (the optional third argument is the template path from **Selecting the template**; omit it for the base `cv-template.html`).
+`text` must also be the **presentation** form of the claim. `cv.md` carries internal provenance markers — `User-stated`, `CORRECTED <date>`, `Scope ceiling`, `Provenance:`, `Recorded as self-assessment`, `Never write`, `Do not write` — and those must be **consumed as a source, never rendered**. Copying a `cv.md` bullet verbatim into `text` puts the annotation on the page, and `verify-cv-facts.mjs` blocks the document for it even when the underlying claim is sound. Strip the marker, keep the claim, point the citation at the source line. **This applies to every role in the CV, not only the ones with an approved twin set** — check whether a role has approved presentation sentences before using it, and author them if it does not.
+
+**No terminal period on a bullet (house style, user-stated 2026-10-08).** Bullets are list items, not paragraphs, so they carry **no ending full stop** — applied to all 30 approved twins on that date. Two things this deliberately does *not* cover:
+
+- **The `context` line keeps its period.** It renders as a paragraph, where terminal punctuation is correct.
+- **A bullet ending in an abbreviation or initial keeps its point** — "P.T.A.", "Jr.", "Inc." None of the approved twins currently does; check before adding one.
+
+Stripping the period is **gate-safe**: `verify-bullet-sources.mjs` and `verify-cv-facts.mjs` both strip every non-alphanumeric character before matching, so support ratios, anchor matches and the novel-word backstop are identical either way. Enforced in the authored twin text, **not** at render time — `build-cv-html.mjs` emits `text` verbatim, and silently rewriting authored content downstream would hide the change. (the optional third argument is the template path from **Selecting the template**; omit it for the base `cv-template.html`).
 
 ```json
 {
