@@ -175,7 +175,15 @@ function citationList(raw) {
  * that was never wrong.
  */
 function resolveOne(sourceLines, { key, value }) {
-  if (key === 'source_line') {
+    return resolveAnchor(sourceLines, key, value);
+  }
+
+  // EXPORTED so anchor-collision checking and this gate cannot drift apart. Both
+// must agree on what "matching" means, or the lint reports clean while the gate
+// blocks - the split-brain this repo warns against elsewhere ("use the verified
+// matcher, never a hand-rolled one"). check-anchor-collisions.mjs imports this.
+export function resolveAnchor(sourceLines, key, value) {
+    if (key === 'source_line') {
     const n = Number(value);
     if (!Number.isInteger(n) || n < 1 || n > sourceLines.length) {
       return { line: null, reason: `source_line ${value} does not exist in cv.md` };
