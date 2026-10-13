@@ -12,6 +12,7 @@
 // requests out to dodge rate-limiting).
 // See .planning/codebase/ashby-scan-abort-diagnosis.md.
 import { fetchJsonWithRetry } from './_http.mjs';
+import { coerceId } from './_ids.mjs';
 
 const ASHBY_TIMEOUT_MS = 30_000;
 const ASHBY_RETRIES = 2;
@@ -190,7 +191,10 @@ function toEpochMs(value) {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
-// Build the full location string from primary + secondary locations.
+// Build the full location string from primary + secondary locations: the
+// posting's `location` name, the primary `address.postalAddress` locality and
+// country (the country only when `location` doesn't already name it), then
+// each secondary location.
 // Ashby's posting-api puts extra hiring regions in `secondaryLocations[]`
 // (each with a region label + a postalAddress). Using only `j.location` drops
 // them, so an EU-eligible role whose PRIMARY label is e.g. "Canada" reads as
@@ -215,10 +219,42 @@ function toEpochMs(value) {
 //
 // Mirrors existing behavior in bamboohr.mjs, gem.mjs, and thehub.mjs, which
 // already append "Remote" from their own providers' remote flags.
+/**
+ * Whole-word, case-insensitive containment (same check as recruitee's and
+ * breezy's containsWholeWord).
+ * @param {string} text
+ * @param {string} word
+ */
+function containsWholeWord(text, word) {
+  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu').test(text);
+}
+
 /** @param {any} j */
 function formatLocation(j) {
   const parts = [];
   if (typeof j.location === 'string' && j.location.trim()) parts.push(j.location.trim());
+  // Fold the PRIMARY location's own address block too, mirroring what we
+  // already do for secondaryLocations below. Ashby's `location` field is
+  // often a first-level subdivision name ("England", "Scotland") rather than
+  // the country ("United Kingdom") that location_filter.allow/always_allow
+  // actually match on — j.address.postalAddress.addressCountry carries the
+  // country string that's missing. Added 2026-09-29: this silently dropped
+  // live UK-primary + US-secondary remote postings (Docker Ashby board,
+  // reqs f7beef23.../9c8d86d4...) — "England · United States · Remote" hit
+  // location_filter.block's "United States" entry with no "United Kingdom"
+  // in the string to rescue it via always_allow.
+  const primaryPa = j.address && j.address.postalAddress;
+  if (primaryPa) {
+    for (const k of ['addressLocality', 'addressCountry']) {
+      const v = typeof primaryPa[k] === 'string' ? primaryPa[k].trim() : '';
+      if (!v) continue;
+      // "London, United Kingdom" already names its country; appending it again
+      // would only repeat it.
+      if (k === 'addressCountry' && parts.some((p) => containsWholeWord(p, v))) continue;
+      parts.push(v);
+    }
+  }
   if (Array.isArray(j.secondaryLocations)) {
     for (const s of j.secondaryLocations) {
       if (!s || typeof s !== 'object') continue;
@@ -285,6 +321,10 @@ export default {
       title: j.title || '',
       url: j.jobUrl || '',
       company: entry.name,
+      // Ashby's posting uuid — the only stable id this board API exposes
+      // (no separate employer requisition field), so requisitionId is left unset
+      // rather than guessed at.
+      externalId: coerceId(j.id),
       location: formatLocation(j),
       // Ashby's posting-api list ships `descriptionPlain` for free (same
       // payload, no per-job request) — mirrors lever. Enables scan.mjs's
