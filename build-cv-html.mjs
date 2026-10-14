@@ -725,6 +725,80 @@ function checkContactCompleteness(candidate) {
   return missing;
 }
 
+/**
+ * Reorder the template's <div class="section"> blocks.
+ *
+ * Sections are flat (no section nests inside another section) and are delimited
+ * by the {{SECTION_*}} marker in their title div, so a block is the run of HTML
+ * from its opening `<div class="section">` up to the next opening one or the
+ * end. Matching on the opening tag - rather than a `\n  </div>` sentinel - keeps
+ * this correct for templates whose indentation differs.
+ *
+ * `order` lists section keys ("summary", "competencies", ...), case-insensitive.
+ * Keys with no matching block are ignored rather than fatal, so a payload can
+ * name a section the template does not have without breaking the build.
+ * Sections not mentioned keep their template order and follow the named ones.
+ */
+function reorderSections(html, order) {
+  const SECTION_BLOCK_RE = /[ \t]*<div class="section">/g;
+  const rawStarts = [];
+  let m;
+  while ((m = SECTION_BLOCK_RE.exec(html)) !== null) rawStarts.push(m.index);
+  if (rawStarts.length < 2) return html;
+
+  // A section's opening tag is preceded in the template by its own
+  // `<!-- SECTION NAME -->` comment. Extend each block's start backwards over
+  // that comment (and the whitespace around it) so the comment travels WITH its
+  // section instead of staying behind with the previous one.
+  const starts = rawStarts.map((s) => {
+    const before = html.slice(0, s);
+    const c = before.lastIndexOf('<!--');
+    if (c < 0) return s;
+    const close = before.indexOf('-->', c);
+    // Only treat it as this section's comment if nothing but whitespace sits
+    // between the comment's end and the opening tag.
+    if (close >= 0 && /^\s*$/.test(before.slice(close + 3))) return c;
+    return s;
+  });
+
+  // Everything before the first block (doctype, <html>, <head>, the style block
+  // and the name/contact header) is NOT part of any section and must be kept.
+  const prefix = html.slice(0, starts[0]);
+
+  // A block ends at the next block's start, except the LAST one, which ends at
+  // its own closing `</div>`. Letting it run to EOF would swallow `</body>` and
+  // `</html>` whenever a section is moved to the end - which is the normal case.
+  const lastClose = html.lastIndexOf('</div>');
+  const endOfLast = lastClose + '</div>'.length;
+  const blocks = starts.map((s, i) => {
+    const end = i + 1 < starts.length ? starts[i + 1] : Math.max(endOfLast, s + 1);
+    return { html: html.slice(s, end), key: keyOfBlock(html, s, end) };
+  });
+
+  const trailer = html.slice(endOfLast);
+
+  const wanted = order.map((k) => String(k).trim().toLowerCase()).filter(Boolean);
+  const byKey = new Map();
+  for (const b of blocks) if (b.key && !byKey.has(b.key)) byKey.set(b.key, b);
+
+  const picked = [];
+  const taken = new Set();
+  for (const k of wanted) {
+    const b = byKey.get(k);
+    if (!b) continue;
+    picked.push(b);
+    taken.add(b);
+  }
+  const rest = blocks.filter((b) => !taken.has(b));
+  return prefix + [...picked, ...rest].map((b) => b.html).join('') + trailer;
+}
+
+/** Section key for a block: the {{SECTION_X}} marker in its title div. */
+function keyOfBlock(html, start, end) {
+  const m = html.slice(start, end).match(/\{\{SECTION_([A-Z_]+)\}\}/);
+  return m ? m[1].toLowerCase() : null;
+}
+
 function buildPhoto(candidate, name) {
   const photo = candidate && candidate.photo;
   if (!photo) return '';
@@ -732,7 +806,70 @@ function buildPhoto(candidate, name) {
   return `<img class="cv-photo cv-photo--${style}" src="${sanitizeImageSrc(photo)}" alt="${escapeHtml(name || '')}">`;
 }
 
+/**
+ * Payload shape guard.
+ *
+ * Substitution is type-blind: `escapeHtml(payload.summary || '')` turns an
+ * object into the literal string "[object Object]", and an array of objects into
+ * a comma-joined mess. Nothing downstream fails, the build exits 0, and the fact
+ * check passes - because it inspects HTML that never contained the prose.
+ *
+ * That is not hypothetical. `summary` was written as `{text, source_anchor}` on
+ * three payloads (#261, #264, #267). #261 and #267 were APPLIED to RFCUNY with no
+ * Professional Summary section on the page at all, and no gate complained.
+ *
+ * A key that is present must have the shape the template expects. Provenance
+ * belongs in `_meta`, which the builder does not render.
+ */
+function assertSubstitutionShapes(payload) {
+  const problems = [];
+
+  // Substituted directly into a text node -> must be a string when present.
+  const STRING = ['summary'];
+  for (const key of STRING) {
+    const v = payload[key];
+    if (v != null && typeof v !== 'string') {
+      problems.push(
+        `${key} must be a string when present, got ${Array.isArray(v) ? 'array' : typeof v}` +
+        (v && typeof v === 'object' && !Array.isArray(v) && 'text' in v
+          ? ` - it looks like a {text, source_anchor} object; pass payload.${key} = v.text and move source_anchor into _meta`
+          : '')
+      );
+    }
+  }
+
+  // Rendered as repeated blocks -> must be an array when present.
+  const ARRAYS = ['experience', 'projects', 'education', 'certifications', 'awards', 'skills'];
+  for (const key of ARRAYS) {
+    const v = payload[key];
+    if (v != null && !Array.isArray(v)) problems.push(`${key} must be an array when present, got ${typeof v}`);
+  }
+  if (payload.competencies != null && !Array.isArray(payload.competencies)) {
+    problems.push(`competencies must be an array when present, got ${typeof payload.competencies}`);
+  }
+
+  // A role that renders as a bare header with nothing under it is worse than an
+  // absent role - it advertises an employer with no evidence.
+  if (Array.isArray(payload.experience)) {
+    const empty = payload.experience.filter((e) => Array.isArray(e.bullets) && e.bullets.length === 0).map((e) => e.role || '?');
+    if (empty.length) problems.push(`role(s) with zero bullets render as bare headers: ${empty.join('; ')}`);
+  }
+
+  if (payload.section_order != null && !Array.isArray(payload.section_order)) {
+    problems.push(`section_order must be an array, got ${typeof payload.section_order}`);
+  }
+
+  if (problems.length) {
+    throw new Error(
+      'Payload shape error - the build is stopped because these render as garbage or blank while the pipeline reports success:\n' +
+      problems.map((p) => `  - ${p}`).join('\n') +
+      '\n\nProvenance goes in _meta; it is not rendered.'
+    );
+  }
+}
+
 function renderReport(payload, partials) {
+  assertSubstitutionShapes(payload);
   const sectionTitles = { ...DEFAULT_SECTION_TITLES, ...(payload.sections || {}) };
   const candidate = payload.candidate || {};
   const pageWidth = PAGE_WIDTHS[payload.page_format] || PAGE_WIDTHS.letter;
@@ -797,6 +934,21 @@ function renderHtml(template, payload, templatePath, opts = {}) {
   // Drop the optional sections (projects, education) that have no entries, so
   // an absent one leaves no bare header behind. See cv-sections-core.mjs.
   html = stripEmptySections(html, payload, 'html');
+
+  // Optional section reordering (payload.section_order).
+  //
+  // Section ORDER is fixed by the template; payload.sections only overrides
+  // TITLES. A tailored CV often wants the evidence first and the keyword chips
+  // last, and editing templates/cv-template.html for that would be a System
+  // Layer change that `update-system.mjs apply` reverts - so the order travels
+  // in the payload instead.
+  //
+  // Runs BEFORE placeholder substitution and keys on the {{SECTION_*}}
+  // markers, so a title override can never confuse it. Sections the caller
+  // does not mention keep their template position, after the ones it does.
+  if (Array.isArray(payload.section_order) && payload.section_order.length) {
+    html = reorderSections(html, payload.section_order);
+  }
 
   for (const [key, value] of Object.entries(substitutions)) {
     html = html.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), () => value);
