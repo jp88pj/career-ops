@@ -340,6 +340,7 @@ export function parseDetail(html) {
     borough,
     employmentType: jobShape,
     employmentTypeRaw: ld?.employmentType || '',
+    internalOnly: internalOnlyOf(text),
   };
 }
 
@@ -400,6 +401,57 @@ export function employmentTypeOf(text) {
   for (const re of SENTENCE) if (re.test(t)) return 'excluded';
 
   if (/\bfull[- ]time\b/i.test(t)) return 'full_time';
+  return null;
+}
+
+/**
+ * Is this posting restricted to current City employees?
+ *
+ * cityjobs publishes no `posting_type` field, and the Open Data mirror's
+ * `posting_type` column cannot be joined to this board at all (it uses a
+ * 6-digit id where every sitemap URL carries a 5-digit `jid-N`; measured
+ * 2026-10-15, 0 of 1233 Internal ids appear in scan-history and 0 of 2047
+ * sitemap ids appear in the mirror). So the signal has to come from the page.
+ *
+ * The phrase to trust is the ERN instruction. Measured 2026-10-15 on jid-45212
+ * (Parks Enforcement Patrol): "*Current City Employees please include your ERN
+ * on your cover letter and resume.*"
+ *
+ * The generic apply block is NOT a signal in either direction: every posting
+ * carries "City Employees - click here to log in to ESS. Non-City Employees -
+ * go to a127-jobs.nyc.gov/", internal or not. Matching that block would mark
+ * every vacancy internal.
+ *
+ * Returns true | false | null, where null is deliberately not false. Same
+ * reasoning as employmentTypeOf: a page whose eligibility sentence cannot be
+ * read should surface to a human rather than pass as verified-external.
+ *
+ * Why it matters here: the ERN is the artifact that clears internal-candidate
+ * gates, and cv.md scopes it to cityjobs postings only. So an internal-only
+ * posting is the one case where the ERN belongs on the CV - and until this
+ * existed nothing in the pipeline could tell one apart.
+ */
+export function internalOnlyOf(text) {
+  const t = String(text ?? '');
+
+  // Positive: the posting states an internal eligibility condition.
+  const INTERNAL = [
+    /\bcurrent (?:city )?employees?\b[^.]{0,140}\b(?:only|eligible|please|must|ERN)\b/i,
+    /\b(?:only|exclusively)\b[^.]{0,60}\b(?:open|available|eligible)\b[^.]{0,60}\b(?:to|for)\b[^.]{0,50}\b(?:current )?(?:city )?employees\b/i,
+    /\b(?:include|provide|enter)\s+(?:your\s+)?ERN\b/i,
+  ];
+  for (const re of INTERNAL) if (re.test(t)) return true;
+
+  // Negative: an explicit external-only gate. Distinct from the generic apply
+  // block, which names both audiences on every posting.
+  const EXTERNAL = [
+    /\bopen (?:only )?to (?:the )?(?:public|external|external candidates)\b/i,
+    /\bexternally (?:available|open|posted)\b/i,
+    /\bnot eligible (?:for|to)\b[^.]{0,40}\bcurrent employees\b/i,
+    /\bcurrent (?:city )?employees?\b[^.]{0,40}\b(?:are|is) not eligible\b/i,
+  ];
+  for (const re of EXTERNAL) if (re.test(t)) return false;
+
   return null;
 }
 
@@ -533,6 +585,12 @@ async function main() {
         fingerprint: fingerprintOf(d.description),
         eligibilityNote: d.eligibilityNote,
         employmentType: d.employmentType ?? 'not_stated',
+        // true = the posting gates on current-employee status (the ERN line);
+        // false = it states an external gate; null = not stated either way.
+        // This is the one field that decides whether cv.md's ERN scope rule
+        // puts the municipal employee ID on the CV, so it is surfaced rather
+        // than folded into the description text.
+        internalOnly: d.internalOnly === null ? 'not_stated' : String(d.internalOnly),
       });
     } catch (err) {
       errors.push({ url: c.url, error: err.message });
@@ -577,10 +635,20 @@ async function main() {
   }
 
   if (newOffers.length) {
+    const internalOnly = newOffers.filter((o) => o.internalOnly === 'true');
+    if (internalOnly.length) {
+      console.log(`\nInternal-only (current-employee gate; the ERN belongs on the CV for these): ${internalOnly.length}`);
+      for (const o of internalOnly.slice(0, 12)) {
+        console.log(`  🔒 ${o.title} | ${o.location || 'location n/a'} | jid-${/jid-(\d+)/.exec(o.url)?.[1] || '?'}`);
+      }
+      if (internalOnly.length > 12) console.log(`  … and ${internalOnly.length - 12} more`);
+    }
+
     console.log('\nNew offers:');
     for (const o of newOffers) {
       const flag = o.eligibilityNote ? '  ⚠ eligibility-restricted' : '';
-      console.log(`  + ${o.title} | ${o.location || 'location n/a'} | jid-${/jid-(\d+)/.exec(o.url)?.[1] || '?'}${flag}`);
+      const lock = o.internalOnly === 'true' ? '  🔒 internal-only' : '';
+      console.log(`  + ${o.title} | ${o.location || 'location n/a'} | jid-${/jid-(\d+)/.exec(o.url)?.[1] || '?'}${flag}${lock}`);
     }
     if (DRY_RUN) console.log('\n(dry run — nothing written)');
   }

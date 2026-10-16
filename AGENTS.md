@@ -449,6 +449,91 @@ loads and which augments, never replaces, this section.
 
 ---
 
+## Document Construction Rules
+
+These govern how a generated document is assembled. They are field-independent: the
+same rules hold whether the target role is a park ranger, a data scientist, or a
+line cook. Anything that depends on *who the candidate is* lives in
+`modes/_custom.md` and `config/profile.yml` and is never repeated here.
+
+**Every claim in a generated document cites its source by text anchor.** A CV bullet
+carries a `source_anchor` naming a phrase that matches exactly one line of `cv.md` —
+never a line number, because a line number silently repoints the moment anything is
+inserted above it. Use an array when one bullet fuses several source lines; support
+is pooled across them (max 6). A bullet that points at three good sources and one
+typo is not honest, it is ambiguous, and ambiguity fails the whole bullet. A bare
+string with no citation is unsourced and fails the build.
+
+**`payload.summary` is a STRING.** Not an array, not an object. The builder accepts
+`summary` as one value and will render `{}` or nothing at all for anything else,
+which reads downstream as an empty section rather than an error. The same applies to
+every scalar field: `candidate.name` is a string, `candidate.linkedin` is
+`{url, display}`.
+
+**Section order travels in the payload, not the template.** The order the reader
+scans — summary, competencies, experience, projects, education — is a function of what
+the candidate is targeting, so it is a property of the payload. A template that
+hard-codes an order cannot be tailored. Verify the rendered text after ANY edit,
+because the change is invisible in the HTML.
+
+**Order the competency chips by claim strength, and cut summary words before evidence.**
+The chips are a claim-strength-ordered strip, not an unordered keyword cloud: the
+strongest evidenced claim first, the thinnest last. When a document runs long, the
+summary is compressible and a verified bullet is not. Removing a bullet to save a
+line spends credibility; tightening a sentence spends nothing.
+
+**A checked HTML file is not a checked PDF.** `verify-cv-facts.mjs` proves nothing
+was invented. It cannot prove the document that gets submitted parses, or that a
+claim which only ever renders into the PDF is present. For any rule with no other
+enforcement point, `node verify-pdf-text.mjs <file.pdf> --must "a,b" --forbid "x,y"`
+is the only gate that covers it, and it blocks rather than reporting success when it
+decodes too little to judge.
+
+**Run all four CV gates, every time, in order.** The order is load-bearing, not
+stylistic: a fact gate on generated HTML, then a source-citation gate, then a
+rendered-PDF text gate, then an ATS parseability check. Each catches what the previous
+one structurally cannot. A green run on any single one is not a clean document.
+
+**Source policy: employer boards only, no aggregators.** Aggregators repost with
+stale or mangled descriptions, and a role that has since closed still looks live in
+their copy. This is not a preference about source quality — it is that a posting
+read from an aggregator has already failed the liveness check. Measured on cityjobs:
+the HTML extraction concatenates multi-bullet descriptions into one run of text, so
+a requirement list read from it is one string and a title filter over it matches
+nothing useful.
+
+**Never annualise a part-time rate.** Salary fields are a single column whether the
+role is annual, hourly, daily, or per-shift. A `"17.5-17.5"` in an annual column is
+an hourly rate, and rounding it into an annual figure invents a salary by three
+orders of magnitude. Read the employment shape from the detail payload's `timeType`
+field, not from the number's magnitude and not from the title — only a few postings
+name the shape in the title.
+
+**Cover letters are capability-led, not shortfall-led.** Lead with what the
+candidate demonstrably did and what it produced. Never open by naming a requirement
+they do not meet: it makes the reader's first impression of the application the one
+thing that is wrong with it. Where a requirement genuinely is unmet, the honest move
+is to address it once, in their own framing, and return to capability — or to leave it
+to the interview. A shortfall-led letter argues against itself before the candidate
+has spoken.
+
+**A MOOT follow-up pin is not a pending follow-up.** Follow-up cadence is computed
+from applied-date arithmetic, so it keeps reporting a schedule for applications whose
+posting has since expired or whose process has closed. Before treating an overdue row
+as actionable, check whether the posting is still live. A backlog of expired postings
+makes the follow-up count look like a discipline problem when it is a data problem,
+and answering it with more follow-ups makes it worse.
+
+**The compensation floor is a policy choice, and the system supports both readings.**
+Whether a posting below the candidate's floor is excluded, flagged, or admitted is
+the candidate's call, set in `config/profile.yml`, and it is recorded as a preference
+or a gate rather than inferred. What is never acceptable is the floor operating
+silently: a run that reports "no viable matches" without saying how many were
+rejected on compensation has produced an unfalsifiable summary, and a reviewer cannot
+tell a well-tuned filter from a leaking one. Report the count either way.
+
+---
+
 ## Offer Verification -- MANDATORY
 
 **NEVER trust WebSearch/WebFetch to verify if an offer is still active.** ALWAYS use Playwright:
