@@ -61,6 +61,16 @@ const flag = (n) => argv.includes(n);
 const val = (n, d) => { const i = argv.indexOf(n); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };
 const DUMP = flag('--dump');
 const ENRICH = flag('--enrich');
+// --no-exam restricts to postings hireable WITHOUT a competitive examination,
+// which is the mode this candidate needs while his own list membership is
+// unconfirmed. It costs one detail fetch per lane+grade survivor, because
+// 55-b/c and salary exist ONLY on the detail page — the listing has neither.
+const NO_EXAM = flag('--no-exam');
+// --audit reports the exam-eligibility distribution across every lane+grade
+// survivor, ignoring dedup and writing nothing. Needed because once the earlier
+// runs recorded those postings, an ordinary scan reports "already seen" for all
+// of them and cannot answer "how many of these are exam-free?".
+const AUDIT = flag('--audit');
 const useFreshness = !flag('--all');
 const LIMIT = Number(val('--limit', '25'));
 const DRY = flag('--dry-run');
@@ -171,6 +181,57 @@ export function laneOf(title) { for (const [re, lane] of LANE) if (re.test(title
 const LICENSED = /(licensed\s+(clinical\s+|master\s+)?social\s+worker|licensed\s+mental\s+health\s+counselor|psychiatrist|psychologist|nurse\s+practitioner|physician|physician\s+assistant|registered\s+nurse|dentist|attorney\s+2?\b|law\s+degree)/i;
 export function isLicensed(title) { return LICENSED.test(title); }
 
+/**
+ * Detail-page fields.
+ *
+ * MEASURED 2026-10-17, and this is the important part: the "(NY HELPS)" marker
+ * in a posting TITLE is NOT a reliable proxy for being hireable without a
+ * competitive exam. Sampling the board:
+ *     "Environmental Analyst 1 (NY HELPS)"   -> 55-b/c Eligible: No
+ *     "Training Specialist 1" (no HELPS)     -> 55-b/c Eligible: Yes
+ * The marker and the actual mechanism run opposite ways, so a title-based
+ * HELPS filter is worse than useless — it would drop the roles that are open.
+ *
+ * `55-b/c Eligible` is the field that matters: it is the civil-service
+ * provision letting an agency appoint without a competitive examination, which
+ * is exactly what this candidate needs while his own list membership is
+ * UNCONFIRMED (config/profile.yml -> state_employment).
+ *
+ * The same page also yields the real salary range, which the LISTING never
+ * carries — grade "NS" rows had no way to check comp before this.
+ */
+export function parseDetail(text) {
+  const g = (label) => {
+    const m = new RegExp(label + '\\s+(Yes|No|\\d{2}|[A-Za-z][A-Za-z /&.-]{2,44}?)(?=\\s{1,3}(?:Agency|Title|Occupational|Salary|Bargaining|Employment|Appointment|Internship|Jurisdictional|Travel|Workday|Hours|Telecommuting|County|Street|City|State|Zip|Duties|\\d))', 'i').exec(text);
+    return m ? m[1].trim() : '';
+  };
+  const range = /Salary Range From \$([\d,]+) to \$([\d,]+)/i.exec(text);
+  const lo = range ? Number(range[1].replace(/,/g, '')) : null;
+  const hi = range ? Number(range[2].replace(/,/g, '')) : null;
+  return {
+    helps: g('NY HELPS'),
+    b55c: g('55-b/c Eligible'),
+    salaryLo: lo, salaryHi: hi,
+    salary: lo && hi ? `$${range[1]} - $${range[2]}` : '',
+    appointment: g('Appointment Type'),
+    juris: g('Jurisdictional Class'),
+    telecommute: /Telecommuting allowed\?\s*Yes/i.test(text),
+    travel: g('Travel Percentage'),
+  };
+}
+
+/**
+ * Eligible without a confirmed civil-service list?
+ *
+ * True when the posting is 55-b/c eligible OR is flagged NY HELPS. Anything
+ * else means an exam or an existing list is in play, which is unanswerable
+ * until config/profile.yml -> state_employment.exams is filled in — so those
+ * are reported separately rather than silently mixed in.
+ */
+export function examFree(d) {
+  return d.b55c?.toLowerCase() === 'yes' || d.helps?.toLowerCase() === 'yes';
+}
+
 /** Grades outside the band are excluded; above GRADE_FLAG_ABOVE is a stretch. */
 export function gradeStatus(grade) {
   if (/^6\d\d$/.test(grade)) return { ok: false, why: 'executive grade' };
@@ -215,7 +276,7 @@ async function main() {
   }
 
   const { seen } = loadSeenUrls();
-  const closedSkipped = [], staleSkipped = [], gradeSkipped = [], laneSkipped = [], dupeSkipped = [], licensedSkipped = [];
+  const closedSkipped = [], staleSkipped = [], gradeSkipped = [], laneSkipped = [], dupeSkipped = [], licensedSkipped = [], examGated = [];
   const passing = [];
 
   const cutoff = useFreshness ? Date.now() - FRESHNESS_DAYS * 864e5 : null;
@@ -245,11 +306,39 @@ async function main() {
     // `.../vacancydetailsview.cfm?id=227123`. Comparing the raw mixed-case URL
     // against the set never matches, so every run re-added all 25 offers and
     // doubled the pipeline. Measured: 50 pending rows for 25 distinct ids.
-    if (seen.has(normalizeUrlForDedup(v.url))) { dupeSkipped.push(v); continue; }
+    if (!AUDIT && seen.has(normalizeUrlForDedup(v.url))) { dupeSkipped.push(v); continue; }
     passing.push({ ...v, lane, gradeFlag: g.flag });
   }
 
   console.log(`  Lane-relevant + grade in band + open: ${passing.length}`);
+
+  // Detail enrichment: 55-b/c eligibility, real salary, telecommuting.
+  // Required under --no-exam because the listing carries none of these.
+  let detailed = 0;
+  if (ENRICH || NO_EXAM) {
+    for (const v of passing) {
+      try {
+        const d = await get(v.url);
+        if (d.status === 200) {
+          const meta = parseDetail(strip(d.body));
+          v.helps = meta.helps; v.b55c = meta.b55c; v.salary = meta.salary;
+          v.salaryLo = meta.salaryLo; v.appointment = meta.appointment;
+          v.telecommute = meta.telecommute; v.examFree = examFree(meta);
+          detailed++;
+        }
+      } catch { /* best-effort */ }
+      await sleep(150);
+    }
+    const free = passing.filter((v) => v.examFree).length;
+    console.log(`  Detail fetched: ${detailed}/${passing.length}   hireable WITHOUT an exam (55-b/c or NY HELPS): ${free}`);
+    if (NO_EXAM) {
+      const keep = passing.filter((v) => v.examFree);
+      for (const v of passing) if (!v.examFree) examGated.push(v);
+      passing.length = 0;
+      passing.push(...keep);
+      console.log(`  --no-exam: kept ${passing.length}, set aside ${examGated.length} that need an exam or an existing list`);
+    }
+  }
 
   // Optional detail fetch: the exam requirement lives here, not on the list.
   let enriched = 0;
@@ -274,11 +363,57 @@ async function main() {
   const accepted = passing.slice(0, LIMIT);
   const deferred = passing.slice(LIMIT);
 
+  if (AUDIT) {
+    const free = passing.filter((v) => v.examFree);
+    const gated = passing.filter((v) => !v.examFree);
+    const withSalary = passing.filter((v) => v.salary);
+    const inBand = (v) => { const g = Number(v.grade); return g >= 14 && g <= 20; };
+    const COMMUTABLE = /^(Kings|Queens|New York|Bronx|Richmond|Nassau|Suffolk|Westchester|Rockland)/i;
+
+    console.log('\n  === EXAM-ELIGIBILITY AUDIT ===\n');
+    console.log(`  lane + grade + open            : ${passing.length}`);
+    console.log(`  detail fetched (55-b/c + pay)  : ${passing.filter((v) => v.b55c || v.salary).length}`);
+    console.log(`  HIREABLE WITHOUT AN EXAM       : ${free.length}   (55-b/c Eligible=Yes OR NY HELPS=Yes)`);
+    console.log(`  exam / existing list required  : ${gated.length}`);
+    console.log(`  with a published salary        : ${withSalary.length}`);
+    console.log(`  ...and exam-free AND grade 14-20: ${free.filter(inBand).length}`);
+    console.log(`  ...and exam-free AND commutable: ${free.filter((v) => COMMUTABLE.test(v.county)).length}`);
+
+    const b55 = {};
+    passing.forEach((v) => { const k = v.b55c || '(unparsed)'; b55[k] = (b55[k] || 0) + 1; });
+    console.log('\n  55-b/c Eligible distribution: ' + Object.entries(b55).map(([k, n]) => `${k}=${n}`).join('  '));
+    const h = {};
+    passing.forEach((v) => { const k = v.helps || '(unparsed)'; h[k] = (h[k] || 0) + 1; });
+    console.log('  NY HELPS distribution       : ' + Object.entries(h).map(([k, n]) => `${k}=${n}`).join('  '));
+
+    const inBandRows = passing.filter((v) => Number(v.grade) >= 14 && Number(v.grade) <= 20);
+    const salaries = inBandRows.map((v) => v.salaryLo).filter((x) => typeof x === 'number');
+    if (salaries.length) {
+      salaries.sort((a, b) => a - b);
+      console.log(`\n  salary floor across grade 14-20: min $${salaries[0].toLocaleString()}  median $${salaries[Math.floor(salaries.length / 2)].toLocaleString()}  max $${salaries[salaries.length - 1].toLocaleString()}`);
+      const clears = salaries.filter((x) => x >= 60000).length;
+      console.log(`  rows whose salary floor clears the $60K preference: ${clears}/${salaries.length}`);
+    }
+
+    console.log('\n  --- EXAM-FREE, grade 14-20, commutable (the shortlist) ---');
+    passing.filter((v) => v.examFree && inBand(v) && COMMUTABLE.test(v.county))
+      .sort((a, b) => (a.salaryLo || 0) - (b.salaryLo || 0))
+      .forEach((v) => console.log(`   g${String(v.grade).padEnd(4)}${String(v.salary || 'salary?').padEnd(24)}${v.title.slice(0, 46).padEnd(48)}${v.county}`));
+
+    console.log('\n  --- EXAM-FREE, grade 14-20, upstate (relocation cost) ---');
+    passing.filter((v) => v.examFree && inBand(v) && !COMMUTABLE.test(v.county))
+      .slice(0, 20)
+      .forEach((v) => console.log(`   g${String(v.grade).padEnd(4)}${String(v.salary || 'salary?').padEnd(24)}${v.title.slice(0, 46).padEnd(48)}${v.county}`));
+    return;
+  }
+
   if (DRY) {
     console.log('\n  --dry-run: nothing written\n');
     for (const v of accepted) {
       console.log(`  • ${v.title}`);
-      console.log(`    ${v.agency} | grade ${v.grade} | ${v.county} | lane ${v.lane} | posted ${v.posted} deadline ${v.deadline}`);
+      console.log(`    ${v.agency} | grade ${v.grade} | ${v.county} | lane ${v.lane} | deadline ${v.deadline}`);
+      if (v.salary) console.log(`    salary ${v.salary}${v.telecommute ? '  | TELECOMMUTE ALLOWED' : ''}${v.appointment ? '  | ' + v.appointment : ''}`);
+      if (v.b55c || v.helps) console.log(`    55-b/c=${v.b55c || '?'}  NY HELPS=${v.helps || '?'}${v.examFree ? '  -> EXAM-FREE' : '  -> exam/list may apply'}`);
       if (v.gradeFlag) console.log(`    FLAG: ${v.gradeFlag}`);
       if (v.examNote) console.log(`    EXAM: ${v.examNote}`);
       console.log(`    ${v.url}`);
@@ -288,6 +423,7 @@ async function main() {
     if (accepted.length) await appendToScanHistory(accepted, date, 'added');
     if (laneSkipped.length) await appendToScanHistory(laneSkipped, date, 'skipped_title');
     if (licensedSkipped.length) await appendToScanHistory(licensedSkipped, date, 'skipped_credentials');
+    if (examGated.length) await appendToScanHistory(examGated, date, 'skipped_exam_gated');
     if (gradeSkipped.length) await appendToScanHistory(gradeSkipped, date, 'skipped_seniority');
     if (staleSkipped.length) await appendToScanHistory(staleSkipped, date, 'skipped_date');
     if (closedSkipped.length) await appendToScanHistory(closedSkipped, date, 'skipped_closed');
