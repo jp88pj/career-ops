@@ -20,6 +20,7 @@ func TestStatusLabel(t *testing.T) {
 		{"evaluated", "Evaluated", "Değerlendirildi", "Evaluada"},
 		{"skip", "SKIP", "Uygun Değil", "OMITIR"},
 		{"rejected", "Rejected", "Reddedildi", "Rechazada"},
+		{"lapsed", "Lapsed", "Süresi Doldu", "Caducado"},
 		{"discarded", "Discarded", "İptal Edildi", "Descartada"},
 		{"unknown", "unknown", "unknown", "unknown"},
 	}

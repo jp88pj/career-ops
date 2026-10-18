@@ -52,6 +52,33 @@ states:
     dashboard_group: rejected
     terminal: true
 
+  # ADDED 2026-10-17, user-approved. See modes/_custom.md -> "Lapsed vs Rejected".
+  #
+  # WHY IT EXISTS: the Applied bucket could not empty. The user does not send
+  # follow-ups (standing preference), and until this state there was no way to
+  # record "submitted, no response, window elapsed, closed without action" —
+  # so those rows stayed Applied forever. Measured 2026-10-17: of 36 Applied
+  # rows, only 9 were under 14 days old, 22 were 15-30 days, and 5 were past
+  # 30 days with no correspondence of any kind. "36 Applied" overstated live
+  # prospects by roughly 4x.
+  #
+  # WHY IT IS NOT "Rejected": Rejected implies a DECISION was made by the
+  # employer. Measured across the 15 real rejections there were three distinct
+  # endings -- an explicit rejection email (10), "we've filled the role"
+  # (1), and a volume acknowledgement followed by silence where the employer
+  # says in advance it will only contact the best-matched candidates and then
+  # contacts none (IXL, #14). Only the first two are decisions. The third is a
+  # non-event, and calling it Rejected would put a number in the tracker that
+  # the evidence does not support.
+  #
+  # Keep Rejected for evidence of a decision. Use Lapsed for its absence.
+  - id: lapsed
+    label: Lapsed
+    aliases: [lapsed, caducado, caducada, expired, closed, silente, unanswered, "sessiz", zaman asimina ugradi]
+    description: Application window elapsed with no employer response and no follow-up sent
+    dashboard_group: rejected
+    terminal: true
+
   - id: discarded
     label: Discarded
     aliases: [descartado, descartada, cerrada, cancelada, "iptal edildi", iptal_edildi, "ıptal edildi", ıptal_edildi]

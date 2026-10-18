@@ -42,7 +42,32 @@ const STATUS_LOG_FILE = join(DATA_ROOT, 'data', 'status-log.tsv');
 const PORTALS_FILE = join(DATA_ROOT, 'portals.yml');
 const PORTAL_HEALTH_FILE = join(DATA_ROOT, 'data', 'portal-health.tsv');
 
-const CANONICAL_STATUSES = ['Evaluated', 'Applied', 'Responded', 'Interview', 'Offer', 'Hired', 'Rejected', 'Discarded', 'SKIP'];
+// Canonical states are read from templates/states.yml, never duplicated here.
+// This file used to carry its own hardcoded copy, which meant adding a state
+// to states.yml silently bucketed its rows into "Unknown" in this report -- the
+// exact unrecognized-state fall-through states.yml's own header warns about
+// (#1504). states.yml ships with the code, so it is resolved from this
+// module's directory, not process.cwd() (same reasoning as tracker.mjs).
+const STATES_PATH = join(ROOT, 'templates', 'states.yml');
+
+function loadCanonicalStatuses() {
+  try {
+    const doc = yaml.load(readFileSync(STATES_PATH, 'utf-8'));
+    const labels = (doc?.states || []).map((s) => s?.label).filter(Boolean);
+    // A states.yml that parses but yields nothing would make every row
+    // Unknown -- the silent-empty-column bug this change exists to prevent.
+    if (!labels.length) throw new Error('no states found');
+    return labels;
+  } catch (err) {
+    // Do not silently fall back to a stale hardcoded list: that is how a new
+    // state gets lost in the first place. Fail loudly and name the file.
+    console.error(`Error: could not load ${STATES_PATH} -- ${err.message}`);
+    console.error('Canonical states cannot be read; refusing to report Unknown for every row.');
+    process.exit(1);
+  }
+}
+
+const CANONICAL_STATUSES = loadCanonicalStatuses();
 
 // In-flight applications. Deliberately NARROWER than the dashboard's
 // ActiveApps (which also counts Evaluated): an evaluated-but-never-sent row is
@@ -52,8 +77,10 @@ const ACTIVE_STATUSES = new Set(['Applied', 'Responded', 'Interview', 'Offer']);
 
 // Rows that count toward avgScoreApplied — jobs the user actually pursued.
 // Plain avgScore mixes in SKIP/Discarded and understates real fit. Hired is
-// the fullest pursuit of all, so it belongs here.
-const PURSUED_STATUSES = new Set(['Applied', 'Responded', 'Interview', 'Offer', 'Hired', 'Rejected']);
+// the fullest pursuit of all, so it belongs here. Lapsed belongs here too:
+// an application WAS sent for it, it simply drew no response, so excluding it
+// would quietly shrink the denominator and flatter avg fit.
+const PURSUED_STATUSES = new Set(['Applied', 'Responded', 'Interview', 'Offer', 'Hired', 'Rejected', 'Lapsed']);
 
 const round1 = (n) => Math.round(n * 10) / 10;
 const pct = (part, total) => (total > 0 ? round1((part / total) * 100) : 0);
@@ -168,7 +195,14 @@ export function computeColdAppNums(trackerContent, followupsContent) {
  */
 export function computeFunnel(byStatus) {
   const n = (k) => byStatus[k] || 0;
-  const everApplied = n('Applied') + n('Responded') + n('Interview') + n('Offer') + n('Hired') + n('Rejected');
+  // Lapsed counts into everApplied ONLY, never everResponded. An application
+  // was definitely sent for it, so it belongs in the denominator; but by
+  // definition no employer ever replied, so it must not inflate the numerator.
+  // Leaving it out of everApplied is not neutral -- it shrinks the denominator
+  // by exactly the rows that went quiet, which RAISES the reported response
+  // rate. A reclassification would have flattered the funnel it was meant to
+  // measure.
+  const everApplied = n('Applied') + n('Responded') + n('Interview') + n('Offer') + n('Hired') + n('Rejected') + n('Lapsed');
   const everResponded = n('Responded') + n('Interview') + n('Offer') + n('Hired') + n('Rejected');
   const everInterview = n('Interview') + n('Offer') + n('Hired');
   const everOffer = n('Offer') + n('Hired');

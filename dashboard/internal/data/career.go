@@ -531,7 +531,10 @@ func ComputeMetrics(apps []model.CareerApplication) model.PipelineMetrics {
 		if app.HasPDF {
 			m.WithPDF++
 		}
-		if status != "skip" && status != "rejected" && status != "discarded" {
+		// Terminal states are not actionable. "lapsed" belongs here: it is
+		// terminal in states.yml, and omitting it counted every dead
+		// application as still in play.
+		if status != "skip" && status != "rejected" && status != "lapsed" && status != "discarded" {
 			m.Actionable++
 		}
 	}
@@ -570,6 +573,13 @@ func NormalizeStatus(raw string) string {
 		return "applied"
 	case strings.Contains(s, "rejected") || strings.Contains(s, "rechazado") || s == "rechazada" || strings.Contains(s, "reddedildi"):
 		return "rejected"
+	// Lapsed: the application window elapsed with no employer response and no
+	// follow-up sent. Aliases mirror templates/states.yml -- keep in sync.
+	// Deliberately does NOT claim "cerrada"/"cancelada": states.yml assigns
+	// those to Discarded, and two states cannot both normalize them.
+	case s == "lapsed" || s == "caducado" || s == "caducada" || s == "expired" ||
+		s == "unanswered" || s == "silente" || s == "sessiz" || s == "zaman asimina ugradi":
+		return "lapsed"
 	case strings.Contains(s, "discarded") || strings.Contains(s, "descartado") || s == "descartada" || s == "cerrada" || s == "cancelada" ||
 		strings.HasPrefix(s, "duplicado") || strings.HasPrefix(s, "dup") || strings.Contains(s, "iptal edildi") || strings.Contains(s, "iptal_edildi") || strings.Contains(s, "ıptal edildi") || strings.Contains(s, "ıptal_edildi"):
 		return "discarded"
@@ -872,7 +882,7 @@ func UpdateApplicationStatusAndNotes(careerOpsPath string, app model.CareerAppli
 // Reject malformed UI input cheaply; the writer validates against states.yml.
 func isCanonicalStatusName(status string) bool {
 	switch strings.ToLower(status) {
-	case "evaluated", "applied", "responded", "interview", "offer", "hired", "rejected", "discarded", "skip":
+	case "evaluated", "applied", "responded", "interview", "offer", "hired", "rejected", "lapsed", "discarded", "skip":
 		return true
 	}
 	return false
@@ -902,8 +912,10 @@ func StatusPriority(status string) int {
 		return 5
 	case "rejected":
 		return 6
-	case "discarded":
+	case "lapsed":
 		return 7
+	case "discarded":
+		return 8
 	default:
 		return 8
 	}
@@ -930,7 +942,10 @@ func ComputeProgressMetrics(apps []model.CareerApplication, history ...map[int]i
 			}
 		}
 
-		if norm != "skip" && norm != "rejected" && norm != "discarded" {
+		// "lapsed" is terminal (states.yml), so it must not count as an
+		// active app -- it is exactly the kind of dead row that made the
+		// active count overstate live prospects.
+		if norm != "skip" && norm != "rejected" && norm != "lapsed" && norm != "discarded" {
 			pm.ActiveApps++
 		}
 	}
@@ -947,7 +962,12 @@ func ComputeProgressMetrics(apps []model.CareerApplication, history ...map[int]i
 	// canonical funnel definition, whose docstring already describes this exact
 	// math as mirroring this function.
 	total := len(apps)
-	applied := statusCounts["applied"] + statusCounts["responded"] + statusCounts["interview"] + statusCounts["offer"] + statusCounts["hired"] + statusCounts["rejected"]
+	// "lapsed" counts into `applied` ONLY, never `responded`: an application
+	// was certainly sent for it, so it belongs in the denominator, but the
+	// state is defined by the absence of any employer reply, so it can never
+	// inflate the numerator. Omitting it would shrink the denominator by
+	// exactly the rows that went quiet and raise the reported response rate.
+	applied := statusCounts["applied"] + statusCounts["responded"] + statusCounts["interview"] + statusCounts["offer"] + statusCounts["hired"] + statusCounts["rejected"] + statusCounts["lapsed"]
 	responded := statusCounts["responded"] + statusCounts["interview"] + statusCounts["offer"] + statusCounts["hired"] + statusCounts["rejected"]
 	interview := statusCounts["interview"] + statusCounts["offer"] + statusCounts["hired"]
 	offer := statusCounts["offer"] + statusCounts["hired"]
