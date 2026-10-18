@@ -55,6 +55,12 @@
  *   node scan-builtinnyc.mjs --limit N      # cap accepted postings (default 25)
  *   node scan-builtinnyc.mjs --max-pages N  # hard page cap (default 60)
  *   node scan-builtinnyc.mjs --dry-run      # print only, write nothing
+ *   node scan-builtinnyc.mjs --force        # scan even though portals.yml disables this board
+ *
+ * DISABLED IN PORTALS.YML: this board is `enabled: false` by user directive
+ * (2026-10-03) because it is an aggregator. The flag is enforced here, not
+ * only in scan.mjs, so the directive cannot be undone by running this file
+ * directly. --force is the explicit override.
  */
 
 import https from 'node:https';
@@ -88,6 +94,33 @@ let config = {};
 if (existsSync(PORTALS_PATH)) config = yaml.load(readFileSync(PORTALS_PATH, 'utf-8')) || {};
 const matchesTitle = buildTitleFilterBySource(config.title_filter || {}, config.source_title_filters);
 const HOSTS = ['www.builtinnyc.com'];
+
+// ── Respect `enabled: false` in portals.yml ─────────────────────────────────
+// scan.mjs's aggregator honours this flag (resolveEntries skips entry.enabled
+// === false), but a standalone `node scan-builtinnyc.mjs` did NOT: it read
+// portals.yml for title/location filters and never looked at the flag. That
+// made the 2026-10-03 disable-by-directive bypassable by simply running this
+// file, and it was bypassed -- 1008 builtinnyc URLs landed in scan-history.tsv
+// on 2026-10-17, the largest single scan day for this source by 6x.
+//
+// Without this gate, "disabled" records an intent that one command line
+// silently overrides, which is worse than no switch at all.
+//
+// --force is the deliberate override, so the flag is never a dead end: it
+// prints what it is overriding and requires the operator to ask for it by name.
+if (!process.argv.includes('--force')) {
+  const boards = Array.isArray(config.job_boards) ? config.job_boards : [];
+  const entry = boards.find((b) => String(b?.host || '').toLowerCase() === 'www.builtinnyc.com')
+    || boards.find((b) => /built\s*in/i.test(String(b?.name || '')));
+  if (entry?.enabled === false) {
+    console.error('Error: Built In NYC is disabled in portals.yml (job_boards -> Built In NYC -> enabled: false).');
+    console.error('  Directive 2026-10-03: Built In is an aggregator, and modes/_custom.md makes the');
+    console.error("  employer's own board the only source that may CONFIRM or CLOSE a role.");
+    console.error('  Measured cost: 114 of 285 tracker rows (40%), 7 applications, 4 rejections, 0 interviews.');
+    console.error('  Re-run with --force to scan anyway, or set enabled: true in portals.yml.');
+    process.exit(1);
+  }
+}
 
 const locFilter = config.location_filter || {};
 const locAllow = (locFilter.allow || []).map((k) => k.toLowerCase());
