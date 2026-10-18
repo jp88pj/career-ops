@@ -68,6 +68,7 @@ import { printScanSummaryHeader } from './lib/scan-summary-marker.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { normalizeJdText } from './fingerprint-core.mjs';
 import { createHash } from 'crypto';
+import { buildTitleFilterBySource } from './title-keywords.mjs';
 
 const DATA_ROOT = getCareerOpsRoot();
 const HOST = 'https://cityjobs.nyc.gov';
@@ -119,16 +120,32 @@ const DETAIL_LIMIT = (() => {
 let config = {};
 if (existsSync(PORTALS_PATH)) config = yaml.load(readFileSync(PORTALS_PATH, 'utf-8')) || {};
 
+// REWIRED 2026-10-18. This file hand-rolled its own title matcher from the
+// GLOBAL positive/negative lists only:
+//
+//     if (negativeKw.some(k => lower.includes(k))) return false;
+//     return positiveKw.some(k => lower.includes(k));
+//
+// That made 29 of the 75 global negatives INERT, because they carry a `word:`
+// prefix -- word:Intern, word:Part Time, word:Seasonal, word:Temp, word:Sales,
+// word:Marketing, word:Accounting, word:Account Executive, word:Accountant and
+// the rest. A naive `lower.includes("word:intern")` searches a JOB TITLE for
+// that literal prefix, never finds it, and returns false, so the veto silently
+// never fires. The shipped compiler in title-keywords.mjs strips the prefix and
+// matches the whole word, which is what every `word:` entry was written to mean.
+//
+// This is the highest-converting board in the tracker -- 35.7% of its rows
+// pursued against 18.2% overall -- so the defect cost more here than anywhere
+// else: part-time, seasonal, temp, sales, marketing and accounting roles were
+// all reaching triage on the one board where they should never have landed.
+//
+// It also could not consult `source_title_filters` at all, so any host-scoped
+// rule for cityjobs.nyc.gov would have been advertised and then ignored.
+// scan-mta.mjs, scan-teamworkonline.mjs and (as of 2026-10-18) scan-bandana.mjs
+// all use the shipped matcher. scan-interamt.mjs still carries this defect.
+const HOSTS = ['cityjobs.nyc.gov'];
 const titleFilter = config.title_filter || {};
-const positiveKw = (titleFilter.positive || []).map(k => k.toLowerCase());
-const negativeKw = (titleFilter.negative || []).map(k => k.toLowerCase());
-
-function matchesTitle(title) {
-  const lower = (title || '').toLowerCase();
-  if (negativeKw.some(k => lower.includes(k))) return false;
-  if (positiveKw.length === 0) return true;
-  return positiveKw.some(k => lower.includes(k));
-}
+const matchesTitle = buildTitleFilterBySource(titleFilter, config.source_title_filters);
 
 const locFilter = config.location_filter || {};
 const locAllow = (locFilter.allow || []).map(k => k.toLowerCase());
@@ -535,7 +552,11 @@ async function main() {
 
     if (cutoff && lastmod && lastmod.getTime() < cutoff) { staleSkipped.push(v); continue; }
     if (SINGLE_QUERY && !title.toLowerCase().includes(SINGLE_QUERY.toLowerCase())) continue;
-    if (!matchesTitle(title)) { seen.add(v.url); titleSkipped.push(v); continue; }
+    // ctx is REQUIRED: buildTitleFilterBySource keys every rule off ctx.hosts /
+    // ctx.company and falls through to the GLOBAL filter when neither is given.
+    // Passing the title alone would reproduce the bug just fixed above, one
+    // layer down. cityjobs slugs carry no agency name, so company is empty.
+    if (!matchesTitle(title, { hosts: HOSTS, company: '' })) { seen.add(v.url); titleSkipped.push(v); continue; }
     if (!matchesLocation(location)) { seen.add(v.url); locationSkipped.push(v); continue; }
     if (seen.has(v.url)) { dupeSkipped.push(v); continue; }
     candidates.push({ ...v, title, location });

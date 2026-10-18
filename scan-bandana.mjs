@@ -48,6 +48,7 @@ import { appendToPipeline, appendToScanHistory, loadSeenUrls, PORTALS_PATH, SCAN
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { localToday } from './lib/local-today.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
+import { buildTitleFilterBySource } from './title-keywords.mjs';
 
 // ── Config ───────────────────────────────────────────────────────────
 
@@ -94,18 +95,31 @@ const bandanaSearches = Array.isArray(config.bandana_searches)
   ? config.bandana_searches.filter(s => s && typeof s === 'object' && s.enabled !== false)
   : DEFAULT_SEARCHES;
 
-// ── Filters (same contract as scan-interamt.mjs) ─────────────────────
-
+// ── Filters ───────────────────────────────────────────────────────────
+// REWIRED 2026-10-18. This file hand-rolled its own title matcher from the
+// GLOBAL positive/negative lists only:
+//
+//     if (negativeKw.some(k => lower.includes(k))) return false;
+//     return positiveKw.some(k => lower.includes(k));
+//
+// Two things were wrong with that, and both were silent:
+//
+// 1. It never consulted `source_title_filters`, so the Bandana lane rule added
+//    to portals.yml on 2026-10-18 could not fire here -- the file advertised a
+//    filter it structurally could not apply.
+// 2. 29 of the 75 global negatives carry a `word:` prefix (word:Intern,
+//    word:Seasonal, word:Sales, word:Accounting, ...). A naive
+//    `lower.includes("word:intern")` looks for that literal string in a job
+//    TITLE, never finds it, and returns false -- so all 29 were inert. The
+//    shipped compiler in title-keywords.mjs strips the prefix and matches the
+//    whole word instead.
+//
+// scan-mta.mjs and scan-teamworkonline.mjs already use the shipped matcher;
+// this file joins them. scan-interamt.mjs and scan-cityjobs.mjs carry the same
+// defect and are noted in modes/_custom.md.
+const HOSTS = ['bandana.com', 'www.bandana.com'];
 const titleFilter = config.title_filter || {};
-const positiveKw = (titleFilter.positive || []).map(k => k.toLowerCase());
-const negativeKw = (titleFilter.negative || []).map(k => k.toLowerCase());
-
-function matchesTitle(title) {
-  const lower = title.toLowerCase();
-  if (negativeKw.some(k => lower.includes(k))) return false;
-  if (positiveKw.length === 0) return true;
-  return positiveKw.some(k => lower.includes(k));
-}
+const matchesTitle = buildTitleFilterBySource(titleFilter, config.source_title_filters);
 
 const locFilter = config.location_filter || {};
 const locAllow = (locFilter.allow || []).map(k => k.toLowerCase());
@@ -438,7 +452,12 @@ async function main() {
     if (postedAt !== undefined) canonical.postedAt = postedAt;
 
     if (hit.expired) { seen.add(canonical.url); expiredSkipped.push(canonical); return; }
-    if (!bypassTitle && !matchesTitle(hit.title)) { seen.add(canonical.url); titleSkipped.push(canonical); return; }
+    // ctx is REQUIRED, not optional: buildTitleFilterBySource keys every rule
+    // off ctx.hosts / ctx.company and falls through to the GLOBAL filter when
+    // neither is supplied. Passing the title alone would make this call site
+    // silently ignore the Bandana lane rule -- the exact bug just fixed above,
+    // reappearing one layer down.
+    if (!bypassTitle && !matchesTitle(hit.title, { hosts: HOSTS, company: hit.company || canonical.company || '' })) { seen.add(canonical.url); titleSkipped.push(canonical); return; }
     if (!bypassEngagement && !matchesLocation(location)) { seen.add(canonical.url); locationSkipped.push(canonical); return; }
     // Same-day cards pass: lastScanDate is the day of the last run, and a
     // card posted later that same day should not be treated as stale.
