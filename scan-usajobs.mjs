@@ -56,7 +56,11 @@ const API_HOST = 'data.usajobs.gov';
 const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(n);
 const val = (n, d) => { const i = argv.indexOf(n); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };
-const LOCATION = val('--location', 'New York');
+// `--nationwide` rather than `--location ""`: an empty string argument does not
+// survive a shell, so `node scan-usajobs.mjs --location "" --dump` silently
+// consumed the NEXT flag as the location and searched for jobs in "--dump",
+// returning a clean 0 across every keyword that looked like a working scan.
+const LOCATION = flag('--nationwide') ? '' : val('--location', 'New York');
 const LIMIT = Number(val('--limit', '40'));
 const DUMP = flag('--dump');
 const SINGLE = val('--keyword', null);
@@ -87,8 +91,14 @@ const DEFAULT_KEYWORDS = [
 ];
 const KEYWORDS = SINGLE ? [SINGLE] : DEFAULT_KEYWORDS;
 
-// GS band. Realistic entry-to-mid professional range; GS-14+ is a stretch.
-const GS_MIN = 5, GS_MAX = 13, GS_FLAG_ABOVE = 11;
+// GS band. GS-07 is the floor because GS-05 nationwide measured 2026-10-17 runs
+// $38,791-$50,428 — below the $60K preference floor, so it cannot clear comp
+// however well the rest of the role reads. GS-13 is the ceiling: it asks 4+
+// years of specialised experience the record does not have.
+const GS_MIN = 7, GS_MAX = 13, GS_FLAG_ABOVE = 11;
+// Used only to ORDER and FLAG, never to veto — comp is a preference per
+// modes/_custom.md, not a gate.
+const COMP_FLOOR = 60000;
 
 function gsLevel(d) {
   const hay = String(d.QualificationSummary || '') + ' ' + String(d.PositionFormattedDescription || '');
@@ -114,6 +124,34 @@ function gsLevel(d) {
  * traded for precision deliberately, because the alternative was a 40% false
  * positive rate on a 249-posting set.
  */
+/**
+ * Hard exclusions measured on the 2026-10-17 nationwide run (3,436 postings,
+ * 309 in-band).
+ *
+ * TITLE 32 / (MILITARY): Title 32 positions are filled by MILITARY RESERVISTS,
+ * not civilian applicants, and they dominate a keyword search on training,
+ * programme and HR. None is open to him and none should be queued.
+ *
+ * SUPERVISORY: requires demonstrated supervisory experience plus team
+ * leadership over a full grade band. He has co-supervised camp counselors but
+ * has never held a supervisory position; same reasoning that dropped the Met's
+ * "Supervisory Program Manager (Assistant Director)".
+ *
+ * CLINICAL: doctoral or licensure requirement, same as the Clinical Psychologist
+ * drops in the New York slice.
+ */
+// The `u?` in `su?pervis` is not a typo: federal postings mis-spell it as
+// "Supvervisory Medical Records Technician" (Bureau of Naval Personnel — it is
+// in their own published title), which a plain /supervis/ does not match.
+const EXCLUDED_TITLE = /(\(\s*military\s*\)|title\s*32|\bsu?pervis)/i;
+const CLINICAL_TITLE = /(clinical psychologist|psychiatrist|physician|dentist|nurse practitioner|pharmacist|medical records technician|\bcoder\b)/i;
+export function excludedTitle(t) {
+  const s = String(t || '');
+  if (EXCLUDED_TITLE.test(s)) return 'military/Title-32 or supervisory';
+  if (CLINICAL_TITLE.test(s)) return 'clinical/licensure';
+  return '';
+}
+
 function inLane(d) {
   const t = String(d.PositionTitle || '');
   return /(assessment specialist|test administrator|testing (specialist|technician|manager)|psychometric|examiner)/i.test(t)
@@ -209,12 +247,14 @@ async function main() {
   console.log(`  API requests used this run: ${requests}`);
 
   const { seen } = loadSeenUrls();
-  const laneHits = [], offLane = [], seenSkip = [], gradeSkip = [], staleSkip = [], closedSkip = [];
+  const laneHits = [], offLane = [], seenSkip = [], gradeSkip = [], staleSkip = [], closedSkip = [], gatedSkip = [], duplicateTitle = [];
   const now = Date.now();
 
   for (const d of byId.values()) {
     const url = String(d.PositionURI || '').replace(':443', '');
     if (!inLane(d)) { offLane.push(d); continue; }
+    const gate = excludedTitle(d.PositionTitle);
+    if (gate) { gatedSkip.push({ d, gate }); continue; }
     const gs = gsLevel(d);
     if (gs !== null && (gs < GS_MIN || gs > GS_MAX)) { gradeSkip.push(d); continue; }
     const close = Date.parse(String(d.ApplicationCloseDate || '').replace(/[^0-9T:.\-Z]/g, (c) => (c === 'Z' ? 'Z' : '')) || '');
@@ -223,9 +263,37 @@ async function main() {
     laneHits.push({ d, gs, url });
   }
 
-  laneHits.sort((a, b) => (a.gs ?? 99) - (b.gs ?? 99));
-  const accepted = laneHits.slice(0, LIMIT);
-  const deferred = laneHits.slice(LIMIT);
+  // Order by what actually decides whether a posting is worth an application:
+  // a salary that clears the preference floor first, then the GS level closest
+  // to his band. Sorting on GS alone put GS-07 overseas unit-coordinator roles
+  // ahead of GS-12 roles in his own city.
+  const salOf = (d) => Number((d.PositionRemuneration || [])[0]?.MinimumRange) || 0;
+  laneHits.sort((a, b) => {
+    const af = salOf(a.d) >= COMP_FLOOR ? 0 : 1;
+    const bf = salOf(b.d) >= COMP_FLOOR ? 0 : 1;
+    if (af !== bf) return af - bf;
+    const ab = (a.gs ?? 99), bb = (b.gs ?? 99);
+    if (ab !== bb) return ab - bb;
+    return salOf(b.d) - salOf(a.d);
+  });
+  // Title diversity cap. Measured: the nationwide run queued 40 offers of which
+  // 20+ were "Staff Operations and Training Specialist / U.S. Army Reserve
+  // Command" — the same role posted at many units. Individually valid, but no
+  // one applies to fifteen of them, and it buries everything else. Cap at
+  // MAX_PER_TITLE_ORG per (normalised title, organisation) so breadth survives.
+  const MAX_PER_TITLE_ORG = 2;
+  const tally = new Map();
+  const spread = [];
+  for (const h of laneHits) {
+    const key = (strip(h.d.PositionTitle).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() + '|'
+      + strip(h.d.OrganizationName).toLowerCase());
+    const n = (tally.get(key) || 0) + 1;
+    tally.set(key, n);
+    if (n <= MAX_PER_TITLE_ORG) spread.push(h); else duplicateTitle.push(h);
+  }
+
+  const accepted = spread.slice(0, LIMIT);
+  const deferred = spread.slice(LIMIT);
 
   const rows = accepted.map(({ d, gs, url }) => ({
     url,
@@ -268,6 +336,8 @@ async function main() {
     await appendToScanHistory(rows.map((r) => ({ url: r.url, title: r.title, company: r.company, location: r.location })), localToday(), 'added');
     if (offLane.length) await appendToScanHistory(offLane.map((d) => ({ url: String(d.PositionURI || ''), title: strip(d.PositionTitle), company: strip(d.OrganizationName) })), localToday(), 'skipped_title');
     if (gradeSkip.length) await appendToScanHistory(gradeSkip.map((d) => ({ url: String(d.PositionURI || ''), title: strip(d.PositionTitle), company: strip(d.OrganizationName) })), localToday(), 'skipped_seniority');
+    if (gatedSkip.length) await appendToScanHistory(gatedSkip.map((g) => ({ url: String(g.d.PositionURI || ''), title: strip(g.d.PositionTitle), company: strip(g.d.OrganizationName) })), localToday(), 'skipped_inaccessible');
+    if (duplicateTitle.length) await appendToScanHistory(duplicateTitle.map((h) => ({ url: String(h.d.PositionURI || ''), title: strip(h.d.PositionTitle), company: strip(h.d.OrganizationName) })), localToday(), 'skipped_duplicate_title');
     if (closedSkip.length) await appendToScanHistory(closedSkip.map((d) => ({ url: String(d.PositionURI || ''), title: strip(d.PositionTitle), company: strip(d.OrganizationName) })), localToday(), 'skipped_closed');
     if (seenSkip.length) await appendToScanHistory(seenSkip.map((d) => ({ url: String(d.PositionURI || ''), title: strip(d.PositionTitle), company: strip(d.OrganizationName) })), localToday(), 'skipped_dup');
   }
@@ -276,9 +346,11 @@ async function main() {
   console.log('─'.repeat(56));
   console.log(`Postings enumerated: ${byId.size} across ${KEYWORDS.length} keyword(s), ${requests} API request(s)`);
   console.log(`Filtered off-lane:  ${offLane.length}`);
-  console.log(`Filtered by grade:  ${gradeSkip.length}   (band GS-${GS_MIN}-GS-${GS_MAX}; >GS-${GS_FLAG_ABOVE} is entry-mid)`);
+  console.log(`Filtered by grade:  ${gradeSkip.length}   (band GS-${GS_MIN}-GS-${GS_MAX})`);
+  console.log(`Filtered inaccessible:${String(gatedSkip.length).padStart(3)}   (Title 32 / military-reserve, supervisory, or licensure-gated)`);
   console.log(`Closed (past date): ${closedSkip.length}`);
   console.log(`Already seen:       ${seenSkip.length}`);
+  console.log(`Duplicate title/org:${String(duplicateTitle.length).padStart(3)}   (same role at many units — capped at 2 each)`);
   console.log(`Deferred (over cap):${deferred.length}`);
   console.log(`NEW OFFERS:         ${rows.length}`);
   console.log('');
