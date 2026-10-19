@@ -41,7 +41,7 @@ const SCAN_RUNS_FILE = join(DATA_ROOT, 'data', 'scan-runs.tsv');
 const PORTALS_FILE = join(DATA_ROOT, 'portals.yml');
 const PORTAL_HEALTH_FILE = join(DATA_ROOT, 'data', 'portal-health.tsv');
 
-const CANONICAL_STATUSES = ['Evaluated', 'Applied', 'Responded', 'Assessment', 'Interview', 'Offer', 'Hired', 'Rejected', 'Discarded', 'SKIP'];
+const CANONICAL_STATUSES = ['Evaluated', 'Applied', 'Responded', 'Assessment', 'Interview', 'Offer', 'Hired', 'Rejected', 'Lapsed', 'Discarded', 'SKIP'];
 
 // In-flight applications, shared with the web Analytics and Go dashboard
 // ActiveApps: an evaluated-but-never-sent row is a candidate, not an
@@ -52,7 +52,12 @@ const ACTIVE_STATUSES = new Set(['Applied', 'Responded', 'Assessment', 'Intervie
 // Rows that count toward avgScoreApplied — jobs the user actually pursued.
 // Plain avgScore mixes in SKIP/Discarded and understates real fit. Hired is
 // the fullest pursuit of all, so it belongs here.
-const PURSUED_STATUSES = new Set(['Applied', 'Responded', 'Assessment', 'Interview', 'Offer', 'Hired', 'Rejected']);
+// Rows that count toward avgScoreApplied — jobs the user actually pursued.
+// Plain avgScore mixes in SKIP/Discarded and understates real fit. Hired is
+// the fullest pursuit of all, so it belongs here. Lapsed belongs here too:
+// an application WAS sent for it, it simply drew no response, so excluding it
+// would quietly shrink the denominator and flatter avg fit.
+const PURSUED_STATUSES = new Set(['Applied', 'Responded', 'Assessment', 'Interview', 'Offer', 'Hired', 'Rejected', 'Lapsed']);
 
 const round1 = (n) => Math.round(n * 10) / 10;
 const pct = (part, total) => (total > 0 ? round1((part / total) * 100) : 0);
@@ -167,7 +172,14 @@ export function computeColdAppNums(trackerContent, followupsContent) {
  */
 export function computeFunnel(byStatus) {
   const n = (k) => byStatus[k] || 0;
-  const everApplied = n('Applied') + n('Responded') + n('Assessment') + n('Interview') + n('Offer') + n('Hired') + n('Rejected');
+  // Lapsed counts into everApplied ONLY, never everResponded. An application
+  // was definitely sent for it, so it belongs in the denominator; but by
+  // definition no employer ever replied, so it must not inflate the numerator.
+  // Leaving it out of everApplied is not neutral -- it shrinks the denominator
+  // by exactly the rows that went quiet, which RAISES the reported response
+  // rate. A reclassification would have flattered the funnel it was meant to
+  // measure.
+  const everApplied = n('Applied') + n('Responded') + n('Assessment') + n('Interview') + n('Offer') + n('Hired') + n('Rejected') + n('Lapsed');
   const everResponded = n('Responded') + n('Assessment') + n('Interview') + n('Offer') + n('Hired') + n('Rejected');
   const everInterview = n('Interview') + n('Offer') + n('Hired');
   const everOffer = n('Offer') + n('Hired');
