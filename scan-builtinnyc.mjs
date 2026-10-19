@@ -108,7 +108,16 @@ const HOSTS = ['www.builtinnyc.com'];
 //
 // --force is the deliberate override, so the flag is never a dead end: it
 // prints what it is overriding and requires the operator to ask for it by name.
-if (!process.argv.includes('--force')) {
+// MOVED INTO main() 2026-10-19. This gate used to sit at module scope, so
+// IMPORTING the file exited the importing process. A module-level
+// process.exit() is not catchable, so a test or a tool that imported this
+// scanner was killed mid-run rather than reporting the refusal -- and the
+// repo's own convention is that a script's side effects live behind
+// isMainModule (tests/main-guard-convention.test.mjs). Called from main() it
+// does exactly what it did before when the file is run directly, and imports
+// cleanly when it is not.
+function assertBoardEnabled() {
+  if (process.argv.includes('--force')) return;
   const boards = Array.isArray(config.job_boards) ? config.job_boards : [];
   const entry = boards.find((b) => String(b?.host || '').toLowerCase() === 'www.builtinnyc.com')
     || boards.find((b) => /built\s*in/i.test(String(b?.name || '')));
@@ -253,6 +262,7 @@ async function enumerate(log) {
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 async function main() {
+  assertBoardEnabled();
   const date = localToday();
 
   if (DUMP) {
