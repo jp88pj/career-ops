@@ -24,12 +24,31 @@
  * ("pre|SIDENT") and bare "Learning" matched "Machine Learning" engineering
  * roles. Every pattern here is anchored on a multi-word phrase.
  *
- * ELIGIBILITY IS UNVERIFIED AND FLAGGED, NOT GATED. The user has taken NY
- * State civil service exams and is on waiting lists, but has not yet confirmed
- * which. NY competitive postings commonly require a specific exam or an
- * eligible title, and the board does not expose that on the list — it is on the
- * detail page, fetched by --enrich. So every role this scanner emits is marked
- * eligibility-unverified. See modes/_custom.md -> NY State civil service.
+ * ELIGIBILITY IS A KNOWN NEGATIVE, NOT AN OPEN QUESTION. Rewritten 2026-10-19.
+ *
+ * This header previously said the user "has taken NY State civil service exams
+ * and is on waiting lists, but has not yet confirmed which". That was never
+ * established — it came from a question on 2026-10-17 that was never answered,
+ * and it is now corrected: the user states he is NOT on any eligible NYS civil
+ * service list, and will update this himself if that changes
+ * (config/profile.yml -> state_employment, `confirmed: true`).
+ *
+ * That turns an unknown into a negative, and the handling changes with it:
+ *
+ *   55-b/c Eligible=Yes, or NY HELPS  -> ADMISSIBLE. These are the civil-service
+ *     provisions for appointment WITHOUT a competitive examination. With no list
+ *     held, these are not merely the easy cases, they are the ONLY cases.
+ *
+ *   anything else                      -> NOT ELIGIBLE. A NY competitive posting
+ *     requiring an exam he does not hold is a real gate, not a flag to raise. It
+ *     is still reported rather than silently dropped, and it is a legitimate SKIP
+ *     with this reason named. Do not restore the old "unverified, confirm per
+ *     posting" framing: there is nothing left to confirm.
+ *
+ * The distinction from before is the point. An unconfirmed list is not the same
+ * as a missing one, and treating a confirmed negative as merely unflagged would
+ * keep surfacing roles the user cannot take. See modes/_custom.md -> NY State
+ * civil service.
  *
  * SIBLING: scan-cityjobs.mjs · scan-mta.mjs · scan-builtinnyc.mjs · scan-nystate.mjs
  *
@@ -61,10 +80,11 @@ const flag = (n) => argv.includes(n);
 const val = (n, d) => { const i = argv.indexOf(n); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };
 const DUMP = flag('--dump');
 const ENRICH = flag('--enrich');
-// --no-exam restricts to postings hireable WITHOUT a competitive examination,
-// which is the mode this candidate needs while his own list membership is
-// unconfirmed. It costs one detail fetch per lane+grade survivor, because
-// 55-b/c and salary exist ONLY on the detail page — the listing has neither.
+// --no-exam restricts to postings hireable WITHOUT a competitive examination.
+// Since 2026-10-19 that is not a preference for this candidate but the ONLY
+// route open to him: he holds no eligible NYS civil service list. It costs one
+// detail fetch per lane+grade survivor, because 55-b/c and salary exist ONLY on
+// the detail page — the listing has neither.
 const NO_EXAM = flag('--no-exam');
 // --audit reports the exam-eligibility distribution across every lane+grade
 // survivor, ignoring dedup and writing nothing. Needed because once the earlier
@@ -194,8 +214,8 @@ export function isLicensed(title) { return LICENSED.test(title); }
  *
  * `55-b/c Eligible` is the field that matters: it is the civil-service
  * provision letting an agency appoint without a competitive examination, which
- * is exactly what this candidate needs while his own list membership is
- * UNCONFIRMED (config/profile.yml -> state_employment).
+ * is now the ONLY route open to this candidate — he holds no eligible NYS list
+ * (config/profile.yml -> state_employment, user-stated 2026-10-19).
  *
  * The same page also yields the real salary range, which the LISTING never
  * carries — grade "NS" rows had no way to check comp before this.
@@ -221,12 +241,17 @@ export function parseDetail(text) {
 }
 
 /**
- * Eligible without a confirmed civil-service list?
+ * Admissible without a competitive exam?
  *
  * True when the posting is 55-b/c eligible OR is flagged NY HELPS. Anything
- * else means an exam or an existing list is in play, which is unanswerable
- * until config/profile.yml -> state_employment.exams is filled in — so those
- * are reported separately rather than silently mixed in.
+ * else means a competitive exam or an existing list is required.
+ *
+ * Rewritten 2026-10-19. This previously said such roles were "unanswerable
+ * until state_employment.exams is filled in" and reported them separately as an
+ * open question. The user has since confirmed he is on NO eligible list, so the
+ * question is answered: those roles are NOT eligible to him. They are still
+ * counted and reported rather than dropped, because the count is what makes the
+ * 55-b/c share visible — but they are not candidates.
  */
 export function examFree(d) {
   return d.b55c?.toLowerCase() === 'yes' || d.helps?.toLowerCase() === 'yes';
@@ -443,9 +468,10 @@ async function main() {
   console.log(`NEW OFFERS:           ${accepted.length}`);
   console.log('');
   for (const v of accepted) console.log(`  • ${v.title} — ${v.agency} (g${v.grade}, ${v.county})`);
-  console.log('\n→ ELIGIBILITY UNVERIFIED. The user holds NY State exam eligibility but has not');
-  console.log('  confirmed which exams. NY competitive postings usually require a specific');
-  console.log('  exam or an eligible title. Confirm per posting before investing.');
+  console.log('\n→ ELIGIBILITY IS A CONFIRMED NEGATIVE (user-stated 2026-10-19). He holds no');
+  console.log('  NYS civil service list. Only 55-b/c Eligible or NY HELPS postings above are');
+  console.log('  open to him; every other NY competitive posting needs an exam he does not');
+  console.log('  hold and is a SKIP on that basis, not a question to confirm.');
 }
 
 if (isMainModule(import.meta.url)) {
