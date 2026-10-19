@@ -48,7 +48,13 @@ function escapeForRegExp(s) {
 // String.raw, not a plain template literal: `\p` is not a recognised string
 // escape, so an ordinary template drops the backslash and the class degenerates
 // to the literal characters p, {, L, } — no error, and the anchor is simply off.
-const WORD_CHAR = String.raw`[\p{L}\p{M}\p{N}_]`;
+//
+// Han, Hiragana, Katakana and Hangul are letters to \p{L}, but those scripts
+// glue a Latin acronym straight onto the next word ("AI全栈工程师", "AIエンジニア",
+// "AI엔지니어" — all "AI engineer"), so a CJK character next to a keyword is a
+// word EDGE, not a continuation: `ai` must match them exactly as it matches
+// "AI Engineer".
+const WORD_CHAR = String.raw`(?:(?![\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])[\p{L}\p{M}\p{N}_])`;
 const anchoredPattern = (body) => new RegExp(`(?<!${WORD_CHAR})${body}(?!${WORD_CHAR})`, 'u');
 // Same left boundary, no right one: the keyword must start a word, and the word
 // may continue past it.
@@ -116,6 +122,15 @@ function compilePrefixedKeyword(kw) {
 // (spaces, ".NET", "L&D"), and here those characters are part of the keyword.
 export function foldAccents(s) {
   return String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+// Lowercase, fold accents and collapse whitespace runs. Boards ship titles
+// with no-break spaces and doubled spaces ("Product\u00a0Manager"), and a
+// multi-word keyword is a substring test, so without the collapse the
+// positive "product manager" missed and the negative "sales engineer" let
+// the posting through.
+export function foldTitle(s) {
+  return foldAccents(String(s ?? '').toLowerCase()).replace(/\s+/g, ' ');
 }
 
 export function compileKeyword(kw) {
@@ -192,13 +207,134 @@ export const AND_SEPARATOR = /\s+\+\s+/;
  * @returns {(lower: string) => boolean}
  */
 export function compilePositiveKeyword(keyword) {
-  if (!AND_SEPARATOR.test(keyword)) return compileKeyword(keyword);
-  const terms = keyword.split(AND_SEPARATOR).map(t => t.trim()).filter(Boolean);
-  if (terms.length === 0) return compileKeyword(keyword);
   // Each term keeps compileKeyword's own rule, so a short term like "vp" is
   // still matched on a word boundary and cannot hit "vp" inside another word.
-  const matchers = terms.map(compileKeyword);
+  return compileAndGroup(keyword, compileKeyword);
+}
+
+// The " + " split, separated from the per-term rule because there are now two
+// kinds of keyword that share the group syntax and disagree only about how a
+// single term matches: a `title_filter.positive` entry (compileKeyword) and a
+// `domain_filter` entry (compileDomainKeyword, below). Reimplementing the split
+// for the second one is the drift this module exists to prevent, and leaving it
+// out is worse than it looks: a user who learned " + " on title_filter and
+// tried it on domain_filter would get an entry that silently never matches,
+// which in a board gate costs an entire board rather than one row.
+function compileAndGroup(keyword, compileTerm) {
+  if (!AND_SEPARATOR.test(keyword)) return compileTerm(keyword);
+  const terms = keyword.split(AND_SEPARATOR).map(t => t.trim()).filter(Boolean);
+  if (terms.length === 0) return compileTerm(keyword);
+  const matchers = terms.map(compileTerm);
   return (lower) => matchers.every(m => m(lower));
+}
+
+// Normalize defensively: a malformed keyword list (a null, numeric, or
+// otherwise non-string entry in the YAML) must not crash the scan via
+// k.toLowerCase(). Shared by both builders below — a second copy is how a
+// null entry ends up crashing one scanner and not the other.
+function normalizeKeywords(arr, compile) {
+  return (Array.isArray(arr) ? arr : [])
+    .filter(k => typeof k === 'string')
+    .map(k => foldTitle(k).trim())
+    .filter(k => k.length > 0)
+    .map(compile);
+}
+
+/**
+ * Compile one `domain_filter` entry into a matcher.
+ *
+ * A domain keyword answers a different question from a title keyword — "is this
+ * employer in my industry" rather than "is this the right role" — and it is
+ * read at a different granularity: the board gate in scan-ats-full.mjs decides
+ * a whole catalogue on one match (#3105). The default differs for that reason.
+ *
+ * A plain entry here means `word:`. Measured over 546 reverse-sweep postings on
+ * 249 boards, a plain substring admitted 32 boards of which 28 were junk, and
+ * 25 of those came from `defi` landing inside a longer word. What the junk has
+ * in common is that the domain term STARTS that word, so only the right-hand
+ * anchor closes it:
+ *
+ *   defi   -> Deficiência, Defiance, Software Defined, Product Definition
+ *   solana -> Solanaceae          crypto -> Cryptography
+ *
+ * `stem:` reaches exactly one of those (Indefinido, where the term lands
+ * mid-word) and is the wrong default here, notwithstanding the "a domain list
+ * is a list of stems by nature" reasoning on #3105 that this corrects: the
+ * 4/7 split re-measured on #3297 is the same finding from the title side.
+ *
+ * The asymmetry is what settles it. A false positive admits an entire
+ * catalogue while a false negative costs one board, and the run summary counts
+ * skipped boards, so the loose direction is the one that fails silently.
+ *
+ * `word:` charges for that, and the charge is a real one: it drops "Digital
+ * AssetS", "Smart ContractS" and "CryptoCURRENCY", which are genuine finds
+ * rather than noise. An entry that needs a longer form asks for it with
+ * `stem:`, one entry at a time, the way `title_filter` asks for the opposite —
+ * and `stem:digital asset` carries no junk risk, because no unrelated word
+ * begins with it. Both prefixes are honoured here, so the vocabulary a user
+ * learned on title_filter is the same one; only which end of it is free
+ * changes.
+ *
+ * @param {string} kw - already trimmed and lowercased.
+ * @returns {(lower: string) => boolean}
+ */
+export function compileDomainKeyword(kw) {
+  return compileAndGroup(kw, compileDomainTerm);
+}
+
+function compileDomainTerm(term) {
+  if (term.startsWith(WORD_PREFIX) || term.startsWith(STEM_PREFIX)) return compileKeyword(term);
+  // Delegated rather than pattern-matched here on purpose: what `word:` MEANS
+  // is defined once, above, including the lookarounds that make it Unicode-safe
+  // (the whole reason "Deficiência" is a case this has to get right). This is a
+  // statement about which default a domain keyword gets, not a second
+  // implementation of the anchor. It also subsumes the 2-3 letter acronym rule
+  // — `evm` and `dao` were already anchored, and now agree with everything else
+  // rather than being an exception a reader has to hold.
+  return compileKeyword(WORD_PREFIX + term);
+}
+
+/**
+ * Indices of `domain_filter` entries with a bare `word:` or `stem:` prefix,
+ * alone or as one term of an AND-group (`solana + word:`).
+ *
+ * Such a term is nonblank, so normalization keeps it, but it compiles to a
+ * matcher that never fires: the gate stays ON and drops every complete board.
+ * validate-portals.mjs reports these and scan-ats-full.mjs refuses to start on
+ * them, so the definition lives here, beside the prefixes it is about.
+ *
+ * @param {unknown} domainKeywords - the raw `domain_filter` value from portals.yml.
+ * @returns {number[]}
+ */
+export function barePrefixDomainKeywords(domainKeywords) {
+  if (!Array.isArray(domainKeywords)) return [];
+  const bare = (t) => [WORD_PREFIX, STEM_PREFIX].some((p) => t.startsWith(p) && t.slice(p.length).trim() === '');
+  return domainKeywords.flatMap((item, idx) => (
+    typeof item === 'string' && item.split(AND_SEPARATOR).map((t) => t.trim().toLowerCase()).some(bare) ? [idx] : []
+  ));
+}
+
+/**
+ * Compile a `domain_filter` list into one predicate, or null when the feature
+ * is off.
+ *
+ * Null rather than an always-true predicate: the gate is opt-in (#3105), and
+ * "no domain_filter configured" has to be distinguishable from "configured and
+ * everything matches" — the caller reports the gate in its run summary only
+ * when it actually ran, and an always-true predicate would make a config typo
+ * look like a working gate that happened to admit every board.
+ *
+ * @param {unknown} domainKeywords - the raw `domain_filter` value from portals.yml.
+ * @returns {((title: string) => boolean) | null}
+ */
+export function buildDomainFilter(domainKeywords) {
+  const matchers = normalizeKeywords(domainKeywords, compileDomainKeyword);
+  if (matchers.length === 0) return null;
+  return (title) => {
+    // Folded like the keywords, so an accented posting still matches (#4458).
+    const lower = foldTitle(title);
+    return matchers.some(m => m(lower));
+  };
 }
 
 /**
@@ -216,18 +352,11 @@ export function compilePositiveKeyword(keyword) {
  * @returns {(title: string) => boolean}
  */
 export function buildTitleFilter(titleFilter) {
-  // Normalize defensively: a malformed title_filter (a null, numeric, or otherwise
-  // non-string entry in the YAML) must not crash the scan via k.toLowerCase().
-  const normalize = (arr, compile) => (Array.isArray(arr) ? arr : [])
-    .filter(k => typeof k === 'string')
-    .map(k => foldAccents(k.trim().toLowerCase()))
-    .filter(k => k.length > 0)
-    .map(compile);
   // AND-groups are a POSITIVE-side feature only. On the negative side an entry
   // is a veto, and " + " there would read as "reject when both appear", which
   // is a different and much easier thing to write as two entries.
-  const positive = normalize(titleFilter?.positive, compilePositiveKeyword);
-  const negative = normalize(titleFilter?.negative, compileKeyword);
+  const positive = normalizeKeywords(titleFilter?.positive, compilePositiveKeyword);
+  const negative = normalizeKeywords(titleFilter?.negative, compileKeyword);
 
   return (title) => {
     // String(), not `title || ''`: openrouter-runner used String(title ?? '')
@@ -235,127 +364,12 @@ export function buildTitleFilter(titleFilter) {
     // non-string. Consolidating on scan.mjs's version would have carried that
     // throw onto a path that never had it, where it aborts jobs.filter and
     // drops a whole company's results for one malformed title.
-    const lower = foldAccents(String(title ?? '').toLowerCase());
+    const lower = foldTitle(title);
     // An empty positive list is "no positive constraint", not "match nothing":
     // a negative-only title_filter is a legitimate config that rejects a few
     // roles and keeps the rest.
     const hasPositive = positive.length === 0 || positive.some(m => m(lower));
     const hasNegative = negative.some(m => m(lower));
     return hasPositive && !hasNegative;
-  };
-}
-
-/**
- * Compile one host pattern from a `source_title_filters[].match_hosts` entry.
- * Accepts an exact host ("jobs.lever.co"), a leading-dot suffix (".lever.co"),
- * or a `*.` wildcard ("*.recruitee.com"). Anything else is matched literally.
- *
- * @param {string} pattern
- * @returns {(host: string) => boolean}
- */
-function compileHostMatcher(pattern) {
-  const p = String(pattern || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-  if (!p) return () => false;
-  if (p.startsWith('*.')) {
-    const base = p.slice(2);
-    return (host) => host === base || host.endsWith('.' + base);
-  }
-  if (p.startsWith('.')) {
-    const base = p.slice(1);
-    return (host) => host === base || host.endsWith(p);
-  }
-  // Exact host, or any subdomain of it. "boards.greenhouse.io" therefore matches
-  // "job-boards.greenhouse.io" too, which is what an ATS host rule intends.
-  return (host) => host === p || host.endsWith('.' + p);
-}
-
-/**
- * Per-SOURCE title filter. One global `title_filter` cannot serve two populations.
- *
- * The problem this solves, measured 2026-10-03: the global positive list contains
- * bare function nouns (Manager, Specialist, Director, Officer, Representative) and
- * bare domain nouns (Product, Data, Services, Affairs, Design, Research) that were
- * each measured against cityjobs' own vacancy sitemap, where "Operations Manager"
- * and "Management Analyst" are real civil-service titles. The same nouns on a
- * private AI/tech board resolve overwhelmingly to commercial or engineering roles:
- * a single scan returned 38 postings from one board, every one of them sales,
- * marketing, engineering, data science, or product, for a candidate whose
- * archetypes are L&D, training, instructional design and program coordination.
- *
- * A rule can therefore REPLACE the positive list for the sources it matches. What
- * it cannot do is widen past the global negatives: `title_filter.negative` is
- * re-applied on every path, so a rule can only ever be stricter than the global
- * filter. That is the safety property that makes this safe to add to a config
- * someone else tuned -- the worst outcome is a role being hidden, never a globally
- * vetoed shape being admitted.
- *
- * Config shape (all keys optional except the matcher and one of positive/negative):
- *   source_title_filters:
- *     - name: Private-sector ATS boards
- *       match_hosts: ["jobs.ashbyhq.com", "boards.greenhouse.io", "*.recruitee.com"]
- *       match_companies: ["Elise AI"]
- *       positive: ["Instructional Designer"]   # replaces the global positive list
- *       negative: ["word:Engagement"]          # adds to the global negatives
- *
- * Backward compatible by construction: with no `source_title_filters` (or none that
- * compile) the returned predicate is the plain buildTitleFilter() result, so every
- * existing caller and test behaves exactly as before.
- *
- * @param {{positive?: unknown, negative?: unknown}} [titleFilter] global config
- * @param {unknown} sourceRules the `source_title_filters` array
- * @returns {(title: string, ctx?: {company?: unknown, hosts?: unknown}) => boolean}
- */
-export function buildTitleFilterBySource(titleFilter, sourceRules) {
-  const base = buildTitleFilter(titleFilter);
-  if (!Array.isArray(sourceRules) || sourceRules.length === 0) return base;
-
-  const normalize = (arr, compile) => (Array.isArray(arr) ? arr : [])
-    .filter(k => typeof k === 'string')
-    .map(k => foldAccents(k.trim().toLowerCase()))
-    .filter(k => k.length > 0)
-    .map(compile);
-
-  // Global negatives are re-applied on EVERY path, matched or not.
-  const globalNegative = normalize(titleFilter?.negative, compileKeyword);
-
-  const rules = [];
-  for (const rule of sourceRules) {
-    if (!rule || typeof rule !== 'object' || Array.isArray(rule)) continue;
-    const hostMatchers = (Array.isArray(rule.match_hosts) ? rule.match_hosts : [])
-      .filter(h => typeof h === 'string' && h.trim())
-      .map(compileHostMatcher);
-    const companyMatchers = (Array.isArray(rule.match_companies) ? rule.match_companies : [])
-      .filter(c => typeof c === 'string' && c.trim())
-      .map(c => foldAccents(c.trim().toLowerCase()));
-    const positive = normalize(rule.positive, compilePositiveKeyword);
-    const negative = normalize(rule.negative, compileKeyword);
-    // A rule with no matcher can never fire; one with neither list is a no-op.
-    // Skip both rather than carrying a rule that cannot change an outcome.
-    if (hostMatchers.length === 0 && companyMatchers.length === 0) continue;
-    if (positive.length === 0 && negative.length === 0) continue;
-    rules.push({ hostMatchers, companyMatchers, positive, negative });
-  }
-  if (rules.length === 0) return base;
-
-  // Hosts the caller supplied, lowercased once per call site rather than per rule.
-  const hostList = (hosts) => (Array.isArray(hosts) ? hosts : [])
-    .filter(h => typeof h === 'string' && h.trim())
-    .map(h => h.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, ''));
-
-  return (title, ctx) => {
-    const lower = foldAccents(String(title ?? '').toLowerCase());
-    const hosts = hostList(ctx?.hosts);
-    const company = foldAccents(String(ctx?.company ?? '').trim().toLowerCase());
-
-    for (const rule of rules) {
-      const hostHit = hosts.length > 0 && rule.hostMatchers.some(m => hosts.some(h => m(h)));
-      const companyHit = company.length > 0 && rule.companyMatchers.some(c => company === c);
-      if (!hostHit && !companyHit) continue;
-
-      const hasPositive = rule.positive.length === 0 || rule.positive.some(m => m(lower));
-      const vetoed = globalNegative.some(m => m(lower)) || rule.negative.some(m => m(lower));
-      return hasPositive && !vetoed;
-    }
-    return base(title);
   };
 }

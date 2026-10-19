@@ -24,16 +24,25 @@
 //   entry-level field names (COMPANY, PERIOD, ROLE, etc.). When no partial file
 //   is found the built-in fallback builder is used, preserving full backward
 //   compatibility.
+//
+// Section completeness (#3852):
+//   A template's manifest may declare the sections it owns (`sections: all`,
+//   or a list — see lib/template-manifest.mjs). A declared section
+//   never falls back: a missing, malformed, or empty partial fails the render
+//   with the file named. Templates that declare nothing keep the silent
+//   fallback above.
 
 import { readFile, writeFile, stat, mkdir } from 'fs/promises';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, realpathSync } from 'fs';
 import { resolve, dirname, basename, join, extname, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
 import { tmpdir } from 'os';
+import * as yaml from 'js-yaml';
 import { stripEmptySections } from './cv-sections-core.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { hasRequiredFields, validatePayload } from './lib/cv-payload-schema.mjs';
-import { normalizeCandidateLink } from './lib/candidate-link.mjs';
+import { PAGE_WIDTHS, resolvePageFormat } from './lib/page-format.mjs';
+import { PARTIAL_SECTIONS, declaredSections, parseMeta } from './lib/template-manifest.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_ROOT = getCareerOpsRoot();
@@ -41,7 +50,7 @@ const TEMPLATE_PATH = resolve(__dirname, 'templates', 'cv-template.html');
 const PLACEHOLDER_RE = /\{\{[A-Z_]+\}\}/g;
 const CONTACT_ROW_RE = /<div class="contact-row">[\s\S]*?<\/div>/;
 
-const PAGE_WIDTHS = { letter: '8.5in', a4: '210mm' };
+const PROFILE_PATH = resolve(DATA_ROOT, 'config', 'profile.yml');
 const PHOTO_MIME_BY_EXT = new Map([
   ['.png', 'image/png'],
   ['.jpg', 'image/jpeg'],
@@ -82,10 +91,10 @@ function escapeHtml(text) {
     .replace(/'/g, '&#39;');
 }
 
-// Sanitize a URL for an href attribute: only allow the schemes the template's
-// contact row uses, coerce bare emails/domains, drop javascript:/data: and other
-// script-bearing schemes, then HTML-escape for the attribute context.
-function sanitizeUrl(url) {
+// Normalize a URL: only allow the schemes the template's contact row uses,
+// coerce bare emails/domains, and drop javascript:/data: and other
+// script-bearing schemes. Returns '' when the URL is rejected.
+function normalizeUrl(url) {
   if (typeof url !== 'string') return '';
   url = url.trim();
   if (!url) return '';
@@ -103,7 +112,12 @@ function sanitizeUrl(url) {
       url = 'https://' + url;
     }
   }
-  return escapeHtml(url);
+  return url;
+}
+
+// normalizeUrl(), HTML-escaped for an href attribute.
+function sanitizeUrl(url) {
+  return escapeHtml(normalizeUrl(url));
 }
 
 function sanitizeImageSrc(src) {
@@ -112,6 +126,19 @@ function sanitizeImageSrc(src) {
   if (IMAGE_DATA_URL_RE.test(value)) return escapeHtml(value);
   if (/^https?:\/\//i.test(value)) return sanitizeUrl(value);
   return '';
+}
+
+// The payload is written by the tailoring model from an untrusted posting, so a
+// local photo path is honoured only when it is the one the user set in
+// config/profile.yml (#5094). data: and http(s) URLs carry no local read.
+function profilePhotoValue() {
+  try {
+    const doc = yaml.load(readFileSync(PROFILE_PATH, 'utf-8'));
+    const value = doc?.candidate?.photo;
+    return typeof value === 'string' ? value.trim() : '';
+  } catch {
+    return '';
+  }
 }
 
 async function prepareCandidatePhoto(candidate) {
@@ -143,6 +170,10 @@ async function prepareCandidatePhoto(candidate) {
 
   if (/^[a-z][a-z0-9+.-]+:/i.test(photo)) {
     throw new Error(`Unsupported profile photo URL scheme: ${photo.split(':', 1)[0]}`);
+  }
+
+  if (photo !== profilePhotoValue()) {
+    throw new Error(`Profile photo path ${photo} does not match candidate.photo in config/profile.yml; a local photo path is read only from the profile`);
   }
 
   const photoPath = isAbsolute(photo) ? photo : resolve(__dirname, photo);
@@ -303,25 +334,61 @@ function fillEntry(entryTemplate, blocks, fields, blockValues) {
 
 // Load section partials from the sections/ directory co-located with the
 // template. Returns a Map<sectionName, { entryTemplate, blocks }> for each
-// partial file found. Sections with no partial file are absent from the map
-// and fall back to the built-in builders.
+// partial file found.
+//
+// Two contracts, chosen by the template's manifest (#3852):
+//
+//   - A section the manifest declares (`sections: all`, or a list) is owned by
+//     the template. Its partial must exist, parse, and carry a non-empty ENTRY
+//     zone, or this throws and the render fails. Falling back would emit the
+//     built-in DOM the pack exists to replace, with nothing in the output
+//     saying so: a typo in experience.html produced a CV that rendered,
+//     validated, and passed the placeholder check with the two-column markup
+//     the pack was written to avoid.
+//   - A section the manifest does not declare keeps the original contract:
+//     absent from the map when there is no partial or the partial is
+//     malformed, so the built-in builder renders it.
+//
+// Every problem is collected before throwing so one run names them all.
 function loadSectionPartials(templatePath) {
   const sectionsDir = join(dirname(templatePath), 'sections');
+  let declared;
+  try {
+    declared = declaredSections(parseMeta(templatePath));
+  } catch (err) {
+    throw new Error(`Template ${templatePath}: ${err.message}`);
+  }
+  const owned = declared || new Set();
   const partials = new Map();
-  if (!existsSync(sectionsDir)) return partials;
+  const problems = [];
 
-  const sectionNames = [
-    'competencies', 'experience', 'projects', 'education', 'certifications', 'awards', 'skills',
-  ];
-  for (const name of sectionNames) {
+  for (const name of PARTIAL_SECTIONS) {
     const partialPath = join(sectionsDir, `${name}.html`);
-    if (!existsSync(partialPath)) continue;
-    try {
-      const source = readFileSync(partialPath, 'utf-8');
-      partials.set(name, parsePartial(source));
-    } catch {
-      // Silently skip malformed partial files — fall back to built-in builder.
+    const rel = `sections/${name}.html`;
+    if (!existsSync(partialPath)) {
+      if (owned.has(name)) problems.push(`${rel} is declared but does not exist`);
+      continue;
     }
+    let parsed;
+    try {
+      parsed = parsePartial(readFileSync(partialPath, 'utf-8'));
+    } catch (err) {
+      if (owned.has(name)) problems.push(`${rel} is declared but malformed: ${err.message}`);
+      continue; // undeclared: fall back to the built-in builder, as before
+    }
+    if (owned.has(name) && !parsed.entryTemplate) {
+      problems.push(`${rel} is declared but its ENTRY zone is empty`);
+      continue;
+    }
+    partials.set(name, parsed);
+  }
+
+  if (problems.length) {
+    throw new Error(
+      `Template ${templatePath} declares sections it cannot render:\n`
+        + problems.map((p) => `  - ${p}`).join('\n')
+        + '\nA declared section must ship a partial that parses — fix the file, or drop it from the manifest\'s "sections" list.'
+    );
   }
   return partials;
 }
@@ -352,17 +419,20 @@ function buildExperience(entries, partial) {
   if (!partial) {
     return entries.filter(e => hasRequiredFields(e, 'experience', 'html')).map(e => {
       const bullets = Array.isArray(e.bullets)
-        ? e.bullets.map(bulletText).filter(Boolean).map(b => `        <li>${escapeHtml(b)}</li>`).join('\n')
+        ? e.bullets.filter(Boolean).map(b => `        <li>${escapeHtml(b)}</li>`).join('\n')
         : '';
       const location = e.location
         ? `\n    <div class="job-location">${escapeHtml(e.location)}</div>`
+        : '';
+      const context = e.context
+        ? `\n    <div class="job-context">${escapeHtml(e.context)}</div>`
         : '';
       return `<div class="job">
     <div class="job-header">
       <span class="job-company">${escapeHtml(e.company)}</span>
       <span class="job-period">${escapeHtml(e.dates || e.period || '')}</span>
     </div>
-    <div class="job-role">${escapeHtml(e.role)}</div>${location}
+    <div class="job-role">${escapeHtml(e.role)}</div>${context}${location}
     <ul>
 ${bullets}
     </ul>
@@ -373,7 +443,7 @@ ${bullets}
   const { entryTemplate, blocks } = partial;
   return entries.filter(e => hasRequiredFields(e, 'experience', 'html')).map(e => {
     const bullets = Array.isArray(e.bullets)
-      ? e.bullets.map(bulletText).filter(Boolean).map(b => `<li>${escapeHtml(b)}</li>`).join('\n    ')
+      ? e.bullets.filter(Boolean).map(b => `<li>${escapeHtml(b)}</li>`).join('\n    ')
       : '';
     const blockValues = new Map([
       ['LOCATION_BLOCK', { value: escapeHtml(e.location || ''), present: Boolean(e.location) }],
@@ -405,7 +475,7 @@ function buildProjects(entries, partial) {
       // Prefer a single description; fall back to joining bullets into one line so
       // a bullets-shaped payload still renders inside the .project-desc block.
       const descText = e.description
-        || (Array.isArray(e.bullets) ? e.bullets.map(bulletText).filter(Boolean).join(' ') : '');
+        || (Array.isArray(e.bullets) ? e.bullets.filter(Boolean).join(' ') : '');
       const desc = descText
         ? `\n    <div class="project-desc">${escapeHtml(descText)}</div>`
         : '';
@@ -420,26 +490,11 @@ function buildProjects(entries, partial) {
 
   const { entryTemplate, blocks } = partial;
   return entries.filter(e => hasRequiredFields(e, 'projects', 'html')).map(e => {
-    // Bullets render as a real <ul>, matching buildExperience (L375-377).
-    //
-    // Before 2026-10-09 this was `bullets.join(' ')`, which flattened every bullet
-    // into one space-separated run inside .project-desc. A project with 3 bullets
-    // rendered as a single run-on paragraph with no visible separation — the user
-    // read it as "bullet uncertainty". Experience bullets never had this problem
-    // because they always went through the `<li>` path; projects had no equivalent.
-    //
-    // A joined string is still the right fallback for `description`, which is
-    // genuinely prose. `description` is preferred when both are present, so a
-    // payload that means to be one paragraph still gets one.
-    const descText = e.description || '';
-    const bulletList = Array.isArray(e.bullets)
-      ? e.bullets.map(bulletText).filter(Boolean).map(b => `<li>${escapeHtml(b)}</li>`).join('\n      ')
-      : '';
-    const hasBullets = Boolean(bulletList);
+    const descText = e.description
+      || (Array.isArray(e.bullets) ? e.bullets.filter(Boolean).join(' ') : '');
     const blockValues = new Map([
       ['BADGE_BLOCK', { value: escapeHtml(e.badge || ''), present: Boolean(e.badge) }],
       ['DESC_BLOCK',  { value: escapeHtml(descText),      present: Boolean(descText) }],
-      ['BULLETS_BLOCK', { value: bulletList,              present: hasBullets && !descText }],
       ['TECH_BLOCK',  { value: escapeHtml(e.tech || ''),  present: Boolean(e.tech) }],
     ]);
     const nameText = escapeHtml(e.name || '');
@@ -447,11 +502,28 @@ function buildProjects(entries, partial) {
     const nameHtml = url
       ? `<a href="${url}">${nameText}</a>`
       : nameText;
-    return fillEntry(entryTemplate, blocks, {
+    // A bullets array with 2+ items and no description renders one DESC_BLOCK
+    // per bullet, matching how experience renders one <li> per bullet, instead
+    // of joining them into a single block.
+    let entryBlocks = blocks;
+    const multi = !e.description && Array.isArray(e.bullets)
+      ? e.bullets.filter(Boolean) : [];
+    const descBlock = blocks.get('DESC_BLOCK');
+    if (multi.length > 1 && descBlock) {
+      // The expanded block is scanned again by fillEntry, so encode braces in
+      // the bullet text: a literal {{DESC}} must render as text, not be treated
+      // as a template reference.
+      const literalBraces = (t) => escapeHtml(t).replace(/\{/g, '&#123;').replace(/\}/g, '&#125;');
+      const present = multi
+        .map(b => descBlock.present.replace(/\{\{(DESC_BLOCK|DESC)\}\}/g, () => literalBraces(b)))
+        .join('\n  ');
+      entryBlocks = new Map(blocks);
+      entryBlocks.set('DESC_BLOCK', { ...descBlock, present });
+    }
+    return fillEntry(entryTemplate, entryBlocks, {
       NAME:  nameHtml,
       BADGE: escapeHtml(e.badge || ''),
       DESC:  escapeHtml(descText),
-      BULLETS: bulletList,
       TECH:  escapeHtml(e.tech || ''),
     }, blockValues);
   }).join('\n  ');
@@ -462,18 +534,19 @@ function buildEducation(entries, partial) {
   if (!partial) {
     return entries.filter(e => hasRequiredFields(e, 'education', 'html')).map(e => {
       const org = e.org
-        ? `\n  <div class="edu-org">${escapeHtml(e.org)}</div>`
+        ? ` <span class="edu-org">${escapeHtml(e.org)}</span>`
         : '';
-      const year = e.year
-        ? `\n      <div class="edu-year">${escapeHtml(e.year)}</div>`
+      const location = e.location
+        ? `\n    <div class="edu-location">${escapeHtml(e.location)}</div>`
         : '';
       const desc = e.description
         ? `\n    <div class="edu-desc">${escapeHtml(e.description)}</div>`
         : '';
       return `<div class="edu-item">
     <div class="edu-header">
-      <div class="edu-title">${escapeHtml(e.title)}</div>${year}
-    </div>${org}${desc}
+      <div class="edu-title">${escapeHtml(e.title)}${org}</div>
+      <div class="edu-year">${escapeHtml(e.year || '')}</div>
+    </div>${location}${desc}
   </div>`;
     }).join('\n  ');
   }
@@ -481,15 +554,16 @@ function buildEducation(entries, partial) {
   const { entryTemplate, blocks } = partial;
   return entries.filter(e => hasRequiredFields(e, 'education', 'html')).map(e => {
     const blockValues = new Map([
-      ['ORG_BLOCK',  { value: escapeHtml(e.org || ''),         present: Boolean(e.org) }],
-      ['YEAR_BLOCK', { value: escapeHtml(e.year || ''),        present: Boolean(e.year) }],
-      ['DESC_BLOCK', { value: escapeHtml(e.description || ''), present: Boolean(e.description) }],
+      ['ORG_BLOCK',      { value: escapeHtml(e.org || ''),         present: Boolean(e.org) }],
+      ['LOCATION_BLOCK', { value: escapeHtml(e.location || ''),    present: Boolean(e.location) }],
+      ['DESC_BLOCK',     { value: escapeHtml(e.description || ''), present: Boolean(e.description) }],
     ]);
     return fillEntry(entryTemplate, blocks, {
-      TITLE: escapeHtml(e.title || ''),
-      ORG:   escapeHtml(e.org || ''),
-      YEAR:  escapeHtml(e.year || ''),
-      DESC:  escapeHtml(e.description || ''),
+      TITLE:    escapeHtml(e.title || ''),
+      ORG:      escapeHtml(e.org || ''),
+      LOCATION: escapeHtml(e.location || ''),
+      YEAR:     escapeHtml(e.year || ''),
+      DESC:     escapeHtml(e.description || ''),
     }, blockValues);
   }).join('\n  ');
 }
@@ -601,53 +675,6 @@ function buildSkills(categories, partial) {
   return `<div class="skills-grid">\n${items}\n  </div>`;
 }
 
-/**
- * Accept a link field written either as an object ({url, display}) or as a bare
- * string. Payloads in the wild use both: a string used to be silently dropped
- * because the code only read `.url`, so a CV could lose its LinkedIn line with
- * no error anywhere. `github` and `portfolio` had the same hole.
- *
-/**
- * Resolve one bullet to its display text.
- *
- * A bullet is written two ways across the corpus: a bare string, or
- * `{ text, source_line }` / `{ text, source_text }` when it carries provenance.
- * `verify-bullet-sources.mjs` REQUIRES the object form -- a bare string is
- * reported as unsourced -- so following this repo's own documented discipline
- * fed objects to a builder that only ever handled strings.
- *
- * The result was silent and total: `escapeHtml({text: '...'})` produced an
- * EMPTY `<li></li>` for every experience bullet, and `.join(' ')` produced
- * "[object Object]" for every project bullet. A CV with 21 blank bullets then
- * passed verify-cv-facts.mjs (no claims, so nothing invented) and scored
- * 100/100 on verify-ats.mjs, because there was no text left to fail on.
- *
- * Same shape-resolution rationale as normalizeLink() below: one helper owns the
- * rule, so a caller cannot get it right in one place and wrong in another.
- */
-function bulletText(bullet) {
-  if (typeof bullet === 'string') return bullet;
-  if (bullet && typeof bullet === 'object' && typeof bullet.text === 'string') return bullet.text;
-  return '';
-}
-
-/**
- * A bare domain such as "linkedin.com/in/jonpresser" gets an https:// scheme so
- * the href is a valid absolute URL rather than a relative path.
- */
-function normalizeLink(value) {
-  // Shape resolution is shared (lib/candidate-link.mjs): the same payload field
-  // is written both as an object and as a bare string across the corpus, and
-  // three builders got that wrong three different ways before this existed.
-  // sanitizeUrl() still runs here, so a rejected scheme drops the contact item
-  // exactly as before.
-  const link = normalizeCandidateLink(value);
-  if (!link) return null;
-  const href = sanitizeUrl(link.href);
-  if (!href) return null;
-  return { href, display: link.display };
-}
-
 // Rebuild the whole .contact-row block. Its markup uses fixed "|" separators
 // between phone / email / linkedin / github / portfolio / location, so an
 // absent optional field (phone, linkedin, github, portfolio) must drop BOTH
@@ -664,139 +691,27 @@ function buildContactRow(candidate) {
   if (c.email) {
     items.push(`<a href="${sanitizeUrl('mailto:' + c.email)}">${escapeHtml(c.email)}</a>`);
   }
-  const linkedin = normalizeLink(c.linkedin);
-  if (linkedin) {
-    items.push(`<a href="${linkedin.href}">${escapeHtml(linkedin.display)}</a>`);
+  if (c.linkedin && c.linkedin.url) {
+    items.push(`<a href="${sanitizeUrl(c.linkedin.url)}">${escapeHtml(c.linkedin.display || c.linkedin.url)}</a>`);
   }
-  const github = normalizeLink(c.github);
-  if (github) {
-    items.push(`<a href="${github.href}">${escapeHtml(github.display)}</a>`);
+  if (c.github && c.github.url) {
+    const githubHref = sanitizeUrl(c.github.url);
+    if (githubHref) {
+      items.push(`<a href="${githubHref}">${escapeHtml(c.github.display || c.github.url)}</a>`);
+    }
   }
-  const portfolio = normalizeLink(c.portfolio);
-  if (portfolio) {
-    items.push(`<a href="${portfolio.href}">${escapeHtml(portfolio.display)}</a>`);
+  if (c.portfolio && c.portfolio.url) {
+    items.push(`<a href="${sanitizeUrl(c.portfolio.url)}">${escapeHtml(c.portfolio.display || c.portfolio.url)}</a>`);
   }
   if (c.location) {
     items.push(`<span>${escapeHtml(c.location)}</span>`);
   }
-  // ERN / employee-reference id. Rendered in the header because that is where a
-  // city-jobs reviewer looks for internal-candidate eligibility. Opt-in: absent
-  // from the payload means absent from the CV, so this can never leak onto a
-  // private-sector application by accident.
-  if (c.ern) {
-    const label = c.ern_label ? `${escapeHtml(c.ern_label)} ` : '';
-    items.push(`<span>${label}${escapeHtml(c.ern)}</span>`);
-  }
-  const sep = '\n      <span class="separator">|</span>\n      ';
-  return `<div class="contact-row">\n      ${items.join(sep)}\n    </div>`;
-}
-
-/**
- * Contact-detail completeness gate.
- *
- * A CV can lose its LinkedIn/phone/email line with no error anywhere in the
- * pipeline: the builder renders whatever fields happen to be present and stays
- * silent about the rest. That is how `cv-14-ixl-pls.html` shipped without a
- * LinkedIn URL. Silent omission is the failure mode, so it is now an error.
- *
- * LinkedIn, phone and email are required because all three are needed for an
- * employer to reach the candidate and to cross-check identity. Set
- * `candidate.require` to narrow the set when a variant legitimately omits one.
- * Failures are reported all at once rather than one per run.
- */
-function checkContactCompleteness(candidate) {
-  const c = candidate || {};
-  // An explicit `require: []` means "require nothing" and must not fall through
-  // to the default set -- an empty array is a deliberate opt-out, not an absent
-  // declaration. Testing `.length` here made the documented escape hatch a no-op,
-  // which is how six render fixtures that legitimately omit contact details
-  // started failing. `Array.isArray` alone is the presence check.
-  const required = Array.isArray(c.require)
-    ? c.require
-    : ['phone', 'email', 'linkedin'];
-  const missing = [];
-  for (const field of required) {
-    if (field === 'linkedin' || field === 'github' || field === 'portfolio') {
-      if (!normalizeLink(c[field])) missing.push(field);
-    } else if (!c[field] || !String(c[field]).trim()) {
-      missing.push(field);
-    }
-  }
-  return missing;
-}
-
-/**
- * Reorder the template's <div class="section"> blocks.
- *
- * Sections are flat (no section nests inside another section) and are delimited
- * by the {{SECTION_*}} marker in their title div, so a block is the run of HTML
- * from its opening `<div class="section">` up to the next opening one or the
- * end. Matching on the opening tag - rather than a `\n  </div>` sentinel - keeps
- * this correct for templates whose indentation differs.
- *
- * `order` lists section keys ("summary", "competencies", ...), case-insensitive.
- * Keys with no matching block are ignored rather than fatal, so a payload can
- * name a section the template does not have without breaking the build.
- * Sections not mentioned keep their template order and follow the named ones.
- */
-function reorderSections(html, order) {
-  const SECTION_BLOCK_RE = /[ \t]*<div class="section">/g;
-  const rawStarts = [];
-  let m;
-  while ((m = SECTION_BLOCK_RE.exec(html)) !== null) rawStarts.push(m.index);
-  if (rawStarts.length < 2) return html;
-
-  // A section's opening tag is preceded in the template by its own
-  // `<!-- SECTION NAME -->` comment. Extend each block's start backwards over
-  // that comment (and the whitespace around it) so the comment travels WITH its
-  // section instead of staying behind with the previous one.
-  const starts = rawStarts.map((s) => {
-    const before = html.slice(0, s);
-    const c = before.lastIndexOf('<!--');
-    if (c < 0) return s;
-    const close = before.indexOf('-->', c);
-    // Only treat it as this section's comment if nothing but whitespace sits
-    // between the comment's end and the opening tag.
-    if (close >= 0 && /^\s*$/.test(before.slice(close + 3))) return c;
-    return s;
-  });
-
-  // Everything before the first block (doctype, <html>, <head>, the style block
-  // and the name/contact header) is NOT part of any section and must be kept.
-  const prefix = html.slice(0, starts[0]);
-
-  // A block ends at the next block's start, except the LAST one, which ends at
-  // its own closing `</div>`. Letting it run to EOF would swallow `</body>` and
-  // `</html>` whenever a section is moved to the end - which is the normal case.
-  const lastClose = html.lastIndexOf('</div>');
-  const endOfLast = lastClose + '</div>'.length;
-  const blocks = starts.map((s, i) => {
-    const end = i + 1 < starts.length ? starts[i + 1] : Math.max(endOfLast, s + 1);
-    return { html: html.slice(s, end), key: keyOfBlock(html, s, end) };
-  });
-
-  const trailer = html.slice(endOfLast);
-
-  const wanted = order.map((k) => String(k).trim().toLowerCase()).filter(Boolean);
-  const byKey = new Map();
-  for (const b of blocks) if (b.key && !byKey.has(b.key)) byKey.set(b.key, b);
-
-  const picked = [];
-  const taken = new Set();
-  for (const k of wanted) {
-    const b = byKey.get(k);
-    if (!b) continue;
-    picked.push(b);
-    taken.add(b);
-  }
-  const rest = blocks.filter((b) => !taken.has(b));
-  return prefix + [...picked, ...rest].map((b) => b.html).join('') + trailer;
-}
-
-/** Section key for a block: the {{SECTION_X}} marker in its title div. */
-function keyOfBlock(html, start, end) {
-  const m = html.slice(start, end).match(/\{\{SECTION_([A-Z_]+)\}\}/);
-  return m ? m[1].toLowerCase() : null;
+  // Separators are generated by CSS (`.contact-row > *:not(:last-child)::after`)
+  // rather than emitted as their own elements. An element of its own is an
+  // independent box on both the flex and the inline path, so wrapping could put
+  // a separator at the start of a line; generated content belongs to the item
+  // before it and cannot be separated from it by a line break.
+  return `<div class="contact-row">\n      ${items.join('\n      ')}\n    </div>`;
 }
 
 function buildPhoto(candidate, name) {
@@ -806,80 +721,28 @@ function buildPhoto(candidate, name) {
   return `<img class="cv-photo cv-photo--${style}" src="${sanitizeImageSrc(photo)}" alt="${escapeHtml(name || '')}">`;
 }
 
-/**
- * Payload shape guard.
- *
- * Substitution is type-blind: `escapeHtml(payload.summary || '')` turns an
- * object into the literal string "[object Object]", and an array of objects into
- * a comma-joined mess. Nothing downstream fails, the build exits 0, and the fact
- * check passes - because it inspects HTML that never contained the prose.
- *
- * That is not hypothetical. `summary` was written as `{text, source_anchor}` on
- * three payloads (#261, #264, #267). #261 and #267 were APPLIED to RFCUNY with no
- * Professional Summary section on the page at all, and no gate complained.
- *
- * A key that is present must have the shape the template expects. Provenance
- * belongs in `_meta`, which the builder does not render.
- */
-function assertSubstitutionShapes(payload) {
-  const problems = [];
-
-  // Substituted directly into a text node -> must be a string when present.
-  const STRING = ['summary'];
-  for (const key of STRING) {
-    const v = payload[key];
-    if (v != null && typeof v !== 'string') {
-      problems.push(
-        `${key} must be a string when present, got ${Array.isArray(v) ? 'array' : typeof v}` +
-        (v && typeof v === 'object' && !Array.isArray(v) && 'text' in v
-          ? ` - it looks like a {text, source_anchor} object; pass payload.${key} = v.text and move source_anchor into _meta`
-          : '')
-      );
-    }
-  }
-
-  // Rendered as repeated blocks -> must be an array when present.
-  const ARRAYS = ['experience', 'projects', 'education', 'certifications', 'awards', 'skills'];
-  for (const key of ARRAYS) {
-    const v = payload[key];
-    if (v != null && !Array.isArray(v)) problems.push(`${key} must be an array when present, got ${typeof v}`);
-  }
-  if (payload.competencies != null && !Array.isArray(payload.competencies)) {
-    problems.push(`competencies must be an array when present, got ${typeof payload.competencies}`);
-  }
-
-  // A role that renders as a bare header with nothing under it is worse than an
-  // absent role - it advertises an employer with no evidence.
-  if (Array.isArray(payload.experience)) {
-    const empty = payload.experience.filter((e) => Array.isArray(e.bullets) && e.bullets.length === 0).map((e) => e.role || '?');
-    if (empty.length) problems.push(`role(s) with zero bullets render as bare headers: ${empty.join('; ')}`);
-  }
-
-  if (payload.section_order != null && !Array.isArray(payload.section_order)) {
-    problems.push(`section_order must be an array, got ${typeof payload.section_order}`);
-  }
-
-  if (problems.length) {
-    throw new Error(
-      'Payload shape error - the build is stopped because these render as garbage or blank while the pipeline reports success:\n' +
-      problems.map((p) => `  - ${p}`).join('\n') +
-      '\n\nProvenance goes in _meta; it is not rendered.'
-    );
-  }
+// Professional title / headline under the name (candidate.title). An ATS reads
+// this first to place the candidate ("Backend Engineer" vs "Accountant"); a CV
+// with no title forces the reader to infer the role. Empty/absent → no element,
+// so a payload without a title renders byte-identical to before.
+function buildTitle(candidate) {
+  const title = candidate && candidate.title != null ? String(candidate.title).trim() : '';
+  return title ? `<div class="header-title">${escapeHtml(title)}</div>` : '';
 }
 
 function renderReport(payload, partials) {
-  assertSubstitutionShapes(payload);
   const sectionTitles = { ...DEFAULT_SECTION_TITLES, ...(payload.sections || {}) };
   const candidate = payload.candidate || {};
-  const pageWidth = PAGE_WIDTHS[payload.page_format] || PAGE_WIDTHS.letter;
+  // The sheet this body has to fit is chosen by generate-pdf.mjs, so both read
+  // the same resolver rather than each keeping a fallback of their own.
+  const pageWidth = PAGE_WIDTHS[resolvePageFormat(payload.page_format, { profilePath: PROFILE_PATH })];
 
   const substitutions = {
     LANG: escapeHtml(payload.lang || 'en'),
     PAGE_WIDTH: pageWidth,
     NAME: escapeHtml(candidate.name || ''),
     SECTION_SUMMARY: escapeHtml(sectionTitles.summary),
-    SUMMARY_TEXT: escapeHtml(payload.summary || ''),
+    SUMMARY_TEXT: escapeHtml(payload.summary),
     SECTION_COMPETENCIES: escapeHtml(sectionTitles.competencies),
     COMPETENCIES: buildCompetencies(payload.competencies, partials.get('competencies')),
     SECTION_EXPERIENCE: escapeHtml(sectionTitles.experience),
@@ -896,59 +759,36 @@ function renderReport(payload, partials) {
     INTERESTS: buildInterests(payload.interests),
     SECTION_SKILLS: escapeHtml(sectionTitles.skills),
     SKILLS: buildSkills(payload.skills, partials.get('skills')),
+    CONSENT: escapeHtml((payload.consent || '').trim()),
   };
   return { substitutions, candidate };
 }
 
 // Merge a payload into the template and return the final HTML (throws on any
 // unresolved {{PLACEHOLDER}} so a malformed payload fails loudly, not silently).
-function renderHtml(template, payload, templatePath, opts = {}) {
+function renderHtml(template, payload, templatePath) {
   // Load section partials from the sections/ directory co-located with the
   // template. Falls back to built-in builders when no partials directory exists.
   const partials = templatePath ? loadSectionPartials(templatePath) : new Map();
 
   const { substitutions, candidate } = renderReport(payload, partials);
 
-  // Gate before rendering, so an incomplete header can never reach a file. Opt
-  // out with require: [] for deliberately partial artifacts (test fixtures,
-  // render-only previews).
-  if (!opts.skipContactGate) {
-    const missing = checkContactCompleteness(candidate);
-    if (missing.length) {
-      // opts.source, not a payload key: adding __source to the payload would
-      // trip the section validator's "unknown key" warning.
-      const where = opts.source ? ` (${opts.source})` : '';
-      throw new Error(
-        `Incomplete contact details${where}: missing ${missing.join(', ')}. `
-        + 'A CV that ships without these cannot be reached back or identity-checked. '
-        + 'Set candidate.require to narrow the set if a variant truly omits one.'
-      );
-    }
-  }
-
   // The contact row and photo carry conditional markup (dropped separators /
   // no <img>), so they are rebuilt as whole blocks before placeholder fill.
   let html = template.replace(CONTACT_ROW_RE, () => buildContactRow(candidate));
   html = html.replace(/\{\{PHOTO\}\}/g, () => buildPhoto(candidate, candidate.name));
+  // Captures the placeholder's own leading newline + indentation so an empty
+  // title drops the whole line — matching just the token (as every other
+  // {{PLACEHOLDER}} above does) would leave a blank line where the token sat,
+  // which is not byte-identical to a template that never had the slot
+  // (CodeRabbit, #3763). With a title, the indentation is reused verbatim so
+  // output is unchanged from the token-only replace this replaces.
+  const titleBlock = buildTitle(candidate);
+  html = html.replace(/\n([ \t]*)\{\{TITLE_BLOCK\}\}/g, (_, indent) => (titleBlock ? `\n${indent}${titleBlock}` : ''));
 
   // Drop the optional sections (projects, education) that have no entries, so
   // an absent one leaves no bare header behind. See cv-sections-core.mjs.
   html = stripEmptySections(html, payload, 'html');
-
-  // Optional section reordering (payload.section_order).
-  //
-  // Section ORDER is fixed by the template; payload.sections only overrides
-  // TITLES. A tailored CV often wants the evidence first and the keyword chips
-  // last, and editing templates/cv-template.html for that would be a System
-  // Layer change that `update-system.mjs apply` reverts - so the order travels
-  // in the payload instead.
-  //
-  // Runs BEFORE placeholder substitution and keys on the {{SECTION_*}}
-  // markers, so a title override can never confuse it. Sections the caller
-  // does not mention keep their template position, after the ones it does.
-  if (Array.isArray(payload.section_order) && payload.section_order.length) {
-    html = reorderSections(html, payload.section_order);
-  }
 
   for (const [key, value] of Object.entries(substitutions)) {
     html = html.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), () => value);
@@ -1002,6 +842,168 @@ async function writeAndReport(html, absOutput, payload, extra = {}) {
   console.log(JSON.stringify(report, null, 2));
 }
 
+// ── Markdown rendering (#4824) ──────────────────────────────────────────────
+//
+// A zero-token, read-only view of the same payload the HTML builder renders, so
+// a built CV can be reviewed or diffed against cv.md without a browser. It
+// resolves section titles exactly like renderReport() (DEFAULT_SECTION_TITLES
+// plus payload.sections) and applies the same entry filter (hasRequiredFields),
+// so the markdown lists what the PDF contains. Sections are emitted in the order
+// their {{SECTION_*}} placeholders appear in the template (the default one, or
+// the same [template.html] the HTML build was given), and a section the template
+// does not carry is left out, as it is in the HTML.
+function mdLine(value) {
+  return String(value ?? '').replace(/\s*\r?\n\s*/g, ' ').trim();
+}
+
+function mdJoin(parts, sep) {
+  return parts.map(mdLine).filter(Boolean).join(sep);
+}
+
+// A normalized URL with the characters that delimit a Markdown link
+// destination (parentheses, angle brackets, whitespace, backslash)
+// percent-encoded, so e.g. an unmatched ')' cannot end the link early.
+function mdUrl(url) {
+  return normalizeUrl(url).replace(/[()<>\\\s]/g,
+    c => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`);
+}
+
+// Section keys in the order the template places their {{SECTION_*}} titles.
+function templateSectionOrder(template) {
+  return Object.keys(DEFAULT_SECTION_TITLES)
+    .map(key => [key, template.indexOf(`{{SECTION_${key.toUpperCase()}}}`)])
+    .filter(([, idx]) => idx !== -1)
+    .sort((a, b) => a[1] - b[1])
+    .map(([key]) => key);
+}
+
+function renderMarkdown(payload, template) {
+  const titles = { ...DEFAULT_SECTION_TITLES, ...(payload.sections || {}) };
+  const candidate = payload.candidate || {};
+  const out = [];
+  const bodies = new Map();
+  const section = (key, body) => {
+    if (body.length) bodies.set(key, [`## ${mdLine(titles[key])}`, '', ...body]);
+  };
+  const link = (c) => (c && c.url ? mdLine(c.display || c.url) : '');
+
+  out.push(`# ${mdLine(candidate.name)}`, '');
+  if (mdLine(candidate.title)) out.push(mdLine(candidate.title), '');
+  const contact = mdJoin([
+    candidate.phone, candidate.email, link(candidate.linkedin),
+    link(candidate.github), link(candidate.portfolio), candidate.location,
+  ], ' | ');
+  if (contact) out.push(contact, '');
+
+  const list = (v) => (Array.isArray(v) ? v : []);
+
+  if (mdLine(payload.summary)) section('summary', [mdLine(payload.summary), '']);
+
+  const tags = list(payload.competencies).filter(Boolean).map(mdLine);
+  if (tags.length) section('competencies', [tags.join(', '), '']);
+
+  const exp = [];
+  for (const e of list(payload.experience).filter(e => hasRequiredFields(e, 'experience', 'html'))) {
+    exp.push(`### ${mdJoin([e.company, e.role], ' — ')}`, '');
+    const meta = mdJoin([e.location, e.dates || e.period], ' · ');
+    if (meta) exp.push(`*${meta}*`, '');
+    if (mdLine(e.context)) exp.push(mdLine(e.context), '');
+    const bullets = list(e.bullets).filter(Boolean);
+    for (const b of bullets) exp.push(`- ${mdLine(b)}`);
+    if (bullets.length) exp.push('');
+  }
+  section('experience', exp);
+
+  const proj = [];
+  for (const e of list(payload.projects).filter(e => hasRequiredFields(e, 'projects', 'html'))) {
+    const url = mdUrl(e.url);
+    // Escape the label's own delimiters so a name cannot close the link early.
+    const name = url ? `[${mdLine(e.name).replace(/[\\[\]]/g, '\\$&')}](${url})` : mdLine(e.name);
+    proj.push(`### ${mdJoin([name, e.badge], ' · ')}`, '');
+    const desc = e.description || list(e.bullets).filter(Boolean).join(' ');
+    if (mdLine(desc)) proj.push(mdLine(desc), '');
+    if (mdLine(e.tech)) proj.push(`*${mdLine(e.tech)}*`, '');
+  }
+  section('projects', proj);
+
+  const edu = [];
+  for (const e of list(payload.education).filter(e => hasRequiredFields(e, 'education', 'html'))) {
+    edu.push(`**${mdJoin([e.title, e.org], ' — ')}**${mdLine(e.year) ? ` · ${mdLine(e.year)}` : ''}`, '');
+    if (mdLine(e.location)) edu.push(mdLine(e.location), '');
+    if (mdLine(e.description)) edu.push(mdLine(e.description), '');
+  }
+  section('education', edu);
+
+  for (const key of ['certifications', 'awards']) {
+    const rows = list(payload[key]).filter(e => hasRequiredFields(e, key, 'html')).map(e =>
+      `- **${mdLine(e.title)}**${mdLine(e.org) ? ` — ${mdLine(e.org)}` : ''}${mdLine(e.year) ? ` · ${mdLine(e.year)}` : ''}`);
+    section(key, rows.length ? [...rows, ''] : []);
+  }
+
+  const interests = list(payload.interests).filter(Boolean).map(String)
+    .map((item, idx) => (idx === 0 ? item : item.charAt(0).toLowerCase() + item.slice(1)))
+    .join(', ');
+  if (mdLine(interests)) section('interests', [mdLine(interests), '']);
+
+  const skills = list(payload.skills).filter(c => hasRequiredFields(c, 'skills', 'html')).map(c =>
+    `- ${mdLine(c.category) ? `**${mdLine(c.category)}:** ` : ''}${mdLine(joinItems(c.items))}`);
+  section('skills', skills.length ? [...skills, ''] : []);
+
+  for (const key of templateSectionOrder(template)) {
+    if (bodies.has(key)) out.push(...bodies.get(key));
+  }
+  // The GDPR/RODO consent footer, where the template carries one (as the HTML does).
+  if (template.includes('{{CONSENT}}') && mdLine(payload.consent)) out.push('---', '', mdLine(payload.consent), '');
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
+}
+
+async function runMarkdown(args) {
+  const outIdx = args.indexOf('--markdown');
+  const outputPath = args[outIdx + 1];
+  const [inputPath, templateArg] = args.filter((a, i) => i !== outIdx && i !== outIdx + 1);
+  if (!inputPath || !outputPath || outputPath.startsWith('--')) {
+    console.error('Usage: node build-cv-html.mjs <input.json> --markdown <output.md> [template.html]');
+    process.exit(1);
+  }
+  const absInput = resolve(inputPath);
+  const absOutput = resolve(outputPath);
+  const templatePath = templateArg ? resolve(templateArg) : TEMPLATE_PATH;
+  if (!existsSync(absInput)) {
+    console.error(`Input file not found: ${absInput}`);
+    process.exit(1);
+  }
+  // Never overwrite the source payload with its own rendering (a swapped or
+  // repeated argument). realpath also catches a symlink or a ./-relative alias.
+  if (absOutput === absInput || (existsSync(absOutput) && realpathSync(absOutput) === realpathSync(absInput))) {
+    console.error(`Output path is the input file: ${absOutput}`);
+    process.exit(1);
+  }
+  if (!existsSync(templatePath)) {
+    console.error(`Template not found: ${templatePath}`);
+    process.exit(1);
+  }
+  let payload;
+  try {
+    payload = JSON.parse(await readFile(absInput, 'utf-8'));
+  } catch (err) {
+    console.error(`Failed to read CV input: ${err.message}`);
+    process.exit(1);
+  }
+  const { errors, warnings } = validatePayload(payload, 'html');
+  if (errors.length) {
+    console.error('Invalid CV payload:');
+    for (const message of errors) console.error(`  - ${message}`);
+    console.error(JSON.stringify({ valid: false, errors, warnings }, null, 2));
+    process.exit(1);
+  }
+  for (const message of warnings) console.error(`Warning: ${message}`);
+  await mkdir(dirname(absOutput), { recursive: true });
+  const template = await readFile(templatePath, 'utf-8');
+  await writeFile(absOutput, renderMarkdown(payload, template), 'utf-8');
+  console.log(JSON.stringify({ file: basename(absOutput), path: absOutput, format: 'markdown', warnings, valid: true }, null, 2));
+  process.exit(0);
+}
+
 async function main() {
   const args = process.argv.slice(2);
 
@@ -1009,6 +1011,7 @@ async function main() {
     console.error('Usage:');
     console.error('  node build-cv-html.mjs <input.json> <output.html> [template.html]');
     console.error('  node build-cv-html.mjs --preview <input.json> [template.html]');
+    console.error('  node build-cv-html.mjs <input.json> --markdown <output.md> [template.html]');
     console.error('  node build-cv-html.mjs --test');
     console.error('');
     console.error('  [template.html] defaults to templates/cv-template.html. Pass the path');
@@ -1019,12 +1022,21 @@ async function main() {
     console.error('  the builder loads per-section HTML partial files from it');
     console.error('  (e.g. sections/experience.html). Partials control the DOM');
     console.error('  structure, tag names, and class names for each section.');
-    console.error('  When no partial file is found the built-in builder is used.');
+    console.error('  When no partial file is found the built-in builder is used —');
+    console.error('  unless the template manifest declares the section (#3852):');
+    console.error('  `sections: all` or `sections: experience, education` in the');
+    console.error('  <!-- career-ops-template --> block makes a missing or malformed');
+    console.error('  partial fail the build instead of falling back.');
     process.exit(args.includes('--help') ? 0 : 1);
   }
 
   if (args.includes('--test')) {
     await runSelfTest();
+    return;
+  }
+
+  if (args.includes('--markdown')) {
+    await runMarkdown(args);
     return;
   }
 
@@ -1072,7 +1084,7 @@ async function main() {
 
   let html;
   try {
-    html = renderHtml(template, payload, templatePath, { source: inputPath });
+    html = renderHtml(template, payload, templatePath);
   } catch (err) {
     console.error(err.message);
     process.exit(1);
@@ -1101,6 +1113,7 @@ async function runSelfTest() {
       company: 'Test Corp',
       role: 'Test Engineer',
       location: 'Remote',
+      context: 'Seed-stage startup; joined as employee #7.',
       dates: 'June 2024 - Present',
       bullets: [
         'Built automated testing pipelines with CI/CD integration',
@@ -1116,6 +1129,7 @@ async function runSelfTest() {
     education: [{
       title: 'Bachelor of Science in Computer Science',
       org: 'Test University',
+      location: 'City, State',
       year: '2024',
       description: 'Coursework: Data Structures, Algorithms, Machine Learning.',
     }],
@@ -1169,109 +1183,24 @@ async function runSelfTest() {
   }
 
   // Guard the absent-field side of the same case: omitting candidate.github
-  // must drop both its anchor and its separator, leaving no dangling item.
+  // must drop its whole contact item, leaving no dangling one.
+  //
+  // Counted as ITEMS, not separator elements: separators are generated by CSS
+  // on each item but the last, so there is no separator node to count and an
+  // off-by-one in the item list is what a dangling separator would now look
+  // like. One fewer item is exactly the old "one fewer separator" assertion.
   const { github, ...candidateWithoutGithub } = sample.candidate;
   const htmlWithoutGithub = renderHtml(template, { ...sample, candidate: candidateWithoutGithub });
-  const countSeparators = (h) => (h.match(/class="separator"/g) || []).length;
+  const countSeparators = (h) => {
+    const row = h.match(/<div class="contact-row">([\s\S]*?)<\/div>/);
+    return row ? (row[1].match(/<\/a>|<\/span>/g) || []).length : 0;
+  };
   if (htmlWithoutGithub.includes('github.com/test')) {
     console.error('Self-test failed: github contact link rendered when candidate.github is absent');
     process.exit(1);
   }
   if (countSeparators(htmlWithoutGithub) !== countSeparators(html) - 1) {
     console.error('Self-test failed: omitting candidate.github left a dangling separator in the contact row');
-    process.exit(1);
-  }
-
-  // Guard the bare-string link form. Payloads in the wild write linkedin either
-  // as {url, display} or as a bare string; the string form used to be dropped
-  // silently, which is how a CV shipped with no LinkedIn line and no error.
-  const htmlBareLinkedin = renderHtml(template, {
-    ...sample,
-    candidate: { ...sample.candidate, linkedin: 'linkedin.com/in/test' },
-  });
-  if (!htmlBareLinkedin.includes('href="https://linkedin.com/in/test"')
-    || !htmlBareLinkedin.includes('>linkedin.com/in/test<')) {
-    console.error('Self-test failed: a bare-string candidate.linkedin did not render as a contact link');
-    process.exit(1);
-  }
-  if (countSeparators(htmlBareLinkedin) !== countSeparators(html)) {
-    console.error('Self-test failed: bare-string candidate.linkedin changed the separator count');
-    process.exit(1);
-  }
-  // A string that already carries a scheme must not be double-prefixed.
-  const htmlSchemeLinkedin = renderHtml(template, {
-    ...sample,
-    candidate: { ...sample.candidate, linkedin: 'https://linkedin.com/in/test' },
-  });
-  if (htmlSchemeLinkedin.includes('href="https://https://')) {
-    console.error('Self-test failed: a scheme-qualified candidate.linkedin was double-prefixed');
-    process.exit(1);
-  }
-
-  // Guard the contact-completeness gate: a payload missing a required field must
-  // throw rather than render a CV the employer cannot reply to.
-  const { linkedin: _droppedLinkedin, ...noLinkedin } = sample.candidate;
-  let gateThrew = null;
-  try {
-    renderHtml(template, { ...sample, candidate: noLinkedin });
-  } catch (err) {
-    gateThrew = err;
-  }
-  if (!gateThrew || !/linkedin/.test(gateThrew.message)) {
-    console.error('Self-test failed: a payload missing candidate.linkedin rendered instead of failing the contact gate');
-    process.exit(1);
-  }
-  // require: [] is the documented opt-out for deliberately partial artifacts.
-  const gateOptOut = renderHtml(template, { ...sample, candidate: noLinkedin }, undefined, { skipContactGate: true });
-  if (!gateOptOut.includes('Test Candidate')) {
-    console.error('Self-test failed: skipContactGate did not render');
-    process.exit(1);
-  }
-  // A narrowed require list must not fail on a field it no longer demands.
-  const gateNarrowed = renderHtml(template, {
-    ...sample,
-    candidate: { ...noLinkedin, require: ['email'] },
-  });
-  if (!gateNarrowed.includes('Test Candidate')) {
-    console.error('Self-test failed: candidate.require did not narrow the contact gate');
-    process.exit(1);
-  }
-  // require: [] is the documented opt-out: an EMPTY array must mean "require
-  // nothing", not fall through to the default set. Testing `.length` instead of
-  // Array.isArray made this a no-op and reddened every render fixture that
-  // omits contact details on purpose.
-  const { phone: _p, email: _e, ...noContactAtAll } = noLinkedin;
-  const gateEmpty = renderHtml(template, {
-    ...sample,
-    candidate: { ...noContactAtAll, require: [] },
-  });
-  if (!gateEmpty.includes('Test Candidate')) {
-    console.error('Self-test failed: candidate.require: [] did not disable the contact gate');
-    process.exit(1);
-  }
-
-  // Guard the ERN contact-row case (cityjobs.nyc.gov internal-candidate
-  // eligibility): candidate.ern must render escaped, in the header.
-  const htmlWithErn = renderHtml(template, {
-    ...sample,
-    candidate: { ...sample.candidate, ern: '2033687', ern_label: 'ERN' },
-  });
-  if (!htmlWithErn.includes('<span>ERN 2033687</span>')) {
-    console.error('Self-test failed: candidate.ern did not render in the contact row');
-    process.exit(1);
-  }
-  // The scope half of the rule: a payload without candidate.ern must contain no
-  // trace of it, so the ERN cannot leak onto a private-sector CV by accident.
-  const htmlWithoutErn = renderHtml(template, {
-    ...sample,
-    candidate: { ...sample.candidate, ern: undefined, ern_label: undefined },
-  });
-  if (htmlWithoutErn.includes('2033687')) {
-    console.error('Self-test failed: ERN rendered on a payload that did not ask for it');
-    process.exit(1);
-  }
-  if (countSeparators(htmlWithoutErn) !== countSeparators(html)) {
-    console.error('Self-test failed: omitting candidate.ern left a dangling separator in the contact row');
     process.exit(1);
   }
 
@@ -1333,12 +1262,62 @@ async function runSelfTest() {
     console.error('Self-test failed: job-location block not rendered when location is present');
     process.exit(1);
   }
+  if (!html.includes('class="job-context"') || !html.includes('Seed-stage startup; joined as employee #7.')) {
+    console.error('Self-test failed: job-context block not rendered when context is present');
+    process.exit(1);
+  }
+  // context sits directly under the role, ahead of the location, on both paths:
+  // the section partial and the built-in builder (templates with no sections/).
+  const contextDiv = '<div class="job-context">Seed-stage startup; joined as employee #7.</div>';
+  for (const [path, out] of [['partial', html], ['built-in', buildExperience(sample.experience)]]) {
+    const [role, context, location] = ['class="job-role"', contextDiv, 'class="job-location"'].map(s => out.indexOf(s));
+    if (role === -1 || !(role < context && context < location)) {
+      console.error(`Self-test failed: ${path} builder did not render job-context between the role and the location`);
+      process.exit(1);
+    }
+  }
+  if (!html.includes('class="edu-location"')) {
+    console.error('Self-test failed: edu-location block not rendered when education location is present');
+    process.exit(1);
+  }
 
-  // Test with an experience entry that has no location to verify the LOCATION_BLOCK
-  // conditional removal path.
+  // Guard that a project's bullets array renders one DESC_BLOCK per bullet
+  // (2+ bullets, no description), while a plain description stays a single block.
+  const multiBulletHtml = renderHtml(template, {
+    ...sample,
+    projects: [{ name: 'Multi', bullets: ['First bullet', 'Second bullet', 'Third bullet'] }],
+  }, TEMPLATE_PATH);
+  // Literal placeholder text inside a bullet must render as text, not be
+  // re-read as a template reference (which would fail as an unresolved marker).
+  let literalHtml;
+  try {
+    literalHtml = renderHtml(template, {
+      ...sample,
+      projects: [{ name: 'Literal', bullets: ['Uses {{DESC}} syntax', 'Also {{DESC_BLOCK}} here'] }],
+    }, TEMPLATE_PATH);
+  } catch (err) {
+    console.error(`Self-test failed: literal placeholder text in a project bullet: ${err.message}`);
+    process.exit(1);
+  }
+  if (!literalHtml.includes('&#123;&#123;DESC&#125;&#125;') || !literalHtml.includes('&#123;&#123;DESC_BLOCK&#125;&#125;')) {
+    console.error('Self-test failed: literal placeholders in project bullets were not preserved');
+    process.exit(1);
+  }
+  if ((multiBulletHtml.match(/class="project-desc"/g) || []).length !== 3) {
+    console.error('Self-test failed: project bullets did not render one block per bullet');
+    process.exit(1);
+  }
+  if ((html.match(/class="project-desc"/g) || []).length !== 1) {
+    console.error('Self-test failed: project description should render as a single block');
+    process.exit(1);
+  }
+
+  // Test with experience and education entries that have no location to verify
+  // the LOCATION_BLOCK conditional removal path.
   const noLocSample = {
     ...sample,
     experience: [{ company: 'Acme', role: 'Engineer', dates: '2023', bullets: [] }],
+    education: [{ title: 'BSc', org: 'Test University', year: '2024' }],
     projects: [],
   };
   let noLocHtml;
@@ -1350,6 +1329,14 @@ async function runSelfTest() {
   }
   if (noLocHtml.includes('class="job-location"')) {
     console.error('Self-test failed: job-location block rendered when location is absent');
+    process.exit(1);
+  }
+  if (noLocHtml.includes('class="job-context"') || buildExperience(noLocSample.experience).includes('class="job-context"')) {
+    console.error('Self-test failed: job-context block rendered when context is absent');
+    process.exit(1);
+  }
+  if (noLocHtml.includes('class="edu-location"')) {
+    console.error('Self-test failed: edu-location block rendered when education location is absent');
     process.exit(1);
   }
 

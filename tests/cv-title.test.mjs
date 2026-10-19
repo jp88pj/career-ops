@@ -26,12 +26,7 @@ const ALL_TEMPLATES = [
 ];
 
 function payload(title) {
-  // require: [] opts out of the builder's contact-completeness gate. These
-// fixtures are title-block fixtures: they exercise {{TITLE_BLOCK}} substitution
-// and deliberately carry no phone or LinkedIn, which is not what this suite
-// measures. Without the opt-out the gate fails the build before the assertion
-// under test ever runs.
-const candidate = { name: 'Test Candidate', email: 'test@example.com', require: [] };
+  const candidate = { name: 'Test Candidate', email: 'test@example.com' };
   if (title !== undefined) candidate.title = title;
   return {
     lang: 'en', page_format: 'a4',

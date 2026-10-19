@@ -2,15 +2,7 @@
 // No filesystem access: the caller chooses the tracker and its sibling ledger.
 const RANKS = new Map([
   ['APPLIED', 1], ['RESPONDED', 2], ['REJECTED', 2],
-  ['INTERVIEW', 3], ['OFFER', 4], ['HIRED', 5],
-  // LAPSED ranks 1, alongside APPLIED, and never 2. An application was sent
-  // for it, so it belongs in everApplied's denominator; but "no employer
-  // response and no follow-up sent" is the definition of the state, so it can
-  // never count as a response. Ranking it 0 (the default for an unmapped
-  // status) would quietly remove those rows from the funnel denominator and
-  // raise the reported response rate -- a reclassification that flatters the
-  // number it was meant to correct.
-  ['LAPSED', 1],
+  ['ASSESSMENT', 3], ['INTERVIEW', 4], ['OFFER', 5], ['HIRED', 6],
 ]);
 
 export function funnelStageRank(status) {

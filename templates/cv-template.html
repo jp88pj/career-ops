@@ -8,60 +8,28 @@
   /* Themeable tokens (#1837): overridable via config/profile.yml `style:`, which
      the PDF pipeline injects as a later :root block. Defaults below reproduce the
      original hardcoded values, so a profile without a `style:` block is unchanged. */
-  /* Roboto embedded for human legibility (#font-legibility): static (non-variable)
-     woff2, so glyph advances extract cleanly — unlike the variable display fonts
-     this replaces. "Liberation Sans" stays in the stack as the offline fallback
-     if a Roboto file ever fails to inline. */
-  @font-face {
-    font-family: 'Roboto';
-    font-style: normal;
-    font-weight: 400;
-    font-display: swap;
-    src: url('./fonts/roboto-latin-400-normal.woff2') format('woff2');
-    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-  }
-  @font-face {
-    font-family: 'Roboto';
-    font-style: normal;
-    font-weight: 400;
-    font-display: swap;
-    src: url('./fonts/roboto-latin-ext-400-normal.woff2') format('woff2');
-    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
-  }
-  @font-face {
-    font-family: 'Roboto';
-    font-style: normal;
-    font-weight: 700;
-    font-display: swap;
-    src: url('./fonts/roboto-latin-700-normal.woff2') format('woff2');
-    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-  }
-  @font-face {
-    font-family: 'Roboto';
-    font-style: normal;
-    font-weight: 700;
-    font-display: swap;
-    src: url('./fonts/roboto-latin-ext-700-normal.woff2') format('woff2');
-    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
-  }
-  /* SemiBold 600 (single file covers latin + latin-ext): the non-bold text
-     weight — body copy and former 500-weight labels render here instead of
-     falling back to 400/700. */
-  @font-face {
-    font-family: 'Roboto';
-    font-style: normal;
-    font-weight: 600;
-    font-display: swap;
-    src: url('./fonts/roboto-latin-600-normal.woff2') format('woff2');
-  }
   :root {
     --accent-color: hsl(187 74% 32%);
-    --font-family: "Roboto", "Liberation Sans", 'Helvetica Neue', Arial, 'DejaVu Sans', sans-serif;
-    --font-size: 12px;
+    --secondary-color: hsl(270, 70%, 45%);
+    --tag-color: hsl(187, 74%, 28%);
+    --tag-bg: hsl(187, 40%, 95%);
+    --tag-border: hsl(187, 40%, 88%);
+    --font-family: "Liberation Sans", 'Helvetica Neue', Arial, 'DejaVu Sans', sans-serif;
+    --font-size: 11px;
     /* Matches generate-pdf.mjs's PDF_PAGE_MARGIN — the actual PDF page margin
        comes from the later @page rule injectPrintPageCss appends (which reads
        this same variable), so this default must match it exactly. */
     --page-margin: 0.6in;
+    /* #3242: unchanged default — a role may still flow across a page break to
+       keep the CV compact (see #1145). Override via config/profile.yml
+       `style.job_break_inside: avoid` for "a role is one unit, never split". */
+    --job-break-inside: auto;
+    /* Whether a Projects entry may split across a page break. Unchanged
+       default — a project may still split, keeping the CV compact. Override via
+       config/profile.yml `style.project_break_inside: avoid` for "a project is
+       one unit, never split", which removes the one-word widow a description
+       can leave above its tech line, at the cost of a bottom gap. */
+    --project-break-inside: auto;
   }
   @page { margin: var(--page-margin); }
 
@@ -97,7 +65,6 @@
   body {
     font-family: var(--font-family);
     font-size: var(--font-size);
-    font-weight: 600;
     line-height: 1.5;
     color: #1a1a2e;
     background: #ffffff;
@@ -117,27 +84,35 @@
 
   /* === HEADER === */
   .header {
-    margin-bottom: 24px;
+    margin-bottom: 20px;
   }
 
   .header h1 {
     font-family: var(--font-family);
-    font-size: 29px;
+    font-size: 28px;
     font-weight: 700;
     color: #1a1a2e;
-    /* No letter-spacing: Chromium emits per-glyph positions for tracked text
-       and PDF extractors (ATS auto-fill) decode the gaps as spurious spaces
-       mid-word — incl. the candidate's own name. See #font-extraction. */
-    letter-spacing: normal;
+    letter-spacing: -0.02em;
     margin-bottom: 6px;
     line-height: 1.1;
   }
 
+  .header-title {
+    font-family: var(--font-family);
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--accent-color);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+    line-height: 1.2;
+  }
+
   .header-gradient {
     height: 2px;
-    background: linear-gradient(to right, var(--accent-color), hsl(270, 70%, 45%));
+    background: linear-gradient(to right, var(--accent-color), var(--secondary-color));
     border-radius: 1px;
-    margin-bottom: 11px;
+    margin-bottom: 10px;
   }
 
   .contact-row {
@@ -145,7 +120,7 @@
     flex-wrap: wrap;
     gap: 8px 14px;
     font-family: var(--font-family);
-    font-size: 11.5px;
+    font-size: 10.5px;
     line-height: 1.4;
     color: #555;
   }
@@ -155,8 +130,16 @@
     text-decoration: none;
   }
 
-  .contact-row .separator {
+  /* The separator is generated content on the item BEFORE it, not an element of
+     its own. As its own flex item it was an independent box, so `flex-wrap`
+     could place it first on a new line — and attaching it to the following item
+     instead would only move the problem, since that item starts the wrapped
+     line. Trailing the preceding item, it leaves with that item or not at all.
+     margin-inline-start (logical) keeps RTL — html[lang="ar"] — correct. */
+  .contact-row > *:not(:last-child)::after {
+    content: "|";
     color: #ccc;
+    margin-inline-start: 14px;   /* matches the 14px column gap above */
   }
 
   /* === OPTIONAL PROFILE PHOTO (opt-in, DACH/European markets — #264) ===
@@ -181,21 +164,19 @@
 
   /* === SECTIONS === */
   .section {
-    margin-bottom: 24px;
+    margin-bottom: 18px;
   }
 
   .section-title {
     font-family: var(--font-family);
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
-    /* No letter-spacing (see header rule above): tracked headings extract as
-       "E X P E R I E N C E" in ATS parsers. Spacing purists lose; parsers win. */
-    letter-spacing: normal;
+    letter-spacing: 0.06em;
     color: var(--accent-color);
     border-bottom: 1.5px solid #e2e2e2;
-    padding-bottom: 6px;
-    margin-bottom: 14px;
+    padding-bottom: 4px;
+    margin-bottom: 10px;
     line-height: 1.2;
   }
 
@@ -225,37 +206,37 @@
 
   .competency-tag {
     font-family: var(--font-family);
-    font-size: 11px;
-    font-weight: 600;
-    color: hsl(187, 74%, 28%);
-    background: hsl(187, 40%, 95%);
-    padding: 4px 11px;
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--tag-color);
+    background: var(--tag-bg);
+    padding: 4px 10px;
     border-radius: 3px;
-    border: 1px solid hsl(187, 40%, 88%);
+    border: 1px solid var(--tag-border);
   }
 
   /* === WORK EXPERIENCE === */
   .job {
-    margin-bottom: 18px;
+    margin-bottom: 14px;
   }
 
   .job-header {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    gap: 13px;
+    gap: 12px;
     margin-bottom: 4px;
   }
 
   .job-company {
     font-family: var(--font-family);
-    font-size: 13.5px;
+    font-size: 12.5px;
     font-weight: 600;
-    color: hsl(270, 70%, 45%);
+    color: var(--secondary-color);
   }
 
   .job-period {
-    font-size: 11.5px;
+    font-size: 10.5px;
     color: #777;
     white-space: nowrap;
   }
@@ -268,8 +249,16 @@
   }
 
   .job-location {
-    font-size: 11px;
+    font-size: 10px;
     color: #888;
+  }
+
+  .job-context {
+    font-style: italic;
+    font-size: 10.5px;
+    line-height: 1.55;
+    color: #555;
+    margin-top: 3px;
   }
 
   .job ul {
@@ -278,10 +267,10 @@
   }
 
   .job li {
-    font-size: 11.5px;
-    line-height: 1.65;
+    font-size: 10.5px;
+    line-height: 1.6;
     color: #333;
-    margin-bottom: 5px;
+    margin-bottom: 4px;
   }
 
   .job li strong {
@@ -290,14 +279,14 @@
 
   /* === PROJECTS === */
   .project {
-    margin-bottom: 17px;
+    margin-bottom: 12px;
   }
 
   .project-title {
     font-family: var(--font-family);
-    font-size: 12.5px;
+    font-size: 11.5px;
     font-weight: 600;
-    color: hsl(270, 70%, 45%);
+    color: var(--secondary-color);
   }
 
   .project-title a {
@@ -310,53 +299,38 @@
   }
 
   .project-badge {
-    font-size: 10px;
-    font-weight: 600;
+    font-size: 9px;
+    font-weight: 500;
     color: var(--accent-color);
-    background: hsl(187, 40%, 95%);
+    background: var(--tag-bg);
     padding: 1px 6px;
     border-radius: 2px;
     margin-left: 6px;
   }
 
   .project-desc {
-    font-size: 11.5px;
+    font-size: 10.5px;
     color: #444;
     margin-top: 3px;
     line-height: 1.55;
   }
 
-  /* Project bullets, 2026-10-09. Added with BULLETS_BLOCK so a project's bullets
-     render as a list instead of one joined run. Matched to .job li so the two
-     sections read identically. */
-  .project ul {
-    margin: 3px 0 0 0;
-    padding-left: 15px;
-  }
-
-  .project li {
-    font-size: 11.5px;
-    color: #444;
-    line-height: 1.62;
-    margin-bottom: 3px;
-  }
-
   .project-tech {
-    font-size: 10.5px;
+    font-size: 9.5px;
     color: #888;
     margin-top: 3px;
   }
 
   /* === EDUCATION === */
   .edu-item {
-    margin-bottom: 10px;
+    margin-bottom: 8px;
   }
 
   .edu-header {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    gap: 13px;
+    gap: 12px;
   }
 
   .edu-title {
@@ -366,18 +340,23 @@
   }
 
   .edu-org {
-    color: hsl(270, 70%, 45%);
-    font-weight: 600;
+    color: var(--secondary-color);
+    font-weight: 500;
   }
 
   .edu-year {
-    font-size: var(--font-size);
+    font-size: 10px;
     color: #777;
     white-space: nowrap;
   }
 
+  .edu-location {
+    font-size: 10px;
+    color: #888;
+  }
+
   .edu-desc {
-    font-size: var(--font-size);
+    font-size: 10px;
     color: #666;
     margin-top: 2px;
     line-height: 1.5;
@@ -396,22 +375,22 @@
   .cert-item > * {
     display: table-cell;
     vertical-align: baseline;
-    padding-bottom: 8px;
+    padding-bottom: 6px;
   }
 
   .cert-title {
-    font-size: 11.5px;
-    font-weight: 600;
+    font-size: 10.5px;
+    font-weight: 500;
     color: #333;
   }
 
   .cert-org {
-    color: hsl(270, 70%, 45%);
+    color: var(--secondary-color);
     white-space: nowrap;
   }
 
   .cert-year {
-    font-size: 11px;
+    font-size: 10px;
     color: #777;
     white-space: nowrap;
     text-align: right;
@@ -438,18 +417,18 @@
   }
 
   .award-title {
-    font-size: 11.5px;
-    font-weight: 600;
+    font-size: 10.5px;
+    font-weight: 500;
     color: #333;
   }
 
   .award-org {
-    color: hsl(270, 70%, 45%);
+    color: var(--secondary-color);
     white-space: nowrap;
   }
 
   .award-year {
-    font-size: 11px;
+    font-size: 10px;
     color: #777;
     white-space: nowrap;
     text-align: right;
@@ -458,26 +437,42 @@
 
   /* === INTERESTS === */
   .interests-line {
-    font-size: 11.5px;
+    font-size: 10.5px;
     color: #444;
   }
+
+  /* === GDPR / RODO CONSENT (footer) === */
+  /* Opt-in footer slot filled from payload.consent. Empty by default — the
+     :empty rule hides the div (and its border-top) when no consent text is
+     set, so existing CVs render byte-identical to a pre-consent layout.
+     Mirrors the {{PHOTO}} opt-in slot pattern (#264). */
+  .cv-consent {
+    margin-top: 14px;
+    padding-top: 8px;
+    border-top: 1px solid #ddd;
+    font-size: 8.5px;
+    line-height: 1.4;
+    color: #777;
+    text-align: left;
+  }
+  .cv-consent:empty { display: none; }
 
   /* === SKILLS === */
   .skills-grid {
     display: flex;
     flex-wrap: wrap;
-    gap: 9px 16px;
+    gap: 6px 14px;
   }
 
   .skill-item {
-    font-size: 11.5px;
+    font-size: 10.5px;
     color: #444;
   }
 
   .skill-category {
     font-weight: 600;
     color: #333;
-    font-size: 11.5px;
+    font-size: 10.5px;
   }
 
   /* === PRINT === */
@@ -513,12 +508,26 @@
     page-break-inside: avoid;
   }
 
+  /* #3242: opt-in — see the --job-break-inside default above. */
+  .job {
+    page-break-inside: var(--job-break-inside, auto);
+    break-inside: var(--job-break-inside, auto);
+  }
+
+  /* Opt-in — see the --project-break-inside default above. */
+  .project {
+    page-break-inside: var(--project-break-inside, auto);
+    break-inside: var(--project-break-inside, auto);
+  }
+
   /* Keep a heading attached to the content that follows it, so headings are not
      orphaned at the bottom of a page. */
   .section-title,
   .job-company,
   .job-role,
   .job-location,
+  .job-context,
+  .edu-location,
   .project-title {
     break-after: avoid;
     page-break-after: avoid;
@@ -541,6 +550,7 @@
   }
 
   html[lang="ar"] .header h1,
+  html[lang="ar"] .header-title,
   html[lang="ar"] .section-title,
   html[lang="ar"] .job-company,
   html[lang="ar"] .project-title,
@@ -550,7 +560,7 @@
   }
 
   html[lang="ar"] .header-gradient {
-    background: linear-gradient(to left, var(--accent-color), hsl(270, 70%, 45%));
+    background: linear-gradient(to left, var(--accent-color), var(--secondary-color));
   }
 
   html[lang="ar"] .job ul {
@@ -590,6 +600,7 @@
   }
 
   html[lang="ja"] .header h1,
+  html[lang="ja"] .header-title,
   html[lang="ja"] .section-title,
   html[lang="ja"] .job-company,
   html[lang="ja"] .project-title,
@@ -616,6 +627,7 @@
   }
 
   html[lang="zh-CN"] .header h1,
+  html[lang="zh-CN"] .header-title,
   html[lang="zh-CN"] .section-title,
   html[lang="zh-CN"] .job-company,
   html[lang="zh-CN"] .project-title,
@@ -623,6 +635,7 @@
   html[lang="zh-CN"] .competency-tag,
   html[lang="zh-CN"] .skill-category,
   html[lang="zh"] .header h1,
+  html[lang="zh"] .header-title,
   html[lang="zh"] .section-title,
   html[lang="zh"] .job-company,
   html[lang="zh"] .project-title,
@@ -650,6 +663,7 @@
   }
 
   html[lang="ko"] .header h1,
+  html[lang="ko"] .header-title,
   html[lang="ko"] .section-title,
   html[lang="ko"] .job-company,
   html[lang="ko"] .project-title,
@@ -681,6 +695,7 @@
   }
 
   html[lang="zh-TW"] .header h1,
+  html[lang="zh-TW"] .header-title,
   html[lang="zh-TW"] .section-title,
   html[lang="zh-TW"] .job-company,
   html[lang="zh-TW"] .project-title,
@@ -701,8 +716,7 @@
 
   html[lang="zh-CN"] .section-title,
   html[lang="zh"] .section-title {
-    /* No letter-spacing: same extractor-spaces issue as the Latin rules. */
-    letter-spacing: normal;
+    letter-spacing: 0.03em;
   }
 </style>
 </head>
@@ -713,16 +727,13 @@
   <!-- HEADER -->
   <div class="header">
     <h1>{{NAME}}</h1>
+    {{TITLE_BLOCK}}
     <div class="header-gradient"></div>
     <div class="contact-row">
       <a href="tel:{{PHONE}}">{{PHONE}}</a>
-      <span class="separator">|</span>
       <a href="mailto:{{EMAIL}}">{{EMAIL}}</a>
-      <span class="separator">|</span>
       <a href="{{LINKEDIN_URL}}">{{LINKEDIN_DISPLAY}}</a>
-      <span class="separator">|</span>
       <a href="{{PORTFOLIO_URL}}">{{PORTFOLIO_DISPLAY}}</a>
-      <span class="separator">|</span>
       <span>{{LOCATION}}</span>
     </div>
   </div>
@@ -784,6 +795,9 @@
   </div>
 
   <!-- END -->
+
+  <!-- GDPR / RODO consent -->
+  <div class="cv-consent">{{CONSENT}}</div>
 
 </div>
 </body>

@@ -58,7 +58,7 @@ All User Layer files (such as `cv.md`, `config/profile.yml`, `modes/_profile.md`
 
 | CLI | economy | standard | premium | Extended thinking |
 |-----|---------|----------|---------|--------------------|
-| Claude Code | Haiku 4.5 | Sonnet 5 | Opus 5 | off / off / adaptive |
+| Claude Code | Haiku 4.5 | Sonnet 5.5 | Opus 5.5 | off / off / adaptive |
 | OpenCode | your CLI's cheapest/fastest available model | balanced model | most capable model | off / off / adaptive |
 | Gemini CLI | your CLI's cheapest/fastest available model | balanced model | most capable model | off / off / adaptive |
 | Copilot CLI | your CLI's cheapest/fastest available model | balanced model | most capable model | off / off / adaptive |
@@ -90,8 +90,28 @@ Decide the Global Score once from these dimensions, applying any user-specific S
 **Score interpretation:**
 - 4.5+ → Strong match, recommend applying immediately
 - 4.0-4.4 → Good match, worth applying
-- 3.5-3.9 → Decent but not ideal, apply only if specific reason
+- 3.5-3.9 → Decent but not ideal. Recommend against applying unless the user names a specific reason (Ethical Use in AGENTS.md draws the line at 4.0)
 - Below 3.5 → Recommend against applying (see Ethical Use in AGENTS.md)
+
+### Evidence confidence for the Global Score
+
+The Machine Summary `confidence` describes the **evidence supporting this evaluation**, not the chance of an interview or hire. It does not change the 1–5 Global Score. Block G's posting-legitimacy tier is a different judgment; `/calibrate` compares scores with recorded outcomes across applications.
+
+Before assigning `confidence`, classify evidence for each scoring dimension (CV match, North Star alignment, compensation, cultural signals, red flags):
+
+| Status | Meaning |
+|--------|---------|
+| `supported` | The conclusion traces to current JD text, primary candidate files, or a verifiable current source relevant to this dimension. |
+| `partial` | Some direct evidence exists, but a decision-relevant detail is inferred, unverified, or incomplete. |
+| `unknown` | Decision-relevant evidence is missing, contradictory, or stale; a clean finding cannot be established. |
+
+Show a short evidence table in the report with each dimension's status, its source or observation, and any unresolved question. Do not call an unchecked dimension `supported` merely because no problem was found. Apply these tier rules in order:
+
+1. **Low** if the JD is inaccessible or too incomplete to assess, CV match or North Star evidence is `unknown`, a material work-eligibility or work-model contradiction is unresolved, or at least two dimensions are `unknown`.
+2. **Medium** if no Low condition holds but any dimension is `partial` or `unknown`, or a material question remains unresolved.
+3. **High** only when all five dimensions are `supported` and no material question remains unresolved.
+
+Name up to three concrete checks that could change the decision; use an empty list only when none remain. Never convert this tier into a numeric probability or silently treat missing evidence as a neutral score. In the Machine Summary, mirror the five statuses under `score_evidence` and the checks under `confidence_gaps`; the human-readable explanation and `confidence` tier must agree.
 
 **How to score the "Cultural signals" dimension:**
 1. Read `culture_screen.require` from `config/profile.yml`. If `culture_screen` is missing or empty, skip the structural capping and score the dimension qualitatively based on company size, remote policy, and stability.
@@ -167,7 +187,39 @@ When a JD publishes a salary figure, distinguish advertised range, likely guaran
 
 ## Archetype Detection
 
-Classify every offer into one of these types (or hybrid of 2):
+Classify the offer by archetype. `modes/_profile.md` → *Your Target Roles* is
+authoritative: where it defines archetypes, detect against **that** table and
+use the one below only as a fallback for what it does not cover. This mirrors
+the precedence already stated above — user customizations in `_profile.md`
+override the defaults in this file. If `_profile.md` is missing, has no
+*Your Target Roles* section, or that table has no rows, the default table below
+is the target set: classify against it, and a match there counts as targeted.
+
+The table below is a default, not a closed set. It reflects one particular
+search (see AGENTS.md → Origin) and will not describe every user's field: a
+silicon design-verification engineer, a quant, a clinician have no archetype
+here at all.
+
+**If an offer matches no archetype the user actually targets, say so plainly
+and score North Star alignment 1.** That is a real and useful signal.
+Forcing it into the nearest available label — or into a "hybrid" of two —
+manufactures a confident fit narrative for a job the user is not applying for,
+which is worse than a low score because it reads as analysis.
+
+**A match against the default table below is not a match against the user's
+targets.** Where `_profile.md` defines archetypes, "targeted" means one of
+those. An offer that lands cleanly on a default row and on nothing in
+`_profile.md` is still an unmatched offer: name the default archetype if it
+helps explain the role, and score North Star as unmatched anyway. Reading the
+fallback as a target is the exact failure this section exists to stop.
+
+**On the number: an unmatched offer scores North Star 1.** `modes/ofertas.md`
+anchors this dimension at `5 = exact target role, 1 = unrelated`, and unmatched
+is the `1` end of that scale, not the middle — the offer is not one the user is
+looking for, and a 2 or 3 reads as a partial fit that does not exist. An offer
+that does match one of the user's targets, fully or as a hybrid of two, is
+scored on the rest of that same scale as usual; this section adds no second
+scale beside it.
 
 | Archetype | Key signals in JD |
 |-----------|-------------------|
@@ -193,15 +245,10 @@ After detecting archetype, read `modes/_profile.md` for the user's specific fram
 7. Use corporate-speak
 8. Ignore the tracker (every evaluated offer gets registered)
 9. Spawn nested subagents, or hand company/role/comp research to an open-ended research skill — research is bounded and inline (see Tools → Subagent delegation)
-10. **Report a tool's silence as missing data.** Before writing "X has no Y" into a report, a tracker cell, or a chat reply, confirm the field exists on the object being read. A blank is "I looked in the wrong place" far more often than it is "the data is not there" — six consecutive instances of this exact error are in `modes/_custom.md` → *Register: "no data" verdicts that were actually my own bugs*, including a comp parser reported as broken that read all 98 postings correctly and a field read as "not published by the tenant" that the source publishes on every page.
 
 ### ALWAYS
 
 0. **Cover letter:** If the form allows it, ALWAYS include one. Same visual design as CV. JD quotes mapped to proof points. 1 page max.
-0b. **Verify at source, and name the source.** Every figure, date, status, and existence claim reaching a report or the tracker comes from a tool that printed it — not from a title, a filename, an adjacent field, or recollection. A verdict is reportable only when the tool, the input, and the output can all be named; otherwise it gets labelled a hypothesis. Two checks make this cheap: **does this field exist on the object I am reading?** and **does a whole column going blank point at my reader rather than the source?** Real data is messily partial; it does not vanish uniformly.
-0c. **Re-verify a "no data" claim before anything downstream leans on it.** An unverified absence written into a report becomes load-bearing the moment it is copied into a tracker cell. When a claim is corrected, verify the correction the same way the original was verified — a fix written from the same unreliable output is still unreliable.
-0d. **Prefer the shipped extractor over a reimplementation, and a real parser over a hand-rolled one.** Re-parsing structured data (YAML, JSON-LD, an ATS payload) by regex is a recurring source of confident wrong answers; use the project's own loader. When a result comes back suspiciously round or total (`0/98`, `100%`, a count matching the input), suspect the reader first.
-0e. **Sample before building a filter or a scorer.** Before investing in a triage tool over a backlog, run a spread sample (evenly spaced, not the head of the file) and report the hit rate. Reading the hits by eye is part of the measurement — volume numbers do not distinguish plausible from absurd.
 1. Read cv.md, _profile.md, and article-digest.md (if exists) before evaluating
 1b. **First evaluation of each session:** Run `node cv-sync-check.mjs`. If warnings, notify user.
 2. Detect the role archetype and adapt framing per _profile.md
@@ -213,7 +260,6 @@ After detecting archetype, read `modes/_profile.md` for the user's specific fram
 8. Native tech English for generated text. Short sentences, action verbs, no passive voice.
 8b. Case study URLs in PDF Professional Summary (recruiter may only read this).
 9. **Tracker additions as TSV** -- NEVER edit applications.md directly. Write TSV in `batch/tracker-additions/`: a header row of column labels, then one data row (see AGENTS.md, "TSV Format for Tracker Additions"). The header is what lets `merge-tracker.mjs` resolve fields by name instead of guessing which column is score and which is status.
-9b. **Take dates and figures from the row, never from memory.** Read the tracker's own cell (or a regex over its Notes) before writing any applied/submitted date or corrected score; if the shape does not match, the answer is "not recorded", not a guess. Pass `--on` to `set-status.mjs` for any transition that did not happen today, and note that `--note` **appends** — so a correction is a targeted single-cell edit, never another note, or the wrong figure stays in the cell forever.
 10. **Include `**URL:**` in every report header.**
 
 ### Tools
@@ -224,10 +270,10 @@ After detecting archetype, read `modes/_profile.md` for the user's specific fram
 | WebFetch | Fallback for extracting JDs from static pages |
 | Playwright | Verify offers (browser_navigate + browser_snapshot). **NEVER let 2+ agents drive the same Playwright/MCP browser session concurrently.** This is a per-session rule, not a per-agent-count one: agents each holding their own isolated browser session are fine in parallel; agents sharing one interactive MCP browser session are not — they race for control and can silently read or act on each other's page state. |
 | Read | cv.md, _profile.md, article-digest.md, cv-template.html |
-| Write | Temporary HTML for PDF, applications.md, reports .md |
-| Edit | Update tracker |
+| Write | Temporary HTML for PDF, reports .md, tracker-addition TSVs in `batch/tracker-additions/` (never `applications.md` directly) |
+| Edit | Fixes to reports and other generated content. Never the tracker table: new rows go in as a TSV merged by `node merge-tracker.mjs`, status and notes changes go through `node set-status.mjs` |
 | Canva MCP | Optional visual CV generation. Duplicate base design, edit text, export PDF. Requires `cv.canva_resume_design_id` in profile.yml. |
-| Bash | `node generate-pdf.mjs` |
+| Bash | `node generate-pdf.mjs`, `node merge-tracker.mjs`, `node set-status.mjs` |
 
 ### Subagent delegation (cost guardrail)
 

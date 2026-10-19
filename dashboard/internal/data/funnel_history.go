@@ -16,19 +16,14 @@ func funnelRank(status string) int {
 	switch NormalizeStatus(status) {
 	case "applied":
 		return 1
-	// Lapsed ranks 1, alongside Applied, never 2. An application was sent
-	// for it so it belongs in everApplied's denominator, but the state means
-	// no employer ever replied, so it can never count as a response. Ranking
-	// it 0 (the unmapped default) would drop those rows from the denominator
-	// and quietly raise the reported response rate.
-	case "lapsed":
-		return 1
 	case "responded", "rejected":
 		return 2
-	case "interview":
+	case "assessment":
 		return 3
-	case "offer", "hired":
+	case "interview":
 		return 4
+	case "offer", "hired":
+		return 5
 	}
 	return 0
 }

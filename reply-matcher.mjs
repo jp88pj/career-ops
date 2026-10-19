@@ -74,8 +74,17 @@ export function checkCompanyMatch(text, company) {
   // Length is counted in CODE POINTS — `String.length` counts UTF-16 units, so a
   // three-character supplementary-plane name reported 4 and slipped past the
   // threshold into the substring path its BMP equivalent was refused.
-  const alphanumeric = company.replace(/[^\p{L}\p{N}]/gu, '');
-  const isShortName = Array.from(alphanumeric).length <= SHORT_NAME_MAX;
+  //
+  // \p{M} counts, for the same reason it counts in matchesOnWordBoundary's
+  // lookarounds: a combining mark is word material. This gate exists to measure
+  // how much distinctive material a needle carries, and stripping marks measures
+  // it in a unit whose size depends on the script. Devanagari and Bengali write
+  // most vowels as marks, so `विप्रो` (Wipro, 6 code points) counted 3 and
+  // `টাটা` (Tata, 4) counted 2 — both were handed the rule written for two- and
+  // three-letter Latin acronyms, while their own transliterations, `Wipro` and
+  // `Tata`, were long enough to skip it. See the fourth-predicate note below.
+  const wordMaterial = company.replace(/[^\p{L}\p{M}\p{N}]/gu, '');
+  const isShortName = Array.from(wordMaterial).length <= SHORT_NAME_MAX;
   if (isShortName && !NO_WORD_SEPARATOR_RE.test(company)) {
     return matchesOnWordBoundary(text, company);
   }
@@ -238,9 +247,11 @@ export function checkRoleMatch(text, role) {
     // the result, because the mark still sitting in the text makes that position
     // mid-grapheme. The word stops matching itself.
     //
-    // Three predicates define "word material" here (this strip, LATIN_WORD_RE,
-    // and matchesOnWordBoundary's lookarounds) and they have to move as a unit.
-    // Updating two of the three is what produced that bug (CodeRabbit, #3535).
+    // FOUR predicates define "word material" in this file (this strip,
+    // LATIN_WORD_RE, matchesOnWordBoundary's lookarounds, and the length gate in
+    // checkCompanyMatch) and they have to move as a unit. Updating two of them is
+    // what produced that bug (CodeRabbit, #3535); the length gate was the one
+    // left behind, and it is counted with \p{M} now.
     const stripped = part.replace(/^[^\p{L}\p{M}\p{N}]+|[^\p{L}\p{M}\p{N}]+$/gu, '');
     const bare = stripped.toLowerCase();
 
@@ -388,6 +399,72 @@ export function getAppDomains(app, followups) {
   return Array.from(domains);
 }
 
+// A company-wide rejection is only safe when the application definitely
+// existed by the time the email arrived. Exact dates collapse to one instant;
+// the tracker's `~YYYY-MM` backfill form is a range, and is eligible only when
+// the WHOLE month is on/before the email date. Unknown shapes fail closed.
+function comparableDateRange(raw) {
+  const value = String(raw ?? '').trim();
+  if (!value) return null;
+  const approximate = value.match(/^~(\d{4})-(\d{2})$/);
+  if (approximate) {
+    const year = Number(approximate[1]);
+    const month = Number(approximate[2]);
+    if (month < 1 || month > 12) return null;
+    return {
+      earliest: Date.UTC(year, month - 1, 1),
+      latest: Date.UTC(year, month, 1) - 1,
+    };
+  }
+  const calendarDate = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T)/i);
+  let calendarInstant = null;
+  if (calendarDate) {
+    const year = Number(calendarDate[1]);
+    const month = Number(calendarDate[2]);
+    const day = Number(calendarDate[3]);
+    calendarInstant = Date.UTC(year, month - 1, day);
+    const date = new Date(calendarInstant);
+    if (
+      date.getUTCFullYear() !== year
+      || date.getUTCMonth() !== month - 1
+      || date.getUTCDate() !== day
+    ) return null;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return { earliest: calendarInstant, latest: calendarInstant };
+  }
+  // ISO date-times without an explicit zone parse in the host's local time,
+  // which would make eligibility vary across machines. Fail closed instead.
+  if (
+    /^\d{4}-\d{2}-\d{2}T/i.test(value)
+    && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value)
+  ) return null;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return null;
+  return { earliest: parsed, latest: parsed };
+}
+
+function candidateReceivedAt(cand) {
+  return comparableDateRange(
+    cand?.received_at ?? cand?.receivedAt ?? cand?.email_date ?? cand?.date,
+  );
+}
+
+function canonicalStatus(raw) {
+  return String(raw ?? '').replace(/\*\*/g, '').trim().toLowerCase();
+}
+
+function companyKey(raw) {
+  return normalizeStr(normalizeChinese(String(raw ?? ''))).replace(/[^\p{L}\p{M}\p{N}]+/gu, '');
+}
+
+function companyWideEligible(app, emailRange) {
+  if (!emailRange || !['applied', 'evaluated'].includes(canonicalStatus(app?.status))) return false;
+  const appliedRange = comparableDateRange(app?.date);
+  if (!appliedRange) return false;
+  return appliedRange.latest <= emailRange.earliest;
+}
+
 export function matchCandidates(candidates, apps, followups = []) {
   const results = [];
   
@@ -397,6 +474,7 @@ export function matchCandidates(candidates, apps, followups = []) {
     
     let bestMatches = [];
     let highestScore = -1;
+    let anyRoleMatch = false;
     
     for (const app of apps) {
       let score = 0;
@@ -431,6 +509,7 @@ export function matchCandidates(candidates, apps, followups = []) {
       // attribute itself to this application (#2671).
       const isRoleExactMatch = checkRoleMatchExact(textContext, app.role);
       const isRolePartialMatch = !isRoleExactMatch && checkRoleMatch(textContext, app.role);
+      if (isRoleExactMatch || isRolePartialMatch) anyRoleMatch = true;
       const isRoleMatch = isRoleExactMatch || (isRolePartialMatch && (isCompanyMatch || hasDomainMatch));
       if (isRoleMatch) {
         score += 1.5;
@@ -483,15 +562,37 @@ export function matchCandidates(candidates, apps, followups = []) {
       delete match.score;
       results.push(match);
     } else if (bestMatches.length > 1) {
-      // Ambiguous matches
-      results.push({
-        message_id: cand.message_id,
-        company_hint: cand.from,
-        role_hint: '',
-        application_num: null, // ambiguous
-        confidence: 'low',
-        signals: ['ambiguous-match'],
-      });
+      const tiedApps = bestMatches
+        .map(match => apps.find(app => app.num === match.application_num))
+        .filter(Boolean);
+      const tiedCompanies = new Set(tiedApps.map(app => companyKey(app.company)).filter(Boolean));
+      const emailRange = candidateReceivedAt(cand);
+      const isRejection = classifyReply(cand).type === 'Rejected';
+      const eligible = tiedApps.filter(app => companyWideEligible(app, emailRange));
+
+      if (isRejection && !anyRoleMatch && tiedCompanies.size === 1 && eligible.length > 0) {
+        results.push({
+          message_id: cand.message_id,
+          company_hint: eligible[0].company,
+          role_hint: '',
+          application_num: null,
+          application_nums: eligible.map(app => app.num),
+          confidence: 'medium',
+          signals: ['company-wide-rejection'],
+        });
+      } else {
+        // Ambiguous matches remain fail-closed when the message is not a
+        // rejection, names any tracked role, spans companies, lacks a reliable
+        // received date, or leaves no safely eligible application.
+        results.push({
+          message_id: cand.message_id,
+          company_hint: cand.from,
+          role_hint: '',
+          application_num: null, // ambiguous
+          confidence: 'low',
+          signals: ['ambiguous-match'],
+        });
+      }
     } else {
       // No matches
       results.push({
@@ -530,48 +631,10 @@ export function classifyReply(cand) {
   };
 
   // 1. Noise keywords (checked first to separate alerts/leads from actual interviews)
-  //
-  // SPLIT BY STRENGTH, because checking all noise wording first and returning
-  // immediately let boilerplate in a careers-portal footer type a rejection as
-  // Noise. Found 2026-10-05 on a real Pfizer Workday rejection for req 4964318
-  // (tracker #201): "We really appreciate your interest ... After a comprehensive
-  // review, we have elected to pursue other qualified candidates ..." — the
-  // rejection tier already matched 'pursue other candidates', but the noise tier
-  // ran first and matched 'job alert' from the closing footer "monitor the status
-  // of any other application(s), set job alerts and view current opportunities",
-  // so Noise returned before the rejection tier was ever consulted.
-  //
-  // STRONG entries (below) only fire when the message shows no personal marker:
-  // no salutation by name, no applicant-specific reference, no requisition. Those
-  // are marketing blasts by construction, and one of the strong entries matched
-  // on its own is the intended signal.
   const noiseKeywords = [
     '邀请投递', '抢面试先机', '近期热招', '立即投递', '热招职位', '订阅职位', '职位推荐', '推荐职位',
     'job alert', 'invitation to apply', 'recommended jobs', 'newsletter', 'marketing digest', 'job recommendation', 'suggested jobs'
   ];
-  // Wording that is decisive when it is the WHOLE message, but appears verbatim
-  // as a footer link inside genuine candidate-specific mail. These may only
-  // classify as Noise in the absence of a personal marker.
-  const noiseWeakKeywords = [
-    'job alert', 'invitation to apply', 'recommended jobs', 'job recommendation', 'suggested jobs', 'subscribe'
-  ];
-  // Personal markers. Any one of these means the mail was written for this
-  // candidate, so footer noise wording must not decide the type on its own.
-  const personalMarkerRe = [
-    /\bdear\s+[A-Z][a-z]+/i,                       // "Dear Jonathan"
-    /\b(?:hi|hello|hey)\s+[A-Z][a-z]+/i,            // "Hi Jonathan"
-    /\b(?:thank|thanks)\s+you(?:\s+for)?\s+(?:applying|your application|your interest|the time)/i,
-    /\bwe\s+(?:really\s+)?(?:appreciate|thank)\b/i,
-    /\bcandidate\s+experience\s+team\b/i,
-    /\b(?:have|has)\s+(?:elected|decided|chosen|selected)\s+to\s+pursue\s+other\b/i,
-    /\bafter\s+a\s+(?:comprehensive|thorough|careful)\s+review\b/i,
-    /\bapplication(?:\s+|\s*\()?\s*\(?\d{4,}\)?/i,   // "(4964318)", "application 12345"
-    /\bplease\s+do\s+not\s+respond\s+to\s+this\s+message\b/i,
-    /\bre(?:qs?\.?|requisition)\s*(?:id\s*)?[:#]?\s*\d{3,}/i,
-    /\b(?:job|posting|requisition|req)\s*(?:id\s*)?[:#]?\s*\d{3,}/i,
-  ];
-  const hasPersonalMarker = personalMarkerRe.some(re => re.test(text));
-
 
   // 2. Offer keywords — specific phrases only. A bare 'offer' substring is deliberately
   //    excluded: it collides with rejection wording such as 'unable to offer' (see
@@ -581,109 +644,11 @@ export function classifyReply(cand) {
     'offer letter', 'employment agreement', 'job offer', 'congratulations on the offer', 'compensation details', 'pleased to offer'
   ];
 
-  // 3. Rejected keywords, split by DECISIVENESS.
-  //
-  // Tier 1 phrases STATE a decision ("we will not be moving forward with your
-  // application"). Conclusive on their own.
-  //
-  // Tier 2 words are sentiment or ambiguity ("unfortunately", "not a match").
-  // They only mean Rejected when the same message does not also read as an
-  // acknowledgement of the application.
-  //
-  // WHY NOT A BLANKET CONFIRMATION VETO
-  // -----------------------------------
-  // Ashby sends genuine rejections with the subject "Thanks for applying to
-  // <company>!" and a body that also contains "thank you for applying" - which
-  // is an autoKeywords entry. Vetoing Rejected whenever an acknowledgement
-  // marker appears would therefore suppress exactly the rejections we most want
-  // to catch. Tiering keeps those: their Tier 1 phrase wins, and Tier 2 is only
-  // consulted when nothing decisive was found.
-  //
-  // Found 2026-09-27 on a real Cohere volume-of-interest confirmation, which
-  // read "A member of our Talent team will review your application ... If you
-  // have any questions, please contact ... Unfortunately, due to the high
-  // volume of interest we've been receiving, we aren't able to personally
-  // respond to every candidate" and was typed Rejected on the bare word
-  // "unfortunately" (tracker #122). The tier-2 terms below are all
-  // pre-existing; this split is what stops them deciding alone.
-  const rejectionDecisiveKeywords = [
-    '暂不匹配', '不合适', '未能进入下一轮', '未通过', '不再考虑', '决定不推进',
-    'not a match', 'not matching', 'decided not to proceed', 'will not be moving forward',
-    'position has been filled', 'role has been closed',
-    // "decided not to move forward with your application" is the single most
-    // common English ATS rejection phrasing, and it missed the 'decided not to
-    // proceed' entry above: proceed != move forward. Found 2026-09-27 on a real
-    // Ashby template rejection (Topline Pro, tracker #86) that classified as
-    // 'Unknown' with zero keyword hits. These are the phrasings observed in
-    // Greenhouse / Ashby / Lever / Workday templates. Kept deliberately
-    // unambiguous - no bare 'other candidates' or 'not selected', which also
-    // appear in interview-scheduling and keep-in-touch mail.
-    'decided not to move forward', 'not to move forward with your application',
-    'not be moving forward', 'unable to move forward', 'will not be proceeding',
-    'decided to move forward with other', 'moving forward with other candidates',
-    // "we have elected to pursue other qualified candidates" is the standard
-    // big-pharma rejection phrasing (Pfizer / Merck / BMS / J&J Workday
-    // templates). The older 'pursue other candidates' entry missed it: the
-    // template inserts "qualified" between "other" and "candidates". Found
-    // 2026-10-05 on tracker #201 (req 4964318), which classified as Unknown with
-    // no rejection phrase hit.
-    'pursue other qualified candidates', 'pursuing other qualified candidates',
-    'elected to pursue other', 'elected to proceed with other',
-    'other candidates whose combination of education',
-    'we have elected to pursue', 'have elected to pursue',
-    'pursue other candidates', 'pursuing other candidates', 'another candidate',
-    'other applicants', 'were not selected', 'was not selected', 'not selected for this'
+  // 3. Rejected keywords
+  const rejectionKeywords = [
+    '很遗憾', '暂不匹配', '不合适', '未能进入下一轮', '感谢您的时间', '未通过', '不再考虑', '决定不推进',
+    'unfortunately', 'not a match', 'not matching', 'decided not to proceed', 'will not be moving forward', 'position has been filled', 'role has been closed', 'unable to offer'
   ];
-  const rejectionWeakKeywords = [
-    '很遗憾',            // "unfortunately" - sentiment, also used in volume disclaimers
-    '感谢您的时间',       // "thank you for your time" - appears in confirmations too
-    'unfortunately',
-    'unable to offer'
-  ];
-  // Variable-word rejection phrasings that substring matching cannot express,
-  // because one pronoun or noun decides whether the entry hits at all.
-  //
-  // Found 2026-10-05 on two real rejections the user pasted the same day:
-  //   DREAM (#171)      "we are unable to move YOU forward in our selection
-  //                     process" - the 'unable to move forward' entry above does
-  //                     NOT match it, because of the single word "you". With no
-  //                     decisive hit, the mail fell through to respondedKeywords,
-  //                     where the talent-community boilerplate "may reach out
-  //                     should another opportunity arise" matched 'reach out' and
-  //                     typed an interview-stage REJECTION as "Responded".
-  //   Talkspace (#177)  "although your qualifications did not match our needs for
-  //                     this position" - matched nothing at all and classified
-  //                     Unknown with zero evidence. Nearest entry, 'not a match',
-  //                     requires the literal "not a match".
-  //
-  // Kept unambiguous: each states the decision outright, and none of them appear
-  // in confirmation or scheduling mail.
-  const rejectionDecisiveRe = [
-    // "role/position has been filled" -- both word orders, either side of the
-    // adverb. Greenwoods emit "has now been filled" (the 'now' is why the older
-    // literal entry missed it); Ashby emits the verb-first form. Seat noun
-    // required, so a filled scheduling slot is not a rejection.
-    /\b(?:roles?|positions?|openings?|requisitions?|vacancies)\b[^,.!?\n]{0,60}\b(?:been\s+)?(?:now\s+)?filled\b/i,
-    /\bfilled\b[^,.!?\n]{0,80}\b(?:roles?|positions?|openings?|requisitions?|vacancies)\b/i,
-    /unable to move (?:you|us|candidate|forward)/i,
-    /(?:unable|not able) to (?:take|continue) (?:you|us) (?:forward|to the next)/i,
-    /qualifications? did not match/i,
-    /(?:did|do) not match (?:our|the) (?:needs|requirements|criteria)/i,
-    /not (?:a|an) (?:good|strong) match for (?:our|the)/i,
-    /(?:are|is) not moving forward with your application/i,
-  ];
-  // An acknowledgement that suppresses a Tier 2 match. Only consulted when no
-  // Tier 1 phrase matched, so it can never mask a real rejection.
-  const acknowledgementKeywords = [
-    'thank you for applying', 'thanks for applying', 'thank you for your application',
-    'thanks for your application', 'application received', 'received your application',
-    'we have received your application', 'will review your application',
-    'review your application', 'be in touch if your qualifications',
-    'high volume of interest', 'volume of interest', 'not able to personally respond',
-    'thank you for your interest', 'thank you for applying to'
-  ];
-  // Union, kept for the evidence trail and for any external caller reading it.
-  const rejectionKeywords = [...rejectionDecisiveKeywords, ...rejectionWeakKeywords];
 
   // 4. Auto-confirmation keywords
   const autoKeywords = [
@@ -710,14 +675,8 @@ export function classifyReply(cand) {
     'would like to chat', 'reach out', 'connect with you', 'hiring manager responded'
   ];
 
-  // A message carrying a personal marker was written FOR this candidate, so
-  // footer noise wording never decides its type on its own - it falls through to
-  // the decision tiers below. When none of them match, the message lands in the
-  // needs-review bucket instead of being silently discarded as Noise, which is
-  // the safe direction to err: surfacing an untypeable candidate mail costs one
-  // glance, while discarding a real rejection costs the application.
   const isNoise = check(noiseKeywords);
-  if (isNoise && !hasPersonalMarker) {
+  if (isNoise) {
     return {
       type: 'Noise',
       evidence: Array.from(new Set(evidence)),
@@ -730,17 +689,8 @@ export function classifyReply(cand) {
   // which still contains the 'offer letter' phrase) must win even when offer-ish
   // phrasing is present. Deciding Offer first would type such replies as Offer and
   // push a spurious Offer tracker update.
-  const hasDecisiveRejection = check(rejectionDecisiveKeywords) ||
-    rejectionDecisiveRe.some(re => {
-      if (!re.test(text)) return false;
-      evidence.push(re.source);
-      return true;
-    });
-  const hasWeakRejection = hasDecisiveRejection ? false : check(rejectionWeakKeywords);
-  // An acknowledgement only suppresses a WEAK match, never a decisive one — see
-  // the "WHY NOT A BLANKET CONFIRMATION VETO" note above.
-  const hasAcknowledgement = (hasDecisiveRejection ? false : check(acknowledgementKeywords));
-  const isRejected = signal === 'rejection' || hasDecisiveRejection || (hasWeakRejection && !hasAcknowledgement);
+  const hasRejectionKeywords = check(rejectionKeywords);
+  const isRejected = signal === 'rejection' || hasRejectionKeywords;
   if (isRejected) {
     if (signal === 'rejection' && !evidence.includes('rejection')) evidence.push('rejection');
     return {

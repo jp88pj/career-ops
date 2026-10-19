@@ -68,10 +68,27 @@ func TestComputeProgressMetricsRatesIncludeHired(t *testing.T) {
 	}
 }
 
+func TestComputeProgressMetricsTreatsAssessmentAsRespondedBeforeInterview(t *testing.T) {
+	pm := ComputeProgressMetrics(appsWithStatuses("Assessment"))
+
+	if got := stageCount(pm, "Applied"); got != 1 {
+		t.Errorf("Applied = %d, want 1", got)
+	}
+	if got := stageCount(pm, "Responded"); got != 1 {
+		t.Errorf("Responded = %d, want 1", got)
+	}
+	if got := stageCount(pm, "Assessment"); got != 1 {
+		t.Errorf("Assessment = %d, want 1", got)
+	}
+	if got := stageCount(pm, "Interview"); got != 0 {
+		t.Errorf("Interview = %d, want 0 before an interview", got)
+	}
+}
+
 // The cumulative tiers must stay ordered: each stage is a superset of the next.
 func TestComputeProgressMetricsFunnelIsMonotonic(t *testing.T) {
 	pm := ComputeProgressMetrics(appsWithStatuses(
-		"Evaluated", "Applied", "Responded", "Interview", "Offer", "Hired", "Rejected", "Lapsed", "Discarded", "SKIP",
+		"Evaluated", "Applied", "Responded", "Interview", "Offer", "Hired", "Rejected", "Discarded", "SKIP",
 	))
 
 	applied := stageCount(pm, "Applied")
@@ -83,12 +100,9 @@ func TestComputeProgressMetricsFunnelIsMonotonic(t *testing.T) {
 		t.Errorf("funnel not monotonic: applied=%d responded=%d interview=%d offer=%d",
 			applied, responded, interview, offer)
 	}
-	// applied = applied+responded+interview+offer+hired+rejected+lapsed = 7
-	// Lapsed counts into the DENOMINATOR only: an application was sent for it,
-	// but the state means no employer ever replied, so it never reaches the
-	// responded tier. See funnelRank() and ComputeProgressMetrics.
-	if applied != 7 {
-		t.Errorf("Applied = %d, want 7", applied)
+	// applied = applied+responded+interview+offer+hired+rejected = 6
+	if applied != 6 {
+		t.Errorf("Applied = %d, want 6", applied)
 	}
 	// responded = responded+interview+offer+hired+rejected = 5
 	if responded != 5 {
@@ -126,5 +140,17 @@ func TestFunnelTopStageCountsUnscoredRowsAndIsNotNamedEvaluated(t *testing.T) {
 	}
 	if pm.AvgScore != 4.2 {
 		t.Errorf("AvgScore = %v, want 4.2 — the average covers scored rows only, which is why the count beside it cannot be called 'evaluated'", pm.AvgScore)
+	}
+}
+
+// Active means in flight, the same set stats.mjs counts: an evaluated row was
+// never sent and a hire is finished.
+func TestComputeProgressMetricsActiveAppsAreInFlight(t *testing.T) {
+	pm := ComputeProgressMetrics(appsWithStatuses(
+		"Evaluated", "Applied", "Responded", "Assessment", "Interview", "Offer",
+		"Hired", "Rejected", "Discarded", "SKIP",
+	))
+	if pm.ActiveApps != 5 {
+		t.Fatalf("ActiveApps = %d, want 5", pm.ActiveApps)
 	}
 }

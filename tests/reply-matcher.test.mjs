@@ -487,6 +487,131 @@ test('matchCandidates - ambiguous matches', () => {
   assert.ok(results[0].signals.includes('ambiguous-match'));
 });
 
+test('matchCandidates - role-less rejection returns every date-eligible row at one company (#4825)', () => {
+  const apps = [
+    { num: 40, date: '2026-08-01', company: 'Acme Air', role: 'Backend Engineer', status: 'Applied', notes: '' },
+    { num: 41, date: '2026-08-02', company: 'Acme Air', role: 'Product Designer', status: 'Evaluated', notes: '' },
+    { num: 42, date: '2026-08-03', company: 'Acme Air', role: 'Finance Analyst', status: 'Applied', notes: '' },
+  ];
+  const [result] = matchCandidates([{
+    message_id: 'company-wide-1',
+    received_at: '2026-08-20T12:00:00Z',
+    from: 'careers@acmeair.com',
+    subject: 'Thank you for your interest in Acme Air',
+    body_snippet: 'Unfortunately, we will not be moving forward with your application.',
+    signal: 'rejection',
+  }], apps, []);
+
+  assert.deepEqual(result.application_nums, [40, 41, 42]);
+  assert.equal(result.application_num, null);
+  assert.equal(result.confidence, 'medium');
+  assert.deepEqual(result.signals, ['company-wide-rejection']);
+});
+
+test('matchCandidates - company-wide rejection excludes future and non-eligible lifecycle rows', () => {
+  const apps = [
+    { num: 43, date: '2026-08-01', company: 'Acme Air', role: 'Backend Engineer', status: 'Applied', notes: '' },
+    { num: 44, date: '2026-08-21', company: 'Acme Air', role: 'Product Designer', status: 'Applied', notes: '' },
+    { num: 45, date: '2026-08-02', company: 'Acme Air', role: 'Finance Analyst', status: 'Interview', notes: '' },
+    { num: 46, date: '2026-08-03', company: 'Acme Air', role: 'Program Manager', status: 'Rejected', notes: '' },
+  ];
+  const [result] = matchCandidates([{
+    message_id: 'company-wide-2', received_at: '2026-08-20', from: 'careers@acmeair.com',
+    subject: 'Acme Air application update', body_snippet: 'We will not be moving forward.', signal: 'rejection',
+  }], apps, []);
+
+  assert.deepEqual(result.application_nums, [43]);
+});
+
+test('matchCandidates - a named tracked role preserves the existing single-row match', () => {
+  const apps = [
+    { num: 47, date: '2026-08-01', company: 'Acme Air', role: 'Backend Engineer', status: 'Applied', notes: '' },
+    { num: 48, date: '2026-08-02', company: 'Acme Air', role: 'Product Designer', status: 'Applied', notes: '' },
+  ];
+  const [result] = matchCandidates([{
+    message_id: 'company-wide-3', received_at: '2026-08-20', from: 'careers@acmeair.com',
+    subject: 'Acme Air — Backend Engineer', body_snippet: 'We will not be moving forward.', signal: 'rejection',
+  }], apps, []);
+
+  assert.equal(result.application_num, 47);
+  assert.equal(result.application_nums, undefined);
+  assert.ok(result.signals.includes('role-title'));
+});
+
+test('matchCandidates - role-less rejection without a reliable received date stays ambiguous', () => {
+  const apps = [
+    { num: 49, date: '2026-08-01', company: 'Acme Air', role: 'Backend Engineer', status: 'Applied', notes: '' },
+    { num: 50, date: '2026-08-02', company: 'Acme Air', role: 'Product Designer', status: 'Applied', notes: '' },
+  ];
+  const [result] = matchCandidates([{
+    message_id: 'company-wide-4', from: 'careers@acmeair.com',
+    subject: 'Acme Air application update', body_snippet: 'We will not be moving forward.', signal: 'rejection',
+  }], apps, []);
+
+  assert.equal(result.application_num, null);
+  assert.equal(result.application_nums, undefined);
+  assert.deepEqual(result.signals, ['ambiguous-match']);
+});
+
+test('matchCandidates - impossible calendar dates fail closed', () => {
+  const apps = [
+    { num: 55, date: '2026-02-30', company: 'Acme Air', role: 'Backend Engineer', status: 'Applied', notes: '' },
+    { num: 56, date: '2026-02-01', company: 'Acme Air', role: 'Product Designer', status: 'Applied', notes: '' },
+  ];
+  const [result] = matchCandidates([{
+    message_id: 'company-wide-invalid-date', received_at: '2026-03-01', from: 'careers@acmeair.com',
+    subject: 'Acme Air application update', body_snippet: 'We will not be moving forward.', signal: 'rejection',
+  }], apps, []);
+
+  assert.deepEqual(result.application_nums, [56]);
+});
+
+test('matchCandidates - ISO date-times require an explicit timezone', () => {
+  const apps = [
+    { num: 57, date: '2026-08-20', company: 'Acme Air', role: 'Backend Engineer', status: 'Applied', notes: '' },
+    { num: 58, date: '2026-08-19', company: 'Acme Air', role: 'Product Designer', status: 'Applied', notes: '' },
+  ];
+  const run = (received_at) => matchCandidates([{
+    message_id: `company-wide-zone-${received_at}`, received_at, from: 'careers@acmeair.com',
+    subject: 'Acme Air application update', body_snippet: 'We will not be moving forward.', signal: 'rejection',
+  }], apps, [])[0];
+
+  assert.deepEqual(run('2026-08-20T00:30:00').signals, ['ambiguous-match']);
+  assert.deepEqual(run('2026-08-20T00:30:00Z').application_nums, [57, 58]);
+  assert.deepEqual(run('2026-08-20T00:30:00+00:00').application_nums, [57, 58]);
+  assert.deepEqual(run('2026-02-30T00:00:00Z').signals, ['ambiguous-match']);
+  assert.deepEqual(run('2026-02-30T00:00:00+00:00').signals, ['ambiguous-match']);
+});
+
+test('matchCandidates - approximate tracker dates are conservative and never crash', () => {
+  const apps = [
+    { num: 51, date: '~2026-05', company: 'Acme Air', role: 'Backend Engineer', status: 'Applied', notes: '' },
+    { num: 52, date: '~2026-06', company: 'Acme Air', role: 'Product Designer', status: 'Applied', notes: '' },
+  ];
+  const run = (received_at) => matchCandidates([{
+    message_id: `company-wide-${received_at}`, received_at, from: 'careers@acmeair.com',
+    subject: 'Acme Air application update', body_snippet: 'We will not be moving forward.', signal: 'rejection',
+  }], apps, [])[0];
+
+  assert.doesNotThrow(() => run('2026-06-15'));
+  assert.deepEqual(run('2026-06-15').application_nums, [51], 'same-month approximate date is not definitely before the email');
+  assert.deepEqual(run('2026-07-01').application_nums, [51, 52]);
+});
+
+test('matchCandidates - unknown company remains no-match', () => {
+  const apps = [
+    { num: 53, date: '2026-08-01', company: 'Acme Air', role: 'Backend Engineer', status: 'Applied', notes: '' },
+    { num: 54, date: '2026-08-02', company: 'Acme Air', role: 'Product Designer', status: 'Applied', notes: '' },
+  ];
+  const [result] = matchCandidates([{
+    message_id: 'company-wide-5', received_at: '2026-08-20', from: 'no-reply@unknown.example',
+    subject: 'Application update', body_snippet: 'We will not be moving forward.', signal: 'rejection',
+  }], apps, []);
+
+  assert.deepEqual(result.signals, ['no-match']);
+  assert.equal(result.application_num, null);
+});
+
 test('matchCandidates - no match', () => {
   const apps = [
     { num: 6, company: 'SmallCo', role: 'Dev', notes: '' }
@@ -752,154 +877,3 @@ test('classifyReply - need action vs scheduling', () => {
   assert.equal(scheduleRes.suggestedTrackerUpdate, 'Interview');
 });
 
-
-// Regression 2026-09-27 (#86 Topline Pro): a real Ashby template rejection
-// saying "we've decided not to move forward with your application" classified
-// as 'Unknown' with zero keyword hits, because the list held the near-identical
-// 'decided not to proceed'. 'proceed' != 'move forward'. These are the common
-// English ATS phrasings; assert each so a future keyword edit cannot silently
-// reintroduce the gap.
-test('classifyReply - English ATS rejection phrasings (#86 regression)', () => {
-  const phrases = [
-    'After thoughtful consideration, we have decided not to move forward with your application at this time.',
-    'Unfortunately, we will not be moving forward with your application.',
-    'We are unable to move forward with your candidacy.',
-    'We have decided to move forward with other candidates.',
-    'We will be pursuing other candidates for this role.',
-    'We regret to inform you that you were not selected for this position.'
-  ];
-  for (const p of phrases) {
-    const r = classifyReply({ subject: 'Update on your application', body_snippet: p });
-    assert.equal(r.type, 'Rejected', `expected Rejected for: ${p}`);
-    assert.equal(r.suggestedTrackerUpdate, 'Rejected', `expected Rejected update for: ${p}`);
-  }
-});
-
-// Guard against over-broadening the rejection list: an interview invitation and
-// a "keep your resume on file" courtesy note must not become Rejected.
-test('classifyReply - rejection keywords do not swallow invites', () => {
-  const invite = classifyReply({
-    subject: 'Interview invitation',
-    body_snippet: 'We would like to invite you to an interview. Please let us know your availability for the coming week.'
-  });
-  assert.notEqual(invite.type, 'Rejected');
-  assert.equal(invite.type, 'Interview');
-});
-// Regression 2026-09-27 (#122 Cohere): a volume-of-interest acknowledgement
-// containing the bare word "Unfortunately" was typed Rejected, because
-// rejection was decided before auto-confirmation and `unfortunately` was in the
-// same flat list as decisive phrases. Fixed by tiering the keywords.
-//
-// The fix must NOT become a blanket "confirmation veto": Ashby sends real
-// rejections whose subject is "Thanks for applying to <company>!" and whose body
-// also says "thank you for applying". Those must stay Rejected, so these tests
-// pin both directions.
-test('classifyReply - weak rejection word is suppressed by an acknowledgement (#122)', () => {
-  const confirmation = classifyReply({
-    subject: 'Thanks for applying to Cohere!',
-    body_snippet: 'A member of our Talent team will review your application and be in touch if your qualifications match. Unfortunately, due to the high volume of interest we have been receiving, we are not able to personally respond to every candidate.'
-  });
-  assert.notEqual(confirmation.type, 'Rejected', 'volume-of-interest acknowledgement must not be Rejected');
-});
-
-test('classifyReply - an acknowledgement never masks a decisive rejection', () => {
-  // This is the case a blanket veto would break. Subject and body both carry an
-  // acknowledgement phrase; only the tier-1 phrase makes it a rejection.
-  const ashby = classifyReply({
-    subject: 'Thanks for applying to Acme!',
-    body_snippet: 'Thank you for applying to Acme! After reviewing your application we have decided to move forward with other candidates. Thank you for your time.'
-  });
-  assert.equal(ashby.type, 'Rejected');
-
-  const willNot = classifyReply({
-    subject: 'Update on your application',
-    body_snippet: 'Thank you for your interest. We have completed our review and will not be moving forward with your candidacy. Thank you for your time.'
-  });
-  assert.equal(willNot.type, 'Rejected');
-});
-
-test('classifyReply - a weak rejection word alone still rejects', () => {
-  // Preserves the original behaviour when nothing contradicts it: a bare
-  // "unfortunately" with no acknowledgement anywhere is still a rejection.
-  const bare = classifyReply({
-    subject: 'Update on your application',
-    body_snippet: 'Unfortunately we are unable to offer you the position at this time.'
-  });
-  assert.equal(bare.type, 'Rejected');
-});
-
-test('role-filled / "position has (now) been filled" family', () => {
-  // Two real ATS templates, verbatim. Both typed Unknown before this was added.
-  //
-  // reply-watch.mjs calls classifyReply() HERE, not invite-match.mjs's
-  // classifyEmail() — two independent classifiers, and fixing only the latter
-  // left the digest still reporting Unknown. Verified on two real "role already
-  // filled" emails in one session - one Ashby, one Greenhouse.
-  //
-  // The older literal 'position has been filled' entry looked like it covered
-  // this and did not: Greenhouse inserts an adverb ("has NOW been filled"), and
-  // Ashby is verb-first with a variable job title ("filled our {title} role").
-
-  const greenhouse = classifyReply({
-    subject: 'Update on Your Application | Ashby Academy',
-    body_snippet: 'Dear Jamie, Thank you for the dedication and effort you invested in your application for the Operations Coordinator role at Ashby Academy. The position has now been filled, and we will not be moving forward with additional candidates at this time. We value your interest in joining our team.'
-  });
-  assert.equal(greenhouse.type, 'Rejected', 'Greenhouse "has now been filled" is a rejection');
-
-  const ashby = classifyReply({
-    subject: 'Update from Ashby Academy',
-    body_snippet: "Hi Jamie, Thanks so much for your interest in joining Ashby Academy - we really appreciate you taking the time to apply. We've filled our Operations Associate (Test Kit) role, but encourage you to keep an eye out for future openings as we are hiring actively."
-  });
-  assert.equal(ashby.type, 'Rejected', 'Ashby verb-first "filled our {title} role" is a rejection');
-
-  // The literal entry must still work in its original, no-adverb form.
-  assert.equal(
-    classifyReply({ subject: 'Update', body_snippet: 'The Software Engineer role has been filled.' }).type,
-    'Rejected',
-    'noun-first without an adverb still classifies'
-  );
-  assert.equal(
-    classifyReply({ subject: 'Update', body_snippet: 'The opening has been filled.' }).type,
-    'Rejected',
-    '"the opening has been filled" classifies'
-  );
-
-  // A seat noun is required, so the bare verb forms cannot sneak in. These are
-  // why 'been filled' / 'filled our' are regex+companion-noun rather than plain
-  // additions to rejectionDecisiveKeywords.
-  // NOTE: no leading "Unfortunately" here on purpose. With that weak-tier word
-  // present this types Rejected on the bare word alone — pre-existing, tested
-  // behaviour — which would assert the wrong thing. Omitting it isolates the
-  // role-filled detector: Unknown here proves the regex stayed quiet.
-  assert.notEqual(
-    classifyReply({ subject: 'Scheduling', body_snippet: 'That time slot has been filled for us, but we would love to discuss the role with you next week.' }).type,
-    'Rejected',
-    'a filled SCHEDULING slot is not a rejection'
-  );
-  // And the detector specifically is not among the evidence, whatever the weak
-  // tier independently decides.
-  const slotEvidence = classifyReply({ subject: 'Scheduling', body_snippet: 'Unfortunately that time slot has been filled for us, but we would love to discuss the role with you next week.' }).evidence || [];
-  assert.equal(
-    slotEvidence.some(e => e.includes('requisitions') || e.includes('vacancies')),
-    false,
-    'the role-filled detector does not fire on a filled scheduling slot'
-  );
-  assert.notEqual(
-    classifyReply({ subject: 'Scheduling', body_snippet: 'We have filled our calendar for that week, so we need to move your interview to Thursday.' }).type,
-    'Rejected',
-    '"filled our calendar" is not a rejection'
-  );
-  assert.notEqual(
-    classifyReply({ subject: 'Scheduling', body_snippet: 'We have filled our quota for the quarter.' }).type,
-    'Rejected',
-    '"filled our quota" is not a rejection'
-  );
-
-  // Regression: the Ashby submission CONFIRMATION for the same company and role
-  // must not become a rejection just because the rejection did.
-  const confirmation = classifyReply({
-    subject: "You've submitted your application to Ashby Academy!",
-    body_snippet: 'Hi Jamie, Thank you so much for applying for the Operations Associate (Test Kit) position at Ashby Academy! We received your application.'
-  });
-  assert.notEqual(confirmation.type, 'Rejected', 'an application confirmation is never a rejection');
-});

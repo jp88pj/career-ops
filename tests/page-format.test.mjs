@@ -59,9 +59,7 @@ function workspaceEnv(dir) {
 
 const PAYLOAD = {
   lang: 'en',
-  // require: [] opts out of the builder's contact-completeness gate; see
-  // cv-title.test.mjs for why these fixtures legitimately have no phone/LinkedIn.
-  candidate: { name: 'Test Candidate', email: 'test@example.com', location: 'City, State', require: [] },
+  candidate: { name: 'Test Candidate', email: 'test@example.com', location: 'City, State' },
   summary: 'Backend engineer with a focus on cost-efficient systems.',
   competencies: ['Cloud Architecture'],
   experience: [{
@@ -245,19 +243,21 @@ function coverSandbox() {
   // exits 0 having done nothing (#3165).
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'career-ops-cover-format-')));
   mkdirSync(join(dir, 'lib'), { recursive: true });
+  mkdirSync(join(dir, 'providers'), { recursive: true });
   mkdirSync(join(dir, 'templates'), { recursive: true });
   mkdirSync(join(dir, 'output'), { recursive: true });
   for (const f of ['generate-cover-letter.mjs', 'verify-cv-facts.mjs', 'cv-templates.mjs', 'path-resolver.mjs']) {
     copyFileSync(join(ROOT, f), join(dir, f));
   }
   copyFileSync(join(ROOT, 'lib', 'is-main-module.mjs'), join(dir, 'lib', 'is-main-module.mjs'));
-    // candidate-link.mjs is imported by generate-cover-letter.mjs. This sandbox
-    // copies each lib/ dependency by hand rather than importing from the repo,
-    // so any import a builder gains has to be added here too -- otherwise the
-    // sandbox dies on ERR_MODULE_NOT_FOUND before the assertion under test
-    // runs, and the failure surfaces as "the renderer chose its own paper size"
-    // rather than as the missing module it actually is.
-    copyFileSync(join(ROOT, 'lib', 'candidate-link.mjs'), join(dir, 'lib', 'candidate-link.mjs'));
+  // cv-templates.mjs decodes HTML entities when it reads a template's meta
+  // block, so the sandbox needs this too. Without it the copied script dies at
+  // module load with ERR_MODULE_NOT_FOUND and the format assertion below never
+  // runs. The module imports nothing, so it closes the graph on its own.
+  copyFileSync(join(ROOT, 'providers', '_html-entities.mjs'), join(dir, 'providers', '_html-entities.mjs'));
+  // Same reason: cv-templates.mjs reads the template manifest block and the
+  // section vocabulary from here, so the sandbox dies at module load without it.
+  copyFileSync(join(ROOT, 'lib', 'template-manifest.mjs'), join(dir, 'lib', 'template-manifest.mjs'));
   // The resolver is here so a cover letter that starts calling it fails on the
   // assertion below and not on a missing module. Resolving early is the quiet
   // form of this bug: it reads no profile path, so every letter gets the

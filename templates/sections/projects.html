@@ -2,32 +2,20 @@
   projects.html — section partial for Projects (#2183).
 
   Field placeholders filled per entry:
-    NAME          — project name
-    BADGE_BLOCK   — conditional: badge span when badge is present; omitted otherwise
-    DESC_BLOCK    — conditional: description div when `description` is present; omitted otherwise
-    BULLETS_BLOCK — conditional: bulleted list when the entry carries `bullets` and no
-                    `description`; omitted otherwise. Added 2026-10-09.
-    TECH_BLOCK    — conditional: tech div when tech is present; omitted otherwise
+    NAME         — project name
+    BADGE_BLOCK  — conditional: badge span when badge is present; omitted otherwise
+    DESC_BLOCK   — conditional: description div when description is present; omitted otherwise
+    TECH_BLOCK   — conditional: tech div when tech is present; omitted otherwise
 
   Template packs: edit tag names, class names, and field order freely inside the ENTRY zone.
-
-  Why BULLETS_BLOCK exists: before it, buildProjects joined a bullets array into one
-  space-separated run inside .project-desc, so a three-bullet project rendered as a
-  single paragraph with no visible separation. Experience bullets always went through
-  a <li> path; projects had no equivalent. A payload that genuinely means to be one
-  paragraph still sets `description`, and DESC_BLOCK wins, so the prose case is intact.
 -->
 <!--ENTRY-->
 <div class="project">
   <div class="project-title">{{NAME}}{{BADGE_BLOCK}}</div>
   {{DESC_BLOCK}}
-  {{BULLETS_BLOCK}}
   {{TECH_BLOCK}}
 </div>
 <!--BADGE_BLOCK--><span class="project-badge">{{BADGE}}</span><!--/BADGE_BLOCK-->
 <!--DESC_BLOCK--><div class="project-desc">{{DESC}}</div><!--/DESC_BLOCK-->
-<!--BULLETS_BLOCK--><ul>
-      {{BULLETS}}
-    </ul><!--/BULLETS_BLOCK-->
 <!--TECH_BLOCK--><div class="project-tech">{{TECH}}</div><!--/TECH_BLOCK-->
 <!--/ENTRY-->
