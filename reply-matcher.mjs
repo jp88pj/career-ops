@@ -693,13 +693,22 @@ export function classifyReply(cand) {
     'elected to pursue other',        // Pfizer
     'unable to move you forward',     // DREAM
     'filled our',                      // Junction ("We've filled our ... role")
-    'has now been filled'              // Brilla
+    'has now been filled',             // Brilla
+    // Talkspace: a real decision, but worded "qualifications did not match our
+    // needs" -- 'not a match' does not match it. Added bare 'did not match our
+    // needs' only; the longer '...for this position' variant is a substring of
+    // this and would be dead weight.
+    'did not match our needs'
   ];
 
   // 4. Auto-confirmation keywords
   const autoKeywords = [
     '自动回复', '收到您的申请', '申请已收到', '投递成功', '确认收到',
-    'thank you for applying', 'application received', 'received your application', 'auto-confirmation', 'confirmation of application', 'automatic reply'
+    'thank you for applying', 'application received', 'received your application', 'auto-confirmation', 'confirmation of application', 'automatic reply',
+    // Junction: "Thank you SO MUCH for applying" -- the two adverbs break the
+    // substring match above. Narrow on purpose: bare 'for applying' would also
+    // swallow "thank you for applying and we would love to interview you".
+    'so much for applying'
   ];
 
   // 5. Need Action keywords

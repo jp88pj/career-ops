@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   extractDomain,
   checkCompanyMatch,
@@ -922,6 +923,9 @@ const REJECTION_FIXTURES = [
     { subject: 'Your application', body_snippet: 'We will not be proceeding with your application.' }],
   ['"pursuing other candidates"',
     { subject: 'Your application', body_snippet: 'We are pursuing other candidates at this time.' }],
+  ['Talkspace "did not match our needs" (2026-10-18)',
+    { subject: 'Network Strategic Operations Coordinator - Talkspace',
+      body_snippet: 'We had an overwhelming number of applicants, and although your qualifications did not match our needs for this position, we encourage you to apply for future openings we post.' }],
 ];
 
 test('classifyReply - captured rejection emails classify as Rejected (#86 regression)', () => {
@@ -946,6 +950,11 @@ const NON_REJECTION_FIXTURES = [
     { subject: 'Verse Medical | Your Application Has Been Received!', body_snippet: "We've received your application and will be reviewing it shortly." }],
   ['interview invite',
     { subject: 'Interview invitation', body_snippet: 'Please schedule a time to speak with our hiring team.' }],
+  // Junction (2026-10-18): "Thank you SO MUCH for applying" broke the
+  // 'thank you for applying' substring match and typed Unknown.
+  ['Junction acknowledgement with adverbs',
+    { subject: "You've submitted your application to Junction!",
+      body_snippet: 'Thank you so much for applying for the Operations Associate (Test Kit) position at Junction! We personally review every application that comes in and will be in touch with an update as soon as we are able.' }],
 ];
 
 test('classifyReply - captured non-decisions do not type as Rejected (#86 regression)', () => {
@@ -956,6 +965,22 @@ test('classifyReply - captured non-decisions do not type as Rejected (#86 regres
       `a non-decision must not type as Rejected: ${label}`
     );
   }
+});
+
+test('classifyReply - the whole captured inbox types without Unknown (#86 regression)', () => {
+  // The end state that matters: nothing in the real inbox is left unclassified.
+  // Asserted against data/reply-candidates.json rather than a fixture list, so
+  // a newly captured email is covered automatically.
+  const inbox = JSON.parse(
+    readFileSync(new URL('../data/reply-candidates.json', import.meta.url), 'utf8')
+  );
+  const arr = Array.isArray(inbox) ? inbox : (inbox.entries || inbox.candidates || []);
+  assert.ok(arr.length > 0, 'inbox fixture is empty - the test proves nothing');
+
+  const unknown = arr
+    .filter((c) => classifyReply({ subject: c.subject, body_snippet: c.body_snippet }).type === 'Unknown')
+    .map((c) => c.subject);
+  assert.deepEqual(unknown, [], `left Unknown: ${unknown.join(' | ')}`);
 });
 
 test('classifyReply - the #86 phrasing names its keyword as evidence (#86 regression)', () => {
