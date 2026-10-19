@@ -169,6 +169,7 @@ const (
 	filterAssessment = "assessment"
 	filterSkip       = "skip"
 	filterRejected   = "rejected"
+	filterLapsed     = "lapsed"
 	filterDiscarded  = "discarded"
 	filterTop        = "top"
 )
@@ -189,6 +190,7 @@ func getPipelineTabs() []pipelineTab {
 		{filterTop, i18n.Current.TabTop},
 		{filterSkip, i18n.Current.TabSkip},
 		{filterRejected, i18n.Current.TabRejected},
+		{filterLapsed, i18n.Current.TabLapsed},
 		{filterDiscarded, i18n.Current.TabDiscarded},
 	}
 }
@@ -250,6 +252,7 @@ func getStatusPairs(currentNormalized string) []StatusPair {
 		{i18n.Current.StatusOffer, "Offer"},
 		{i18n.Current.StatusHired, "Hired"},
 		{i18n.Current.StatusRejected, "Rejected"},
+		{i18n.Current.StatusLapsed, "Lapsed"},
 		{i18n.Current.StatusDiscarded, "Discarded"},
 		{i18n.Current.StatusSkip, "Skip"},
 	}
@@ -291,7 +294,7 @@ func (m PipelineModel) currentStatusPairs() []StatusPair {
 }
 
 // statusGroupOrder defines display order for grouped view.
-var statusGroupOrder = []string{"hired", "interview", "offer", "assessment", "responded", "applied", "evaluated", "skip", "rejected", "discarded"}
+var statusGroupOrder = []string{"hired", "interview", "offer", "assessment", "responded", "applied", "evaluated", "skip", "rejected", "lapsed", "discarded"}
 
 // PipelineModel implements the career pipeline dashboard screen.
 type PipelineModel struct {
@@ -2018,7 +2021,7 @@ func (m PipelineModel) renderPreview() string {
 // plus the tracker notes holding the reason. Returns "" for apps still in play.
 func previewOutcome(app model.CareerApplication) string {
 	switch data.NormalizeStatus(app.Status) {
-	case "discarded", "skip", "rejected":
+	case "discarded", "skip", "rejected", "lapsed":
 	default:
 		return ""
 	}
@@ -2316,6 +2319,7 @@ func (m PipelineModel) statusColorMap() map[string]lipgloss.Color {
 		"evaluated":  m.theme.Text,
 		"skip":       m.theme.Red,
 		"rejected":   m.theme.Subtext,
+		"lapsed":     m.theme.Subtext,
 		"discarded":  m.theme.Subtext,
 	}
 }

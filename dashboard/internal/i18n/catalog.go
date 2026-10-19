@@ -26,6 +26,7 @@ type Catalog struct {
 	TabTop        string
 	TabSkip       string
 	TabRejected   string
+	TabLapsed     string
 	TabDiscarded  string
 
 	// Table column headers
@@ -108,6 +109,7 @@ type Catalog struct {
 	StatusInterview  string
 	StatusOffer      string
 	StatusRejected   string
+	StatusLapsed     string
 	StatusDiscarded  string
 	StatusSkip       string
 	StatusHired      string
@@ -234,6 +236,8 @@ func (c *Catalog) StatusLabel(norm string) string {
 		return c.StatusSkip
 	case "rejected":
 		return c.StatusRejected
+	case "lapsed":
+		return c.StatusLapsed
 	case "discarded":
 		return c.StatusDiscarded
 	default:
@@ -308,6 +312,7 @@ var En = Catalog{
 	TabTop:        "TOP ≥4",
 	TabSkip:       "SKIP",
 	TabRejected:   "REJECTED",
+	TabLapsed:     "LAPSED",
 	TabDiscarded:  "DISCARDED",
 
 	// Table column headers
@@ -390,6 +395,7 @@ var En = Catalog{
 	StatusInterview:  "Interview",
 	StatusOffer:      "Offer",
 	StatusRejected:   "Rejected",
+	StatusLapsed:     "Lapsed",
 	StatusDiscarded:  "Discarded",
 	StatusSkip:       "SKIP",
 	StatusHired:      "Hired",
@@ -475,6 +481,7 @@ var Tr = Catalog{
 	TabTop:        "EN İYİ ≥4",
 	TabSkip:       "UYGUN DEĞİL",
 	TabRejected:   "REDDEDİLDİ",
+	TabLapsed:     "SÜRESİ DOLDU",
 	TabDiscarded:  "İPTAL",
 
 	// Table column headers
@@ -557,6 +564,7 @@ var Tr = Catalog{
 	StatusInterview:  "Mülakat",
 	StatusOffer:      "Teklif",
 	StatusRejected:   "Reddedildi",
+	StatusLapsed:     "Suresi Doldu",
 	StatusDiscarded:  "İptal Edildi",
 	StatusSkip:       "Uygun Değil",
 	StatusHired:      "İşe Alındı",
@@ -642,6 +650,7 @@ var Es = Catalog{
 	TabTop:        "TOP ≥4",
 	TabSkip:       "OMITIR",
 	TabRejected:   "RECHAZADAS",
+	TabLapsed:     "CADUCADAS",
 	TabDiscarded:  "DESCARTADAS",
 
 	// Table column headers
@@ -724,6 +733,7 @@ var Es = Catalog{
 	StatusInterview:  "Entrevista",
 	StatusOffer:      "Oferta",
 	StatusRejected:   "Rechazada",
+	StatusLapsed:     "Caducado",
 	StatusDiscarded:  "Descartada",
 	StatusSkip:       "OMITIR",
 	StatusHired:      "Contratada",

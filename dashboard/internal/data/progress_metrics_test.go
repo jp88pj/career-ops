@@ -88,7 +88,7 @@ func TestComputeProgressMetricsTreatsAssessmentAsRespondedBeforeInterview(t *tes
 // The cumulative tiers must stay ordered: each stage is a superset of the next.
 func TestComputeProgressMetricsFunnelIsMonotonic(t *testing.T) {
 	pm := ComputeProgressMetrics(appsWithStatuses(
-		"Evaluated", "Applied", "Responded", "Interview", "Offer", "Hired", "Rejected", "Discarded", "SKIP",
+		"Evaluated", "Applied", "Responded", "Interview", "Offer", "Hired", "Rejected", "Lapsed", "Discarded", "SKIP",
 	))
 
 	applied := stageCount(pm, "Applied")
@@ -100,11 +100,17 @@ func TestComputeProgressMetricsFunnelIsMonotonic(t *testing.T) {
 		t.Errorf("funnel not monotonic: applied=%d responded=%d interview=%d offer=%d",
 			applied, responded, interview, offer)
 	}
-	// applied = applied+responded+interview+offer+hired+rejected = 6
-	if applied != 6 {
-		t.Errorf("Applied = %d, want 6", applied)
+	// applied = applied+responded+interview+offer+hired+rejected+lapsed = 7
+	// Lapsed counts into the DENOMINATOR only: an application was sent for it,
+	// but the state means no employer ever replied, so it never reaches the
+	// responded tier. See funnelRank() and ComputeProgressMetrics. This is the
+	// regression guard for the whole patch: if Lapsed is ever dropped from
+	// `applied`, applied falls to 6; if it leaks into `responded`, responded
+	// rises to 6 and the response rate is silently inflated.
+	if applied != 7 {
+		t.Errorf("Applied = %d, want 7", applied)
 	}
-	// responded = responded+interview+offer+hired+rejected = 5
+	// responded = responded+interview+offer+hired+rejected = 5 (lapsed excluded)
 	if responded != 5 {
 		t.Errorf("Responded = %d, want 5", responded)
 	}

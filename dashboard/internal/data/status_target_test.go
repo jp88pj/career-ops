@@ -274,7 +274,7 @@ func TestStatusTargetRejectsMalformedReportCell(t *testing.T) {
 }
 
 func TestStatusTargetAcceptsCanonicalNames(t *testing.T) {
-	for _, status := range []string{"Evaluated", "Applied", "Responded", "Interview", "Offer", "Hired", "Rejected", "Discarded", "SKIP", "Skip", "skip"} {
+	for _, status := range []string{"Evaluated", "Applied", "Responded", "Interview", "Offer", "Hired", "Rejected", "Lapsed", "Discarded", "SKIP", "Skip", "skip"} {
 		t.Run(status, func(t *testing.T) {
 			t.Setenv("CAREER_OPS_TRACKER", "")
 			before := statusTargetHeader + statusTargetRow
