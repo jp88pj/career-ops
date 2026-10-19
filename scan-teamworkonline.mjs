@@ -56,6 +56,7 @@ import { localToday } from './lib/local-today.mjs';
 import { printScanSummaryHeader } from './lib/scan-summary-marker.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { buildTitleFilterBySource } from './title-keywords.mjs';
+import { buildShapePolicy, stripShapeNegatives } from './lib/employment-shape.mjs';
 
 const ROOT = process.cwd();
 const HOSTS = ['www.teamworkonline.com'];
@@ -79,7 +80,14 @@ const CATEGORIES = flag('--all-categories') ? ALL_CATEGORIES : OPS_CATEGORIES;
 // ── Config ───────────────────────────────────────────────────────────────────
 let config = {};
 if (existsSync(PORTALS_PATH)) config = yaml.load(readFileSync(PORTALS_PATH, 'utf-8')) || {};
-const matchesTitle = buildTitleFilterBySource(config.title_filter || {}, config.source_title_filters);
+// Honour employment_shape.flag_not_veto, as scan.mjs does: the shape words
+// are lifted out of the title negatives so part-time / seasonal / per-diem
+// postings reach triage and are PRICED, rather than being hard-vetoed.
+const shapePolicy = buildShapePolicy(config.employment_shape);
+const matchesTitle = buildTitleFilterBySource(
+  shapePolicy.flagNotVeto ? stripShapeNegatives(config.title_filter || {}) : config.title_filter || {},
+  config.source_title_filters
+);
 
 // ── Browser fetch ────────────────────────────────────────────────────────────
 let fetches = 0;

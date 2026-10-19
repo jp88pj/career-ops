@@ -195,6 +195,30 @@ async function search(keyword, page = 1, perPage = 500) {
   const params = new URLSearchParams({
     Keyword: keyword, ResultsPerPage: String(perPage), Page: String(page),
     PositionScheduleCode: '1', // full-time only; the record wants FT
+    // ADDED 2026-10-18. Applicant-eligibility filter, verified empirically.
+    //
+    // Without it this scanner collects federal postings the user CANNOT apply
+    // to. Measured over the 28 federal rows sitting in data/pipeline.md, 21
+    // were checked by hand on usajobs.gov and NOT ONE said "Open to the
+    // Public": 8 carried Excepted Service, 4 military/National Guard, 1 was VA
+    // Status Candidates, 1 Special authorities. Two stated outright "THIS IS A
+    // NATIONAL GUARD TITLE 32 EXCEPTED SERVICE POSITION", which is military
+    // reservists only -- not restricted, categorically unavailable to a civilian.
+    //
+    // The API will NOT tell you this per record: `WhoMayApply` exists on every
+    // SearchResultItem but returns {Name:"", Code:""} -- empty for all 15 items
+    // sampled across 5 lane keywords. It works only as a REQUEST PARAMETER.
+    // `WhoMayApply=public` is the API form of the search UI's `?hp=public`
+    // "Who can apply" facet.
+    //
+    // Verified by discriminating test, not by a count changing: for
+    // "Program Specialist" in New York, unfiltered returns 80 and the filter
+    // returns 56, removing exactly 24 and adding none. All three postings
+    // hand-verified as non-public on their own pages -- 888200800 and 884051200
+    // (both Title 32) and 888770100 (VA Status Candidates) -- are correctly
+    // excluded by it. An unknown parameter returns the baseline 80, so the
+    // 80->56 change is the filter and not a silent no-op.
+    WhoMayApply: 'public',
   });
   if (LOCATION) params.set('LocationName', LOCATION);
   requests++;

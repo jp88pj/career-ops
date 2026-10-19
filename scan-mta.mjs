@@ -43,6 +43,7 @@ import { localToday } from './lib/local-today.mjs';
 import { printScanSummaryHeader } from './lib/scan-summary-marker.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { buildTitleFilterBySource } from './title-keywords.mjs';
+import { buildShapePolicy, stripShapeNegatives } from './lib/employment-shape.mjs';
 
 const LISTING_BASE = 'https://careers.mta.org/search/jobs/';
 
@@ -77,7 +78,14 @@ const titleFilter = config.title_filter || {};
 // and, applied raw to a transit authority, admits RailCar Electrical Workers,
 // Structural Designers and five Assistant Vice Presidents — measured, not
 // assumed: the dry run on 2026-10-16 returned exactly those.
-const matchesTitle = buildTitleFilterBySource(titleFilter, config.source_title_filters);
+// Honour employment_shape.flag_not_veto, as scan.mjs does: the shape words
+// are lifted out of the title negatives so part-time / seasonal / per-diem
+// postings reach triage and are PRICED, rather than being hard-vetoed.
+const shapePolicy = buildShapePolicy(config.employment_shape);
+const matchesTitle = buildTitleFilterBySource(
+  shapePolicy.flagNotVeto ? stripShapeNegatives(titleFilter) : titleFilter,
+  config.source_title_filters
+);
 
 const MTA_HOSTS = ['careers.mta.org'];
 const titleCtx = { hosts: MTA_HOSTS, company: 'Metropolitan Transportation Authority' };

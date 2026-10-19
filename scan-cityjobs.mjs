@@ -69,6 +69,7 @@ import { isMainModule } from './lib/is-main-module.mjs';
 import { normalizeJdText } from './fingerprint-core.mjs';
 import { createHash } from 'crypto';
 import { buildTitleFilterBySource } from './title-keywords.mjs';
+import { buildShapePolicy, stripShapeNegatives } from './lib/employment-shape.mjs';
 
 const DATA_ROOT = getCareerOpsRoot();
 const HOST = 'https://cityjobs.nyc.gov';
@@ -145,7 +146,16 @@ if (existsSync(PORTALS_PATH)) config = yaml.load(readFileSync(PORTALS_PATH, 'utf
 // all use the shipped matcher. scan-interamt.mjs still carries this defect.
 const HOSTS = ['cityjobs.nyc.gov'];
 const titleFilter = config.title_filter || {};
-const matchesTitle = buildTitleFilterBySource(titleFilter, config.source_title_filters);
+// Honour employment_shape.flag_not_veto, as scan.mjs does. Without this the
+// shape words stay in the title negatives and part-time / seasonal / per-diem
+// postings are HARD VETOED on this board -- the opposite of the configured
+// policy, and the opposite of the user's stated preference that a role below
+// full time should be priced rather than excluded.
+const shapePolicy = buildShapePolicy(config.employment_shape);
+const matchesTitle = buildTitleFilterBySource(
+  shapePolicy.flagNotVeto ? stripShapeNegatives(titleFilter) : titleFilter,
+  config.source_title_filters
+);
 
 const locFilter = config.location_filter || {};
 const locAllow = (locFilter.allow || []).map(k => k.toLowerCase());

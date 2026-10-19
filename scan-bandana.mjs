@@ -49,6 +49,7 @@ import { getCareerOpsRoot } from './path-resolver.mjs';
 import { localToday } from './lib/local-today.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { buildTitleFilterBySource } from './title-keywords.mjs';
+import { buildShapePolicy, stripShapeNegatives } from './lib/employment-shape.mjs';
 
 // ── Config ───────────────────────────────────────────────────────────
 
@@ -119,7 +120,14 @@ const bandanaSearches = Array.isArray(config.bandana_searches)
 // defect and are noted in modes/_custom.md.
 const HOSTS = ['bandana.com', 'www.bandana.com'];
 const titleFilter = config.title_filter || {};
-const matchesTitle = buildTitleFilterBySource(titleFilter, config.source_title_filters);
+// Honour employment_shape.flag_not_veto, as scan.mjs does: the shape words
+// are lifted out of the title negatives so part-time / seasonal / per-diem
+// postings reach triage and are PRICED, rather than being hard-vetoed.
+const shapePolicy = buildShapePolicy(config.employment_shape);
+const matchesTitle = buildTitleFilterBySource(
+  shapePolicy.flagNotVeto ? stripShapeNegatives(titleFilter) : titleFilter,
+  config.source_title_filters
+);
 
 const locFilter = config.location_filter || {};
 const locAllow = (locFilter.allow || []).map(k => k.toLowerCase());
