@@ -876,4 +876,92 @@ test('classifyReply - need action vs scheduling', () => {
   assert.equal(scheduleRes.type, 'Need Action');
   assert.equal(scheduleRes.suggestedTrackerUpdate, 'Interview');
 });
+// ---------------------------------------------------------------------------
+// LOCAL PATCH -- English ATS rejection phrasings. Re-apply after every system
+// update; see modes/_custom.md > "Local Patches to System-Layer Files".
+//
+// A real Ashby rejection (#86) reading "we have decided not to move forward with
+// your application" matched zero keywords and typed as Unknown instead of
+// Rejected. Matching is plain substring, so inflected forms are listed
+// separately. Bare 'other candidates' and bare 'not selected' are deliberately
+// absent: both also occur in scheduling and keep-in-touch mail.
+//
+// The rejection fixtures below are the REAL captured emails in
+// data/reply-candidates.json, not invented strings -- four of these phrasings
+// ("chosen to proceed with other", "elected to pursue other", "unable to move
+// you forward", "has now been filled") were added only after that file showed
+// the matcher missing them.
+//
+// There is NO decisive/weak tiering here. An earlier version of this patch had
+// one and it contradicted three upstream regression tests; see the array
+// declaration in reply-matcher.mjs for the full reasoning.
+// ---------------------------------------------------------------------------
 
+const REJECTION_FIXTURES = [
+  ['Ashby "decided not to move forward" (#86)',
+    { subject: 'Your application to Acme', body_snippet: 'We have decided not to move forward with your application.' }],
+  ['Verse Medical "chosen to proceed with other"',
+    { subject: 'Verse Medical | Thanks for your interest, Jonathan!', body_snippet: "After much consideration, we have chosen to proceed with other candidates at this time." }],
+  ['Cohere Health "chosen to proceed with other"',
+    { subject: 'Your application to Cohere Health', body_snippet: 'we have chosen to proceed with other candidates' }],
+  ['Pfizer "elected to pursue other"',
+    { subject: 'Pfizer Recruitment Update', body_snippet: 'we have elected to pursue other qualified candidates whose combination of education, skills and experience more closely fit the needs of this position.' }],
+  ['DREAM "unable to move you forward"',
+    { subject: 'DREAM: Application Follow Up- Jonathan Presser', body_snippet: 'At this time, we are unable to move you forward in our selection process.' }],
+  ['Junction "we have filled our ... role"',
+    { subject: 'Update from Junction', body_snippet: "We've filled our Operations Associate (Test Kit) role, but encourage you to keep an eye out for future openings" }],
+  ['Brilla "has now been filled"',
+    { subject: 'Update on Your Application', body_snippet: 'This position has now been filled.' }],
+  ['Topline Pro "not to move forward with your application"',
+    { subject: 'Your application', body_snippet: 'We have decided not to move forward with your application.' }],
+  ['"moving forward with other candidates"',
+    { subject: 'Update on your application', body_snippet: 'we are moving forward with other candidates' }],
+  ['"not selected for this"',
+    { subject: 'Your application', body_snippet: 'You were not selected for this role.' }],
+  ['"will not be proceeding"',
+    { subject: 'Your application', body_snippet: 'We will not be proceeding with your application.' }],
+  ['"pursuing other candidates"',
+    { subject: 'Your application', body_snippet: 'We are pursuing other candidates at this time.' }],
+];
+
+test('classifyReply - captured rejection emails classify as Rejected (#86 regression)', () => {
+  for (const [label, cand] of REJECTION_FIXTURES) {
+    const r = classifyReply(cand);
+    assert.equal(r.type, 'Rejected', `expected Rejected for: ${label}`);
+    assert.equal(r.suggestedTrackerUpdate, 'Rejected', `wrong tracker update for: ${label}`);
+    assert.ok(r.evidence.length > 0, `no evidence recorded for: ${label}`);
+  }
+});
+
+// The cohort that must NOT type as Rejected, from the same real inbox: these are
+// volume acknowledgements and confirmations, not decisions.
+const NON_REJECTION_FIXTURES = [
+  ['IXL volume acknowledgement',
+    { subject: 'Thank you for applying to IXL Learning!', body_snippet: 'due to the high volume of applications we receive, we are only able to contact candidates whose qualifications best match our current needs.' }],
+  ['Cohere auto-confirmation',
+    { subject: 'Thanks for applying to Cohere!', body_snippet: 'Thank you for applying for the Executive Assistant (comms & marketing) role at Cohere!' }],
+  ['Instructure auto-confirmation',
+    { subject: 'Thanks for applying to Instructure!', body_snippet: "We've received your application for the Assessment Editor (Mathematics) position." }],
+  ['Verse Medical application received',
+    { subject: 'Verse Medical | Your Application Has Been Received!', body_snippet: "We've received your application and will be reviewing it shortly." }],
+  ['interview invite',
+    { subject: 'Interview invitation', body_snippet: 'Please schedule a time to speak with our hiring team.' }],
+];
+
+test('classifyReply - captured non-decisions do not type as Rejected (#86 regression)', () => {
+  for (const [label, cand] of NON_REJECTION_FIXTURES) {
+    assert.notEqual(
+      classifyReply(cand).type,
+      'Rejected',
+      `a non-decision must not type as Rejected: ${label}`
+    );
+  }
+});
+
+test('classifyReply - the #86 phrasing names its keyword as evidence (#86 regression)', () => {
+  const r = classifyReply(REJECTION_FIXTURES[0][1]);
+  assert.ok(
+    r.evidence.includes('decided not to move forward'),
+    'the decisive phrase should appear in evidence'
+  );
+});

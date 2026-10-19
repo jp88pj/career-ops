@@ -644,10 +644,56 @@ export function classifyReply(cand) {
     'offer letter', 'employment agreement', 'job offer', 'congratulations on the offer', 'compensation details', 'pleased to offer'
   ];
 
-  // 3. Rejected keywords
+  // 3. Rejected keywords (local addition; re-apply after every system update,
+  // see modes/_custom.md > "Local Patches to System-Layer Files").
+  //
+  // WHY THESE WERE ADDED. A real Ashby rejection (#86) reading "we have decided
+  // not to move forward with your application" matched ZERO keywords and typed
+  // as Unknown instead of Rejected. Matching is plain substring, so inflected
+  // forms are required separately -- 'pursue' does not match 'pursuing'. Bare
+  // 'other candidates' and bare 'not selected' are deliberately absent: both
+  // also occur in scheduling and keep-in-touch mail.
+  //
+  // NO TIERING, and that is a decision, not an omission. An earlier version of
+  // this patch split the list into decisive and weak tiers, demoting
+  // 'unfortunately', 'unable to offer' and 很遗憾 so they could never type a
+  // reply Rejected alone. That contradicts three upstream regression tests,
+  // each a deliberate upstream fix:
+  //   - "rejection fixtures" asserts 很遗漏 rejects
+  //   - "rejection wins over offer substring" asserts 'unable to offer' rejects
+  //   - the same test asserts "we will not be sending you an offer letter"
+  //     rejects -- which matches NO keyword except 'unfortunately'
+  // And the tiering was never in the shipped code: at v1.36.0 this file had a
+  // single flat list, so the "patch" existed only in _custom.md and in an
+  // invariant that was failing because of it. A flat list plus the phrases
+  // below delivers the #86 fix and breaks nothing.
   const rejectionKeywords = [
     '很遗憾', '暂不匹配', '不合适', '未能进入下一轮', '感谢您的时间', '未通过', '不再考虑', '决定不推进',
-    'unfortunately', 'not a match', 'not matching', 'decided not to proceed', 'will not be moving forward', 'position has been filled', 'role has been closed', 'unable to offer'
+    'unfortunately', 'not a match', 'not matching', 'decided not to proceed', 'will not be moving forward',
+    'position has been filled', 'role has been closed', 'unable to offer',
+    // --- added locally, 2026-09-27, for the #86 gap ---
+    'decided not to move forward',
+    'not to move forward with your application',
+    'not be moving forward',
+    'unable to move forward',
+    'will not be proceeding',
+    'decided to move forward with other',
+    'moving forward with other candidates',
+    'pursue other candidates',
+    'pursuing other candidates',
+    'another candidate',
+    'other applicants',
+    'were not selected',
+    'was not selected',
+    'not selected for this',
+    // --- added 2026-10-18, from phrases data/reply-candidates.json proved missing ---
+    // Four real captured rejections typed Unknown until these were added. Each is
+    // quoted from an actual email in the inbox, not inferred.
+    'chosen to proceed with other',   // Verse Medical, Cohere Health
+    'elected to pursue other',        // Pfizer
+    'unable to move you forward',     // DREAM
+    'filled our',                      // Junction ("We've filled our ... role")
+    'has now been filled'              // Brilla
   ];
 
   // 4. Auto-confirmation keywords
