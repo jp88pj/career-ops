@@ -165,6 +165,13 @@ async function loadProviderIds() {
 }
 
 const TITLE_FILTER_FIELDS = ['positive', 'negative', 'seniority_boost'];
+// The location filter's own vocabulary. `location_filter` itself is validated
+// list-by-list and does not reject unknown fields; `location_filter_full` does,
+// for the same reason title_filter_full does — a misspelled `allow:` leaves the
+// allow list undefined, buildLocationFilter treats an empty allow list as
+// "no allow constraint", and the sweep then admits every location on every
+// board. That is the outcome this key exists to prevent.
+const LOCATION_FILTER_FIELDS = ['always_allow', 'allow', 'block', 'block_hard', 'strict'];
 // #3438. field_filters blocks are compiled by buildTitleFilter(), which reads
 // positive and negative and nothing else — seniority_boost is a title-level
 // concept with no consumer here. A block containing only seniority_boost would
@@ -214,6 +221,28 @@ export async function validatePortalsConfig(config, { providerIds = new Set() } 
       validateKeywordList(config.title_filter_full.positive, 'title_filter_full.positive', errors);
       validateKeywordList(config.title_filter_full.negative, 'title_filter_full.negative', errors);
       validateKeywordList(config.title_filter_full.seniority_boost, 'title_filter_full.seniority_boost', errors);
+    }
+  }
+
+  // The location sibling of title_filter_full, consumed only by
+  // scan-ats-full.mjs. Same reasoning: a misspelled field here leaves the
+  // sweep with no location constraint at all, which is the outcome this key
+  // exists to prevent. An unknown field is an error; an absent key is fine.
+  if (config.location_filter_full !== undefined) {
+    if (!isObject(config.location_filter_full)) {
+      add(errors, 'location_filter_full', 'location_filter_full must be an object');
+    } else {
+      for (const key of Object.keys(config.location_filter_full)) {
+        if (!LOCATION_FILTER_FIELDS.includes(key)) {
+          add(errors, `location_filter_full.${key}`, `unknown location_filter_full field - expected one of ${LOCATION_FILTER_FIELDS.join(', ')}`);
+        }
+      }
+      for (const listKey of ['always_allow', 'allow', 'block', 'block_hard']) {
+        validateKeywordList(config.location_filter_full[listKey], `location_filter_full.${listKey}`, errors);
+      }
+      if (config.location_filter_full.strict !== undefined && typeof config.location_filter_full.strict !== 'boolean') {
+        add(errors, 'location_filter_full.strict', 'must be a boolean when set');
+      }
     }
   }
 

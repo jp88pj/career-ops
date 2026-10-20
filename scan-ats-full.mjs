@@ -174,11 +174,12 @@ export function checkpointCompatible(cp, opts) {
 // mapping changes nothing the sweep does.
 export function filterFingerprints(config) {
   const titleKey = config?.title_filter_full ? 'title_filter_full' : 'title_filter';
+  const locationKey = config?.location_filter_full ? 'location_filter_full' : 'location_filter';
   const fp = (v) => datasetFingerprint(sortKeys(v ?? null));
   return {
     [titleKey]: fp(resolveTitleFilterConfig(config)),
     title_filter_overrides: fp(config?.title_filter_overrides),
-    location_filter: fp(config?.location_filter),
+    [locationKey]: fp(resolveLocationFilterConfig(config)),
     content_filter: fp(config?.content_filter),
     domain_filter: fp(config?.domain_filter),
   };
@@ -588,6 +589,33 @@ export function filterBlacklistedOffers(offers, blacklist, { includeBlacklisted 
 // returns `title_filter` and behaviour is byte-identical to before.
 export function resolveTitleFilterConfig(config) {
   return config?.title_filter_full ?? config?.title_filter;
+}
+
+// Optional `location_filter_full` — the location sibling of `title_filter_full`,
+// for the same reason.
+//
+// The global `location_filter` is tuned for scan.mjs's CURATED board list, where
+// admitting the whole United States is correct: a national employer posting
+// "Austin, TX" is worth seeing for a remote role. A reverse sweep over 50,170
+// public boards is a different question, and the global filter answers it
+// wrongly.
+//
+// The mechanism, measured 2026-10-19: `always_allow` is checked BEFORE `block`
+// (see buildLocationFilter), so an `always_allow` that names the United States
+// admits every US state, and a plain `block` never gets consulted. That is
+// deliberate — `always_allow` exists so a multi-location posting survives one
+// blocked city. But it means the only tier that can override it is
+// `block_hard`.
+//
+// So a sweep-specific filter puts the out-of-region US states in
+// `block_hard` (checked first), and keeps "United States" in `allow` so a
+// posting whose location cannot be resolved still passes rather than being
+// dropped on missing data.
+//
+// Absent -> the default -> this returns `location_filter` and behaviour is
+// byte-identical to before.
+export function resolveLocationFilterConfig(config) {
+  return config?.location_filter_full ?? config?.location_filter;
 }
 
 // The company-level gate (#3105). `title_filter` runs on the wrong axis for a
@@ -1142,7 +1170,7 @@ async function main() {
   // (title_filter or title_filter_full) this run is already using.
   const titleFilterOverrides = buildTitleFilterOverrides(config?.title_filter_overrides);
   const titleFilter = buildTitleFilterWithOverrides(fullTitleFilterConfig, titleFilterOverrides);
-  const locationFilter = buildLocationFilter(config?.location_filter);
+  const locationFilter = buildLocationFilter(resolveLocationFilterConfig(config));
   // Same content_filter (incl. by_title_keyword scoping) scan.mjs applies —
   // see #1846. Built once here from the same portals.yml config.
   const contentFilter = buildContentFilter(config?.content_filter);
@@ -1221,7 +1249,7 @@ async function main() {
     sinceMs: cutoff,
     includeUndated: opts.includeUndated,
     syntheticEntries: true,
-    locationHints: config?.location_filter,
+    locationHints: resolveLocationFilterConfig(config),
   };
   // The LOCAL calendar day, not the UTC one. This value lands in
   // scan-history.tsv's first_seen, which shouldDedupScanHistoryRow measures the
