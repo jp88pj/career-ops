@@ -54,7 +54,7 @@ import {
 import { localToday } from './lib/local-today.mjs';
 import { printScanSummaryHeader } from './lib/scan-summary-marker.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
-import { buildTitleFilterBySource } from './title-keywords.mjs';
+import { buildTitleFilterBySource, compileKeyword, foldTitle } from './title-keywords.mjs';
 import { buildShapePolicy, stripShapeNegatives } from './lib/employment-shape.mjs';
 import smartrecruiters from './providers/smartrecruiters.mjs';
 import { makeHttpCtx } from './providers/_http.mjs';
@@ -93,6 +93,31 @@ const matchesTitle = buildTitleFilterBySource(
 );
 const matchesLocation = buildLocationFilter(config.location_filter);
 
+// `exclude_titles` on the tracked_companies entry: titles vetoed on THIS
+// BOARD, whatever route the posting took in.
+//
+// WHY IT CANNOT LIVE IN THE TITLE FILTER: the lane test is
+//
+//     matchesTitle(...) || codeAllowed(j)
+//
+// and the title_codes branch is an OR-escape hatch. A 56058 posting is
+// admitted REGARDLESS of what the title filter says -- the family enters by
+// code, so a `negative:` entry on the source_title_filters rule can never
+// reach it. The never-target lane needs a veto applied AFTER the OR.
+//
+// Measured 2026-10-20 against the whole tenant: 14 postings dropped, the
+// admitted set 274 -> 260, and of the 87 evaluated 56058 postings the 7
+// dropped all scored 2.0-3.6 -- none at 4.0 or above, so no top candidate is
+// lost. RECALL: of his 61 applications, the 2 with an EA title are on other
+// boards (cityjobs, Bandana), so a board-scoped veto touches neither.
+const EXCLUDE_TITLES = (entry.exclude_titles || []).map((t) => String(t).trim()).filter(Boolean);
+const excludeMatchers = EXCLUDE_TITLES.map((t) => compileKeyword(foldTitle(t)));
+const isExcluded = (title) => {
+  if (excludeMatchers.length === 0) return false;
+  const lower = foldTitle(String(title || ''));
+  return excludeMatchers.some((m) => m(lower));
+};
+
 // GUARD: the lane rule must actually fire for this tenant. The rule is keyed
 // on the company, not the host (jobs.smartrecruiters.com is multi-tenant and
 // also carries Sportradar), so renaming the portals.yml entry would silently
@@ -110,6 +135,26 @@ function laneRuleFires() {
   const baseVerdict = base(PROBE);
   const ruleVerdict = matchesTitle(PROBE, { hosts: HOSTS, company: COMPANY });
   return !(baseVerdict === ruleVerdict);
+}
+
+// GUARD for the title veto, on the same principle: a rule that quietly stops
+// working is worse than one that is absent, because nothing reports it.
+//
+// The probe is a title the LANE ACCEPTS and the veto must REJECT. "Executive
+// Assistant" is on the board's own positive list, so `matchesTitle` accepts it;
+// if the veto does not reject it, the veto is not applied.
+//
+// This also catches the subtler failure: a veto that is wired into the title
+// filter rather than after the OR would reject it too, and the 56058 postings
+// would keep coming in through the title_codes branch. The guard only proves
+// the veto rejects the probe; the COUNT in the run summary is what proves it
+// is applied after the OR.
+const VETO_PROBE = 'Executive Assistant';
+function titleVetoFires() {
+  if (EXCLUDE_TITLES.length === 0) return true;   // no veto configured - nothing to prove
+  const laneAccepts = matchesTitle(VETO_PROBE, { hosts: HOSTS, company: COMPANY });
+  const vetoRejects = isExcluded(VETO_PROBE);
+  return laneAccepts && vetoRejects;
 }
 
 // ── Main ────────────────────────────────────────────────────────────────────
@@ -138,11 +183,21 @@ async function main() {
   }
   console.log('  Lane rule: firing (verified)');
 
+  if (!titleVetoFires()) {
+    console.error('  ! The exclude_titles veto for this tenant is NOT firing.');
+    console.error(`    The veto list is ${JSON.stringify(EXCLUDE_TITLES)} and it does not reject`);
+    console.error(`    "${VETO_PROBE}", which the lane accepts. The never-target lane will keep`);
+    console.error('    re-entering the queue. Fix the config, or remove the veto deliberately.');
+    process.exit(1);
+  }
+  console.log(`  Title veto: firing (verified) - ${EXCLUDE_TITLES.length} title pattern(s)`);
+
   const { seen } = loadSeenUrls();
   const accepted = [];
   const offLane = [];
   const dupe = [];
   const offRegion = [];
+  const excluded = [];
 
   // A CIVIL SERVICE TITLE CODE is a stronger lane signal than the business
   // title. A posting bound to COMMUNITY COORDINATOR - 56058 can carry any
@@ -162,6 +217,9 @@ async function main() {
     if (seen.has(normalizeUrlForDedup(url))) { dupe.push({ url, title }); continue; }
     const inLane = matchesTitle(title, { hosts: HOSTS, company: COMPANY }) || codeAllowed(j);
     if (!inLane) { offLane.push({ url, title }); continue; }
+    // The veto runs AFTER the OR, because the code branch would otherwise
+    // re-admit everything the title filter rejected.
+    if (isExcluded(title)) { excluded.push({ url, title }); continue; }
     if (!matchesLocation(j.location, url, title)) { offRegion.push({ url, title, location: j.location }); continue; }
     accepted.push({
       url, title, company: COMPANY, location: j.location || '', source: 'nyc-smartrecruiters',
@@ -176,6 +234,7 @@ async function main() {
   console.log(`  Passing the lane filter: ${accepted.length}`);
   console.log(`  Filtered off-lane:      ${offLane.length}`);
   console.log(`  Filtered off-region:    ${offRegion.length}`);
+  console.log(`  Vetoed by title:        ${excluded.length}`);
   console.log(`  Already seen:           ${dupe.length}`);
 
   if (DUMP) {
@@ -208,6 +267,7 @@ async function main() {
   console.log(`Board postings:     ${jobs.length}`);
   console.log(`Filtered off-lane:  ${offLane.length}`);
   console.log(`Filtered off-region:${String(offRegion.length).padStart(4)}`);
+  console.log(`Vetoed by title:  ${String(excluded.length).padStart(4)}`);
   console.log(`Already seen:       ${dupe.length}`);
   console.log(`NEW OFFERS:         ${accepted.length}`);
   console.log('');
