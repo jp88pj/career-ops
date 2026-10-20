@@ -251,6 +251,61 @@ export function parseSmartRecruitersResponse(json, companyName, companySlug) {
       id: typeof j.id === 'string' || typeof j.id === 'number' ? String(j.id) : undefined,
       ...(requisitionId ? { requisitionId } : {}),
       ...(language ? { language } : {}),
+      ...(customFieldsOf(j)),
     }];
   });
+}
+
+// The SmartRecruiters list payload carries a `customField` array of
+// {fieldLabel, valueLabel} pairs. On the NYC tenant it holds the fields that
+// decide whether a posting is worth reading at all:
+//
+//   Title Code                   the CIVIL SERVICE title code (56058 = Community
+//                                Coordinator) -- a posting bound to one code can
+//                                carry ANY business title, so matching on the
+//                                title alone misses most of a title family
+//   Civil Service Title Description
+//   Applicant Type               "External (NYC Careers)" vs internal-only
+//   Job Type                     Full-Time / Part-Time -- a part-time RATE
+//                                must not be annualised
+//   Posted On Date / Expire Date  the board DOES carry dates, in the list
+//   Salary Min / Salary Max      the comp band, per posting
+//   Agency / Borough
+//
+// The provider previously dropped all of it, which is why the NYC SmartRecruiters
+// scanner reported that the board has no posting date. It has dates; the
+// provider was not reading them.
+function customFieldsOf(j) {
+  const cf = j?.customField;
+  if (!Array.isArray(cf) || cf.length === 0) return {};
+  const by = new Map();
+  for (const f of cf) {
+    const label = String(f?.fieldLabel ?? '').trim().toLowerCase();
+    if (!label) continue;
+    if (!by.has(label)) by.set(label, String(f?.valueLabel ?? f?.valueId ?? '').trim());
+  }
+  const num = (label) => {
+    const v = by.get(label);
+    if (v === undefined || v === '') return undefined;
+    const n = Number(String(v).replace(/[$,\s]/g, ''));
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const str = (label) => {
+    const v = by.get(label);
+    return v === undefined || v === '' ? undefined : v;
+  };
+  const out = {};
+  const put = (k, v) => { if (v !== undefined) out[k] = v; };
+  put('titleCode', str('title code'));
+  put('civilServiceTitle', str('civil service title description'));
+  put('applicantType', str('applicant type'));
+  put('jobType', str('job type'));
+  put('postedOn', str('posted on date'));
+  put('expireOn', str('expire date'));
+  put('salaryBand', str('salary band'));
+  put('agency', str('agency'));
+  put('borough', str('borough'));
+  put('salaryMin', num('salary min'));
+  put('salaryMax', num('salary max'));
+  return out;
 }

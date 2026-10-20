@@ -144,14 +144,33 @@ async function main() {
   const dupe = [];
   const offRegion = [];
 
+  // A CIVIL SERVICE TITLE CODE is a stronger lane signal than the business
+  // title. A posting bound to COMMUNITY COORDINATOR - 56058 can carry any
+  // business title -- "Program Counselor", "Capital Analyst", "EAP Counselor" --
+  // so a title-based rule misses most of the family. modes/_profile.md names
+  // 56058 as "the one live thread ... the only cluster where the record has
+  // standing". `title_codes` on the tracked_companies entry lists the codes
+  // that count as in-lane regardless of the business title.
+  const titleCodes = (entry.title_codes || []).map((c) => String(c).trim()).filter(Boolean);
+  const codeAllowed = (j) => titleCodes.length > 0 && j.titleCode !== undefined
+    && titleCodes.includes(String(j.titleCode).trim());
+
   for (const j of jobs) {
     const title = String(j.title || '').trim();
     const url = String(j.url || '').trim();
     if (!title || !url) continue;
     if (seen.has(normalizeUrlForDedup(url))) { dupe.push({ url, title }); continue; }
-    if (!ALL && !matchesTitle(title, { hosts: HOSTS, company: COMPANY })) { offLane.push({ url, title }); continue; }
+    const inLane = matchesTitle(title, { hosts: HOSTS, company: COMPANY }) || codeAllowed(j);
+    if (!inLane) { offLane.push({ url, title }); continue; }
     if (!matchesLocation(j.location, url, title)) { offRegion.push({ url, title, location: j.location }); continue; }
-    accepted.push({ url, title, company: COMPANY, location: j.location || '', source: 'nyc-smartrecruiters' });
+    accepted.push({
+      url, title, company: COMPANY, location: j.location || '', source: 'nyc-smartrecruiters',
+      ...(j.titleCode !== undefined ? { titleCode: j.titleCode } : {}),
+      ...(j.postedOn ? { postedOn: j.postedOn } : {}),
+      ...(j.expireOn ? { expireOn: j.expireOn } : {}),
+      ...(j.applicantType ? { applicantType: j.applicantType } : {}),
+      ...(j.jobType ? { jobType: j.jobType } : {}),
+    });
   }
 
   console.log(`  Passing the lane filter: ${accepted.length}`);
@@ -173,7 +192,15 @@ async function main() {
     await appendToScanHistory(accepted, localToday(), 'added');
     if (offLane.length) await appendToScanHistory(offLane, localToday(), 'skipped_title');
     if (offRegion.length) await appendToScanHistory(offRegion, localToday(), 'skipped_location');
-    if (dupe.length) await appendToScanHistory(dupe, localToday(), 'skipped_dup');
+    // `dupe` is deliberately NOT written to scan-history.
+    //
+    // A posting that is ALREADY recorded does not need a second row saying so.
+    // Writing one for every previously-seen posting grew the file by ~1,700 rows
+    // on every run, and -- worse -- it made the "seen" set self-reinforcing: a
+    // posting that a later rule change would have admitted had already
+    // acquired a skipped_dup row, which counts as seen, so it could never be
+    // re-offered. That is how 89 postings of the 56058 family went missing
+    // from a lane whose rule matched them.
   }
 
   printScanSummaryHeader(COMPANY, localToday());
