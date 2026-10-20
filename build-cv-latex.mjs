@@ -59,8 +59,8 @@ function escapeLatexBullet(text) {
  * @param {string|{text?: string}} bullet
  * @returns {string} the bullet's text
  */
-function unwrapBullet(bullet) {
-  return (bullet && typeof bullet === 'object' && !Array.isArray(bullet)) ? (bullet.text ?? '') : bullet;
+function unwrapBullet(b) {
+  return (b && typeof b === 'object' && !Array.isArray(b)) ? (b.text ?? '') : b;
 }
 
 /**

@@ -46,6 +46,25 @@ test('the cityjobs board declares the in-lane civil-service title codes', () => 
   assert.ok(CODES.includes('56058'), '56058 COMMUNITY COORDINATOR is the live thread and must be listed');
 });
 
+test("the record's OWN lanes are in the code list", () => {
+  // MEASURED 2026-10-20: the first code list was assembled by pattern-matching
+  // the codes and it EXCLUDED 70810 SPECIAL OFFICER and 60421 URBAN PARK
+  // RANGER - his own lane, the one the tracker already carries an Applied row
+  // for (row 2, Parks Enforcement Patrol). The cityjobs title-code gate shipped
+  // on 2026-10-20 used that list, so it would have REJECTED the postings of
+  // his own primary lane. A code says what civil-service title he would be
+  // appointed to; a code whose title names work he has done is his, whatever
+  // the digits say.
+  for (const code of ['56058', '56057', '56056', '70810', '60421', '52287', '52615', '60888']) {
+    assert.ok(CODES.includes(code), `${code} is one of the record's own lanes and must be listed`);
+  }
+  // The closed professions stay out: a supervisory title the record has never
+  // held, a legal title, and a management title.
+  for (const code of ['70817', '30087', '10035']) {
+    assert.ok(!CODES.includes(code), `${code} is a closed profession and must NOT be listed`);
+  }
+});
+
 test('the rule admits a posting whose title only names the division', () => {
   // The slug carries the FULL title plus the division. A positive copied from
   // a shorter form must still match, and no negative may reject it.
@@ -65,7 +84,23 @@ test('the rule rejects the off-lane families the board was admitting', () => {
     'Asbestos Remediation Specialist In Outside Nyc',
     'Forensic Mortuary Technician I',
     'Eh And S Audits And Assessments Section Chief Associate Public Health Sanitarian Iii',
-    'Aeu Program Planner',
+    // 30087 AGENCY ATTORNEY - a legal title.
+    'Agency Attorney',
+    // 70817 SUPERVISING SPECIAL OFFICER - a supervisory title the record has
+    // never held (sergeant), and the one code the first list left out of the
+    // IN-lane set. These replace 'Aeu Program Planner', which stopped being
+    // off-lane when 22122 CITY PLANNER joined the list: that code carries
+    // 'Project Coordinator, OLS' and 'Revocable Consent Specialist', which
+    // ARE the record's work, so the whole code could not stay out.
+    //
+    // The titles here carry NO in-lane title as a substring, which is what
+    // makes them title-stage rejections. 'Supervising Special Officer' is
+    // admitted by the TITLE stage because it contains the in-lane 'Special
+    // Officer' - it is rejected by the CODE stage instead (70817 is not in
+    // title_codes). Two stages, two different gates; this test covers the
+    // title stage, and the scanner applies the code gate on the detail page.
+    'Sergeant Bureau Of Operations',
+    'Field Officer Captain',
   ]) {
     assert.equal(judge(title), false, `${title} should be off-lane`);
   }
