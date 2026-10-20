@@ -318,7 +318,15 @@ export function formatAtsText(profile = {}, options = {}) {
         }
         const header = headerParts.join(' ');
         const bullets = Array.isArray(e.bullets)
-          ? e.bullets.filter(b => typeof b === 'string' && b.trim()).map(b => `- ${sanitizeAtsText(b)}`).join('\n')
+          // A bullet may be a plain string or an object carrying a citation
+          // (`source_anchor` / `source_line` / `source_text`). The `typeof b ===
+          // 'string'` filter used to DROP an object bullet entirely, so an ATS
+          // text export silently lost every cited sentence - the exported CV
+          // was shorter than the one the applicant read. Unwrap instead.
+          ? e.bullets
+              .map(b => (b && typeof b === 'object' && !Array.isArray(b)) ? (b.text ?? '') : b)
+              .filter(b => typeof b === 'string' && b.trim())
+              .map(b => `- ${sanitizeAtsText(b)}`).join('\n')
           : '';
         return bullets ? (header ? `${header}\n${bullets}` : bullets) : header;
       })
