@@ -1495,6 +1495,25 @@ const RECHECKABLE_SCAN_HISTORY_STATUSES = new Set(['added', 'skipped_expired']);
 const OBSERVATIONAL_SCAN_HISTORY_STATUSES = new Set([
   'skipped_location',
   'skipped_age',
+  // A RULE REJECTION MUST NOT PIN THE URL.
+  //
+  // 'skipped_title' and 'skipped_title_code' are the verdicts of a RULE, not
+  // the observation of a posting. A posting rejected by a rule is rejected
+  // BEFORE the detail fetch, so pinning it buys nothing: the next run rejects
+  // it again for free, and the row is not re-appended (a URL already carrying
+  // a row with the same status is skipped).
+  //
+  // Pinning it costs the posting its RECOVERABILITY. This is the failure that
+  // cost the 56058 family 89 postings on 2026-10-20: a positive list that was
+  // too narrow rejected them, the rejection PINNED them, and a later, correct
+  // rule could never re-offer them - they were "already seen".
+  //
+  // The same reasoning that made skipped_location and skipped_age
+  // observational: a verdict that a rule change can reverse must not be a
+  // permanent claim on the URL. The row is still written, so the rejection is
+  // recorded and the coverage check can see it.
+  'skipped_title',
+  'skipped_title_code',
 ]);
 
 /**

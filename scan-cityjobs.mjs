@@ -122,6 +122,23 @@ const DETAIL_LIMIT = (() => {
 let config = {};
 if (existsSync(PORTALS_PATH)) config = yaml.load(readFileSync(PORTALS_PATH, 'utf-8')) || {};
 
+// The CIVIL-SERVICE TITLE CODES that count as in-lane on this board, read from
+// this board's own source_title_filters rule.
+//
+// There is no tracked_companies entry for cityjobs - it is a standalone
+// scanner - so the list lives on its rule, and the gate and the config are one
+// thing. An empty list means no code gate, which is the old behaviour.
+//
+// WHY A CODE GATE AT ALL: the business title in a cityjobs slug cannot decide
+// whether a posting is in-lane. The 2026-10-20 measurement on the tenant: the
+// 131 postings bound to COMMUNITY COORDINATOR (56058) carry 124 DISTINCT
+// business titles, and a posting bound to one code can carry any title at all.
+// The code is what governs eligibility, and it is on the detail page - which
+// this scanner already fetches for every candidate.
+const CITYJOBS_RULE = (config.source_title_filters || [])
+  .find((r) => Array.isArray(r?.match_hosts) && r.match_hosts.some((h) => /cityjobs\.nyc\.gov/i.test(String(h))));
+const CITYJOBS_TITLE_CODES = (CITYJOBS_RULE?.title_codes || []).map((c) => String(c).trim()).filter(Boolean);
+
 // REWIRED 2026-10-18. This file hand-rolled its own title matcher from the
 // GLOBAL positive/negative lists only:
 //
@@ -387,6 +404,21 @@ export function parseDetail(html) {
   // a phrase mined from prose, so it cannot trip the subject-matter problem.
   const jobShape = ld?.employmentType ? classifyEmploymentType(ld.employmentType) : employmentTypeOf(text);
 
+  // The CIVIL-SERVICE TITLE CODE, read off the detail page.
+  //
+  // This is the field that actually governs eligibility, and it is the reason
+  // this board needs a lane rule of its own. A posting bound to title code
+  // 56058 can carry ANY business title -- "Program Counselor", "Capital
+  // Analyst", "EAP Counselor", "MOU Agreement Planner" -- so matching on the
+  // business title alone can never decide whether a posting is in-lane. The
+  // 2026-10-20 measurement: the tenant's 131 COMMUNITY COORDINATOR postings
+  // carry 124 DISTINCT business titles.
+  //
+  // The sitemap slug carries only the business title and the division, so the
+  // code is available here and nowhere earlier -- and this page is fetched for
+  // every candidate anyway, so the gate costs no extra request.
+  const titleCode = (/Title\s*Code[^0-9]{0,200}?([0-9]{4,6})/i.exec(text) || [])[1] || '';
+
   return {
     description: text,
     salary: salary ? `${formatMoney(salary.min)}–${formatMoney(salary.max)}` : '',
@@ -398,6 +430,7 @@ export function parseDetail(html) {
     employmentType: jobShape,
     employmentTypeRaw: ld?.employmentType || '',
     internalOnly: internalOnlyOf(text),
+    titleCode,
   };
 }
 
@@ -626,6 +659,7 @@ async function main() {
   const deferred = candidates.slice(DETAIL_LIMIT);
   const newOffers = [];
   const shapeSkipped = [];
+  const codeSkipped = [];
   const errors = [];
   for (const c of enrich) {
     try {
@@ -634,6 +668,18 @@ async function main() {
       // reading is NOT treated as full-time: it stays in the queue for a human.
       if (d.employmentType === 'excluded') {
         shapeSkipped.push(c);
+        continue;
+      }
+      // CIVIL-SERVICE TITLE CODE gate. The exact filter, on the page already
+      // fetched, so it costs no extra request.
+      //
+      // A posting whose code could not be read is KEPT, not dropped: an
+      // unreadable field is missing data, and dropping on missing data is the
+      // same failure the location filter had. The code list comes from this
+      // board's own source_title_filters rule, so the config and the gate
+      // cannot drift.
+      if (CITYJOBS_TITLE_CODES.length && d.titleCode && !CITYJOBS_TITLE_CODES.includes(d.titleCode)) {
+        codeSkipped.push({ ...c, titleCode: d.titleCode });
         continue;
       }
       newOffers.push({
@@ -668,6 +714,7 @@ async function main() {
     if (titleSkipped.length) await appendToScanHistory(titleSkipped, date, 'skipped_title');
     if (locationSkipped.length) await appendToScanHistory(locationSkipped, date, 'skipped_location');
     if (shapeSkipped.length) await appendToScanHistory(shapeSkipped, date, 'skipped_job_shape');
+    if (codeSkipped.length) await appendToScanHistory(codeSkipped, date, 'skipped_title_code');
     if (staleSkipped.length) await appendToScanHistory(staleSkipped, date, 'skipped_date');
     if (dupeSkipped.length) await appendToScanHistory(dupeSkipped, date, 'skipped_dup');
   }
@@ -677,6 +724,7 @@ async function main() {
   console.log(`Freshness window:     ${NO_FRESHNESS ? 'disabled (--all)' : `${SINCE_DAYS} days`}`);
   console.log(`Filtered by title:    ${titleSkipped.length}`);
   console.log(`Filtered location:    ${locationSkipped.length}`);
+  console.log(`Filtered by title code:${String(codeSkipped.length).padStart(4)}${CITYJOBS_TITLE_CODES.length ? `  (in-lane codes: ${CITYJOBS_TITLE_CODES.join(', ')})` : '  (no code list configured - gate inactive)'}`);
   console.log(`Older than window:    ${staleSkipped.length}`);
   console.log(`Already seen:         ${dupeSkipped.length}`);
   console.log(`Detail pages fetched: ${enrich.length}`);
