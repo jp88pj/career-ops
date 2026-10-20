@@ -69,6 +69,7 @@ import { isMainModule } from './lib/is-main-module.mjs';
 import { normalizeJdText } from './fingerprint-core.mjs';
 import { createHash } from 'crypto';
 import { buildTitleFilterBySource } from './title-keywords.mjs';
+import { buildLocationFilter } from './scan.mjs';
 import { buildShapePolicy, stripShapeNegatives } from './lib/employment-shape.mjs';
 
 const DATA_ROOT = getCareerOpsRoot();
@@ -157,17 +158,46 @@ const matchesTitle = buildTitleFilterBySource(
   config.source_title_filters
 );
 
-const locFilter = config.location_filter || {};
-const locAllow = (locFilter.allow || []).map(k => k.toLowerCase());
-const locBlock = (locFilter.block || []).map(k => k.toLowerCase());
-
-function matchesLocation(loc) {
-  if (!loc) return true;
-  const lower = loc.toLowerCase();
-  if (locBlock.some(k => lower.includes(k))) return false;
-  if (locAllow.length === 0) return true;
-  return locAllow.some(k => lower.includes(k));
-}
+// FIXED 2026-10-20. This file hand-rolled its own location matcher:
+//
+//     const locAllow = (locFilter.allow || []).map(k => k.toLowerCase());
+//     const locBlock = (locFilter.block || []).map(k => k.toLowerCase());
+//     if (locBlock.some(k => lower.includes(k))) return false;
+//     if (locAllow.length === 0) return true;
+//     return locAllow.some(k => lower.includes(k));
+//
+// It consulted `allow` and `block` ONLY. `always_allow` -- the tier that
+// actually names the boroughs -- was never read, and `block_hard` (the
+// non-US tier) was never read either.
+//
+// The consequence was severe and silent. `locationFromSlug` returns "NYC" for
+// an all-boros posting but "Manhattan, NY" / "Brooklyn, NY" / "Queens, NY" /
+// "Bronx, NY" / "Staten Island, NY" for a borough-specific one, and NONE of
+// those substrings matches `allow` ("Remote", "United States", "USA", "New
+// York", "NYC", "New Jersey"). Measured against the seven slug shapes: 6 of 7
+// were DROPPED. Only all-boros survived. So the cityjobs scanner had been
+// admitting essentially nothing except citywide postings, and every
+// borough-specific NYC vacancy was filtered out before anyone could score it.
+//
+// Three evaluation workers hit this independently and reported it: report 359's
+// posting was dropped 9x on `skipped_location`; report 378's was dropped twice
+// "despite being a Manhattan posting"; report 353's was "previously skipped by
+// the cityjobs scanner six times". The bug was not a drop in coverage -- it
+// was a drop in every posting that named a borough.
+//
+// The fix is to use the SAME matcher every other scanner uses, so the global
+// policy is applied by one implementation rather than two that disagree.
+// `buildLocationFilter` checks block_hard first, then always_allow, then
+// block, then allow -- which is the order the global `location_filter` in
+// portals.yml was written for.
+//
+// The URL is deliberately NOT passed to the matcher: this scanner derives the
+// location from the slug, and the cityjobs host string would satisfy the
+// "NYC" always_allow entry for every posting, making the check a no-op.
+//
+// Exported so the regression test can exercise it directly: this filter is
+// the one that silently dropped every borough-specific NYC posting.
+export const matchesLocation = buildLocationFilter(config.location_filter);
 
 // ── Parsing ─────────────────────────────────────────────────────────────────
 
