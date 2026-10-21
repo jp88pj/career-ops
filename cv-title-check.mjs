@@ -65,74 +65,44 @@ import { getCareerOpsRoot } from './path-resolver.mjs';
 import {
   boldLineText, findExperienceSections, headingText, toPlainText, EXPERIENCE_HEADING_NAMES,
 } from './lib/cv-markdown.mjs';
+import { parseExperienceEntries } from './lib/cv-experience-entries.mjs';
 
 const CV_PATH = join(getCareerOpsRoot(), 'cv.md');
 
 // ── cv.md experience parsing ────────────────────────────────────────
 //
-// cv.md's canonical shape (see examples/cv-example.md):
+// The entries of cv.md's Experience section, read by the SHARED reader
+// (lib/cv-experience-entries.mjs), which is also what the tense gate and the
+// structure check use. One reader, one definition of what a job entry is.
 //
-//   ### Company Name -- Location
+// WHY IT MOVED
+// ------------
+// This file used to parse cv.md itself, and its copy returned ZERO entries for
+// cv.md: the master writes an entry's title, location and dates on one line
+// (`**Urban Park Service Security** | New York, NY | Dec 2025 - Present`),
+// while lib/cv-markdown.mjs's `boldLineText()` accepts only a line that is
+// bold from end to end. So the title check had never run on any tailored CV -
+// every one of them reported "cv.md entries could not be parsed - title check
+// did not run", with 11 to 13 entries unchecked. A gate that cannot read its
+// input reports nothing, and nothing reads as a pass.
 //
-//   **Job Title**
-//   2020-2024
-//
-//   - bullet
-//
-// Company/location are split on the first " -- " (or " – " / " — ", the
-// dashes some editors and Pandoc substitute); location is optional. The title
-// is the next bolded line; dates are the next non-empty line after that. Any
-// entry missing a bolded title or a dates line is skipped rather than
-// guessed at — a checker that invents a comparison side is worse than one
-// that reports nothing for that entry.
-//
-// Lines go through lib/cv-markdown.mjs first, so the same entry written as
-// Pandoc Markdown (`### **Acme** --- City`, `**Title**\`, `**2020 -- 2024**`,
-// `## **[Professional Experience]{.smallcaps}**`) parses identically (#4879).
+// The shared reader also models the two shapes the master uses and the
+// documented shape does not: a SECOND role under the same heading (the Data
+// Science Teacher line under Newark Public Schools) and a NESTED entry
+// (Major League Baseball, indented, because the two roles overlap). The master
+// has 14 roles; the old parser saw 12, and the title check could not have
+// checked the Replay Operator entry even if it had run.
 
 export function parseCvExperience(cvText) {
-  const entries = [];
-
-  // Only scan inside a recognized Experience section (lib/cv-markdown.mjs's
-  // EXPERIENCE_HEADING_NAMES), so an unrelated "### " heading elsewhere in
-  // the CV (e.g. under Projects) never gets misread as a job.
-  for (const lines of findExperienceSections(cvText)) {
-    for (let i = 0; i < lines.length; i++) {
-      const heading = headingText(lines[i], 3);
-      if (heading === null) continue;
-
-      const [companyPart] = heading.split(/\s+[-–—]{1,2}\s+/);
-      const company = companyPart.trim();
-      if (!company) continue;
-
-      // Walk forward for the bolded title line, then the dates line, skipping
-      // blank lines. Stop at the next heading so a malformed entry never eats
-      // the following one.
-      let title = null;
-      let dates = null;
-      for (let j = i + 1; j < lines.length; j++) {
-        const next = lines[j];
-        if (/^#{2,3}\s+/.test(next)) break;
-        if (next.trim() === '') continue;
-        if (title === null) {
-          const bold = boldLineText(next);
-          if (bold) {
-            title = bold;
-            continue;
-          }
-          break; // first non-blank line after the heading must be the title
-        }
-        if (dates === null) {
-          dates = toPlainText(next);
-        }
-        break;
-      }
-
-      if (title && dates) entries.push({ company, title, dates });
-    }
-  }
-
-  return entries;
+  return parseExperienceEntries(cvText).map((e) => ({
+    company: e.company,
+    // The full heading, as a fallback key: the master's "### TEFL — Practicum
+    // ... and Freelance Tutoring" has a dash inside the employer's name, and
+    // the canonical split reads it as a company/location pair.
+    heading: e.heading ?? null,
+    title: e.title,
+    dates: e.dates,
+  }));
 }
 
 // ── Tailored-CV payload parsing (modes/pdf.md Step 17 JSON schema) ──
@@ -220,6 +190,30 @@ function groupByKey(entries) {
 }
 
 /**
+ * The same grouping, with the master's FULL heading registered as a second
+ * key.
+ *
+ * The canonical shape splits a heading on its first dash - "### Acme Corp --
+ * Remote" - but the master also has a heading whose dash is part of the
+ * employer's NAME: "### TEFL — Practicum (My Culture Connect) and Freelance
+ * Tutoring". The split reads that as company "TEFL", while every tailored CV
+ * carries the whole string, so the entry matched nothing and went unchecked.
+ *
+ * The alternative key is a FALLBACK, tried only when the canonical key
+ * matched nothing, so it can never turn a real comparison into a missed one.
+ */
+function groupByKeyWithHeading(entries) {
+  const groups = groupByKey(entries);
+  for (const entry of entries) {
+    if (!entry.heading || entry.heading === entry.company) continue;
+    const key = matchKey(entry.heading, entry.dates);
+    if (groups.has(key)) continue; // the canonical key already covers it
+    groups.set(key, [entry]);
+  }
+  return groups;
+}
+
+/**
  * Compare a tailored-CV payload's experience entries against cv.md's.
  *
  * A {company, dates} key is only ever compared when it is unique on BOTH
@@ -236,7 +230,7 @@ function groupByKey(entries) {
  * @returns {{matched: Array, mismatches: Array, ambiguous: Array, unmatchedTailored: Array, unmatchedCv: Array}}
  */
 export function checkTitles(cvEntries, tailoredEntries) {
-  const cvGroups = groupByKey(cvEntries);
+  const cvGroups = groupByKeyWithHeading(cvEntries);
   const tailoredGroups = groupByKey(tailoredEntries);
 
   const matched = [];
@@ -522,8 +516,8 @@ function runSelfTest() {
   ].join('\n');
   const pandocEntries = parseCvExperience(pandocCv);
   eq('Pandoc cv.md: parses both experience entries', pandocEntries, [
-    { company: 'Acme Health, Inc.', title: 'Senior Director, Platform Engineering', dates: '09/2021 – Present' },
-    { company: 'Globex Corp.', title: 'Principal Infrastructure Engineer', dates: '03/2015 – 08/2021' },
+    { company: 'Acme Health, Inc.', heading: 'Acme Health, Inc. — New York, NY (Remote)', title: 'Senior Director, Platform Engineering', dates: '09/2021 – Present' },
+    { company: 'Globex Corp.', heading: 'Globex Corp. — Stamford, CT', title: 'Principal Infrastructure Engineer', dates: '03/2015 – 08/2021' },
   ]);
   const inflatedPayload = { experience: [
     { company: 'Acme Health, Inc.', role: 'VP, Platform Engineering', dates: '09/2021 - Present' },
@@ -538,13 +532,13 @@ function runSelfTest() {
   // One Pandoc feature at a time, each on an otherwise-plain entry — the
   // issue's table, row by row.
   const oneEntry = (h2, h3, title, dates) => parseCvExperience(`${h2}\n\n${h3}\n\n${title}\n${dates}\n`);
-  const plainEntry = [{ company: 'Co', title: 'Engineer', dates: '2020-2024' }];
+  const plainEntry = [{ company: 'Co', heading: 'Co – City', title: 'Engineer', dates: '2020-2024' }];
   for (const heading of ['Experience', 'Work Experience', 'Professional Experience', 'Employment History', 'Work History']) {
     eq(`"## ${heading}" is a recognized Experience section`, oneEntry(`## ${heading}`, '### Co -- City', '**Engineer**', '2020-2024'), plainEntry);
   }
   eq('a bold + span h2 is recognized', oneEntry('## **[Experience]{.smallcaps}**', '### Co -- City', '**Engineer**', '2020-2024'), plainEntry);
   eq('a Pandoc {#id} attribute on the h2 is ignored', oneEntry('## Experience {#experience}', '### Co -- City', '**Engineer**', '2020-2024'), plainEntry);
-  eq('"---" between company and location splits like "--"', oneEntry('## Experience', '### Co --- City', '**Engineer**', '2020-2024'), plainEntry);
+  eq('"---" between company and location splits like "--"', oneEntry('## Experience', '### Co --- City', '**Engineer**', '2020-2024'), [{ company: 'Co', heading: 'Co — City', title: 'Engineer', dates: '2020-2024' }]);
   eq('a bold company heading is unwrapped', oneEntry('## Experience', '### **Co** -- City', '**Engineer**', '2020-2024'), plainEntry);
   eq('a trailing hard-break backslash on the title line is dropped', oneEntry('## Experience', '### Co -- City', '**Engineer**\\', '2020-2024'), plainEntry);
   eq('escaped characters in a title are unescaped', oneEntry('## Experience', '### Co -- City', '**C\\# \\| Engineer**', '2020-2024')[0]?.title, 'C# | Engineer');

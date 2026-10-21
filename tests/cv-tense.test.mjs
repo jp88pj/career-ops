@@ -14,13 +14,14 @@ import { fileURLToPath } from 'node:url';
 // tour" - past tense - inside a CURRENT role, where the master says "the
 // memorandum book documents all aspects of each daily tour". The fact gate
 // passed (the claim is in cv.md) and the source gate passed (the bullet cites
-// cv.md). The defect lived between them, and it shipped. This test pins the
-// property that would have caught it: a bullet whose tense contradicts its
-// role is a failure, and the check is not vacuous - the same bullet in the
-// right tense passes.
+// cv.md). The defect lived in the gap between them, and it shipped.
 //
-// A gate that only ever passes is not a gate, so each case below asserts the
-// exit code, not the message.
+// A gate that only ever passes is not a gate, so each case asserts the exit
+// code, not the message. And the last two cases pin the failure mode that
+// would make the gate WORTHLESS while looking green: a bullet the gate
+// cannot classify is skipped, so the correct form of the defect ("Document
+// each daily tour", a bare present form) would never be verified at all -
+// only the wrong form would be caught.
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TOOL = join(ROOT, 'scripts/check-cv-tense.mjs');
@@ -36,10 +37,19 @@ function withPayload(fn) {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
-function run(file) {
-  const r = spawnSync(process.execPath, [TOOL, file], { encoding: 'utf-8', cwd: ROOT });
+function run(file, extra = []) {
+  const r = spawnSync(process.execPath, [TOOL, file, ...extra], { encoding: 'utf-8', cwd: ROOT });
   return { code: r.status, out: (r.stdout || '') + (r.stderr || '') };
 }
+
+function runJson(file) {
+  const r = spawnSync(process.execPath, [TOOL, file, '--json'], { encoding: 'utf-8', cwd: ROOT });
+  return { code: r.status, data: JSON.parse(r.stdout || '{}') };
+}
+
+// The anchor points at a real line of the real cv.md, so the gate resolves it
+// through the same canonical matcher the source gate uses.
+const ANCHOR = ['of each daily tour, from clock-in time to clock-out time'];
 
 function payload(role, dates, bulletText) {
   return {
@@ -51,7 +61,7 @@ function payload(role, dates, bulletText) {
         role,
         location: 'New York, NY',
         dates,
-        bullets: [{ text: bulletText, source_anchor: ['of each daily tour, from clock-in time to clock-out time'] }],
+        bullets: [{ text: bulletText, source_anchor: ANCHOR }],
       },
     ],
   };
@@ -70,7 +80,7 @@ test('a current role in the past tense FAILS - the defect that shipped', () => {
     const f = write(payload('Urban Park Service Security', 'Dec 2025 - Present', 'Documented each daily tour, from clock-in to clock-out'));
     const r = run(f);
     assert.equal(r.code, 1, `expected a failure, got:\n${r.out}`);
-    assert.match(r.out, /register mismatch/);
+    assert.match(r.out, /ERROR/);
   });
 });
 
@@ -95,6 +105,20 @@ test('a completed event inside a current role is past and is allowed', () => {
     const f = write(payload('Urban Park Service Security', 'Dec 2025 - Present', 'Completed PEP academy training, covering New York State penal law and Parks Rules & Regulations'));
     const r = run(f);
     assert.equal(r.code, 0, `expected a clean run, got:\n${r.out}`);
+  });
+});
+
+test('a bare present form is CHECKED, not skipped as unclassifiable', () => {
+  withPayload((write) => {
+    // "Document" is a bare form: the master's own duty bullets are
+    // overwhelmingly past, so the map cannot supply it, and the morphology
+    // cannot either. If the gate skipped it, the CORRECT form of the defect
+    // would go unverified while the wrong form was still caught - a gate that
+    // looks like it works.
+    const f = write(payload('Urban Park Service Security', 'Dec 2025 - Present', 'Document each daily tour, from clock-in to clock-out'));
+    const { data } = runJson(f);
+    assert.equal(data.checked, 1, `expected the bullet to be checked, got:\n${JSON.stringify(data)}`);
+    assert.equal((data.unclassified || []).length, 0, `expected no unclassified bullets, got:\n${JSON.stringify(data.unclassified)}`);
   });
 });
 
