@@ -13,12 +13,19 @@
  * one artefact family rebuilt and another left behind.
  *
  * Usage:
- *   node scripts/rebuild-cv-artifacts.mjs --report=NNN [--dry-run]
+ *   node scripts/rebuild-cv-artifacts.mjs --report=NNN [--dry-run] [--ern-scope=cityjobs]
  *   node scripts/rebuild-cv-artifacts.mjs --report=NNN --only=pdf,txt
  *
  * The ATS payload is regenerated from the main payload every time (ats-payload.mjs
  * is a pure transform), so a fix in the main payload can never fail to reach
  * the ATS family.
+ *
+ * --ern-scope: which platform the CV is FOR, which decides the ERN
+ * expectation. The default is 'other' - the ERN must be ABSENT - because
+ * cv.md's scope rule allows it on cityjobs postings ONLY, and leaking a
+ * municipal employee ID is the documented harm. A cityjobs CV therefore has to
+ * say so: --ern-scope=cityjobs. The check reads the rendered PDF, not the
+ * HTML, because the employer receives the PDF.
  *
  * Exits non-zero if any step fails. Steps run in order and a failure stops the
  * rest, so a half-built set is never presented as a finished one.
@@ -46,6 +53,14 @@ if (!/^\d+$/.test(report)) fail(`--report= must be a report number, got "${repor
 const dryRun = args.includes("--dry-run");
 const onlyArg = args.find((a) => a.startsWith("--only="));
 const only = onlyArg ? onlyArg.split("=")[1].split(",").map((s) => s.trim()).filter(Boolean) : null;
+const ernArg = args.find((a) => a.startsWith("--ern-scope="));
+// The SAFE direction: the ERN must be absent unless the CV is for a cityjobs
+// posting and says so. cv.md's scope rule allows the ERN on cityjobs postings
+// ONLY, and leaking a municipal employee ID is the documented harm.
+const ernScope = ernArg ? ernArg.split("=")[1] : "other";
+if (!["other", "cityjobs"].includes(ernScope)) {
+  fail(`--ern-scope must be 'other' or 'cityjobs', got "${ernScope}"`);
+}
 const wants = (kind) => !only || only.includes(kind);
 
 /** Every file in output/ belonging to this report, keyed by family. */
@@ -123,7 +138,7 @@ steps.push(() => {
 steps.push(() => run("html (styled)", process.execPath, ["build-cv-html.mjs", a.mainPayload, a.mainHtml]).ok);
 
 // 3. Styled PDF - carries the report number so the manifest links it to the tracker row.
-steps.push(() => run("pdf (styled)", process.execPath, ["generate-pdf.mjs", a.mainHtml, a.mainPdf, "--format=letter", `--report=${report}`, "--kind=cv"]).ok);
+steps.push(() => run("pdf (styled)", process.execPath, ["generate-pdf.mjs", a.mainHtml, a.mainPdf, "--format=letter", `--report=${report}`, "--kind=cv", `--ern-scope=${ernScope}`]).ok);
 
 // 4. .docx - the upload artefact for SmartRecruiters.
 steps.push(() => run("docx", process.execPath, ["build-cv-docx.mjs", a.mainPayload, a.docx]).ok);
@@ -132,7 +147,7 @@ steps.push(() => run("docx", process.execPath, ["build-cv-docx.mjs", a.mainPaylo
 steps.push(() => run("html (ats)", process.execPath, ["build-cv-html.mjs", a.atsPayload, a.atsHtml, ATS_TEMPLATE]).ok);
 
 // 6. ATS PDF - no report number, matching how the ATS family is already indexed.
-steps.push(() => run("pdf (ats)", process.execPath, ["generate-pdf.mjs", a.atsHtml, a.atsPdf, "--format=letter", "--kind=cv"]).ok);
+steps.push(() => run("pdf (ats)", process.execPath, ["generate-pdf.mjs", a.atsHtml, a.atsPdf, "--format=letter", "--kind=cv", `--ern-scope=${ernScope}`]).ok);
 
 // 7. Paste-ready plain text.
 steps.push(() => run("txt (paste-ready)", process.execPath, ["scripts/export-payload-text.mjs", a.mainPayload, "--out", a.atsTxt]).ok);
