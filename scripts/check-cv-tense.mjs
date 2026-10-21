@@ -104,6 +104,36 @@ const BARE_PRESENT = new Set([
 ]);
 
 /**
+ * The irregular past forms.
+ *
+ * A closed, standard set - the ones "-ed" cannot reach. It is a fact about
+ * English rather than a fact about this project, which is why it belongs in a
+ * list rather than in the master: the master never writes "Oversaw" in a
+ * current role, so it cannot be the authority on a form it does not use.
+ *
+ * Every form here is unambiguously past. The cross-check below then confirms
+ * that the master agrees, which is what stops the list drifting.
+ */
+const IRREGULAR_PAST = new Set([
+  'Ate', 'Bade', 'Began', 'Bent', 'Bere', 'Bet', 'Bled', 'Blew', 'Blow',
+  'Broke', 'Built', 'Bought', 'Brought', 'Burst', 'Cast', 'Caught', 'Chid',
+  'Chose', 'Clung', 'Cost', 'Cought', 'Crept', 'Cut', 'Dared', 'Dealt', 'Dwelt',
+  'Died', 'Dove', 'Drew', 'Drank', 'Drove', 'Drunk', 'Dwelt', 'Felt', 'Fell',
+  'Fought', 'Flew', 'Fled', 'Flung', 'Flown', 'Forbade', 'Forgot', 'Forgotten',
+  'Found', 'Froze', 'Gave', 'Given', 'Gone', 'Ground', 'Grew', 'Grown', 'Hung',
+  'Hewed', 'Heard', 'Hid', 'Hidden', 'Held', 'Hurled', 'Kept', 'Knew', 'Known',
+  'Laid', 'Led', 'Leapt', 'Left', 'Lent', 'Lit', 'Lost', 'Made', 'Meant', 'Met',
+  'Mistook', 'Owe', 'Oversaw', 'Overcome', 'Paid', 'Parted', 'Proved', 'Put',
+  'Quit', 'Rang', 'Read', 'Ridden', 'Risen', 'Rode', 'Rung', 'Ran', 'Sang',
+  'Sank', 'Sat', 'Saw', 'Sawed', 'Sewn', 'Shook', 'Shot', 'Shone', 'Slain',
+  'Sled', 'Slept', 'Slid', 'Slung', 'Smelt', 'Sown', 'Spent', 'Spoke', 'Spun',
+  'Stood', 'Stole', 'Struck', 'Stuck', 'Swam', 'Swept', 'Swung', 'Swore',
+  'Taught', 'Tore', 'Torn', 'Threw', 'Thrust', 'Told', 'Took', 'Trod', 'Trod',
+  'Troubleshot', 'Understood', 'Woke', 'Wore', 'Woven', 'Wove', 'Wring', 'Wrought',
+  'Wrote', 'Wrong', 'Wrung', 'Bought', 'Died', 'Girt',
+]);
+
+/**
  * The tense of a verb form.
  *
  * The master's own map wins - it is derived from the master, so it cannot be
@@ -120,6 +150,7 @@ function classify(word) {
   const fromMaster = register.verbTense.get(key);
   if (fromMaster && fromMaster !== 'conflict') return fromMaster;
   if (BARE_PRESENT.has(key)) return 'present';
+  if (IRREGULAR_PAST.has(key)) return 'past';
   if (/ed$/.test(key)) return 'past';
   if (/[^s]s$/.test(key)) return 'present';
   return null;
@@ -287,10 +318,28 @@ function checkPayload(payloadPath) {
 }
 
 /**
- * Cross-check: the gate's classifier against the master.
+ * The morphological fallback on its own, with the master's map excluded.
+ *
+ * The map is derived from the master, so comparing the map against the master
+ * would be circular. This is the part worth testing: the fallback decides
+ * every form the master has not used, and the master is what says whether the
+ * fallback is right.
+ */
+function fallbackClassify(word) {
+  if (!word) return null;
+  const key = word[0].toUpperCase() + word.slice(1);
+  if (BARE_PRESENT.has(key)) return 'present';
+  if (IRREGULAR_PAST.has(key)) return 'past';
+  if (/ed$/.test(key)) return 'past';
+  if (/[^s]s$/.test(key)) return 'present';
+  return null;
+}
+
+/**
+ * Cross-check: the gate's fallback against the master.
  *
  * The master is the authority, so where the two disagree about a verb the
- * master uses, the master is right and the classifier needs the fix. This is
+ * master uses, the master is right and the fallback needs the fix. This is
  * what keeps the fallback honest without a hand-maintained table.
  */
 function crossCheck() {
@@ -300,10 +349,7 @@ function crossCheck() {
     for (const b of entry.bullets) {
       const verb = leadingWord(b);
       if (!verb) continue;
-      const key = verb[0].toUpperCase() + verb.slice(1);
-      const fromMaster = register.verbTense.get(key);
-      if (fromMaster && fromMaster !== 'conflict') continue; // the map is the master
-      const verdict = classify(verb);
+      const verdict = fallbackClassify(verb);
       if (!verdict) { conflicts.push({ kind: 'unclassified', verb, text: b, role: entry.title }); continue; }
       if (verdict !== roleTense) {
         conflicts.push({ kind: 'disagrees', verb, verdict, roleTense, text: b, role: entry.title });
