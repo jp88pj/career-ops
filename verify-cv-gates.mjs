@@ -67,7 +67,12 @@ for (let i = 0; i < argv.length; i++) {
     const dir = join(ROOT, 'output');
     // The PAYLOAD is the anchor: readdirSync order is not alphabetical, and
     // picking the .html would have the source-citation gate try to parse HTML.
-    const hit = readdirSync(dir).find((l) => l.startsWith(`cv-candidate-${num}-`) && l.endsWith('.payload.json'));
+    //
+    // The cover letter's payload is named for the same report and sorts first
+    // ("...-cover.payload.json" before "...-office-emergency-management..."),
+    // so it has to be excluded or the CV gates would run against the LETTER.
+    const all = readdirSync(dir).filter((l) => l.startsWith(`cv-candidate-${num}-`) && l.endsWith('.payload.json'));
+    const hit = all.find((l) => !l.includes('-cover.')) || all[0];
     if (!hit) {
       console.error(`No payload in output/ for report ${num}`);
       process.exit(2);

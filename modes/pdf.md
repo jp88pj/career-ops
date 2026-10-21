@@ -37,6 +37,13 @@ Run `npm run jd:similarity -- {bundle-root}/jd/current.md {bundle-root}/jd/previ
 10. Rewrite Professional Summary by injecting JD keywords + exit narrative bridge ("Built and sold a business. Now applying systems thinking to [JD domain].")
 11. Select top 3-4 most relevant projects for the job. If `cv.md` carries an Awards / Honors section, populate `awards[]` with the entries that support this role — for an early-career candidate a contest medal or dean's list often outranks a thin project. Omit the key when there is nothing to list and the section disappears entirely; never invent an award to fill it
 12. Reorder experience bullets by JD relevance and by the risk map: strongest matching evidence first
+    12a. **ONE DUTY PER BULLET — the master's line is the unit.** `cv.md` holds two layers under each role: the **CV TEXT** (top-level `- ` bullets, the user's own clean phrasing of a duty) and the **provenance annotations** indented beneath them (where the detail lives). Read both; write the bullet in the CV's voice.
+        - **Prefer the master's own line VERBATIM** when it answers the posting. Its `source_anchor` is that line, and it reads in his voice.
+        - **A fact the master's line does not carry gets ITS OWN short bullet.** Not a clause welded onto another bullet.
+        - **Never join two facts** with a semicolon, `, and`, `while` or `so`. **Never bolt a clause onto a clean master line** — if the clause is worth saying it is worth its own line, and if the bullet budget cannot hold it, **the extra fact loses, not the master's line.**
+        - **One `source_anchor` per bullet.** A bullet needing two anchors is a bullet with two facts: split it or cut one. (The gate permits up to 6 anchors; the STYLE does not. The gate is a floor, not a licence.)
+        - **A bullet past ~130 characters is almost certainly two facts.** Check every one. **3-4 bullets per role** — a cleaner bullet costs a slot, so cut the WEAKEST bullet, never the cleanliness.
+        - Measured 2026-10-20: the user's own words on reading the first tailored batch were that the master's bullets are "much cleaner than these". The cause was welding and tailing. `verify-cv-facts` checks claims and `verify-bullet-sources` checks traceability; **neither checks shape**, so only a reader catches this.
 13. Build competency grid from JD requirements (6-8 keyword phrases), prioritizing `existing` and `supportedByResume` skills from Step 4 — never a `gap` skill
 14. Inject keywords naturally into existing achievements (NEVER invent)
 15. Apply the six-second clarity gate from `modes/heuristics/recruiter-side.md`: top third must make target role, strongest fit, and proof obvious
