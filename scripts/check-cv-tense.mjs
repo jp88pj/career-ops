@@ -55,6 +55,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { resolveAnchor } from "../verify-bullet-sources.mjs";
+import { isMainModule } from "../lib/is-main-module.mjs";
 import {
   buildMasterBlocks,
   buildMasterRegister,
@@ -360,87 +361,99 @@ function crossCheck() {
 }
 
 // ----------------------------------------------------------------------- main
-const args = process.argv.slice(2);
-const json = args.includes('--json');
 
-let payloadPaths = [];
-if (args.includes('--all')) {
-  payloadPaths = readdirSync(resolve(process.cwd(), 'output'))
-    .filter((f) => /^cv-candidate-.*\.payload\.json$/.test(f) && !f.includes('-ats.') && !f.includes('-cover.'))
-    .map((f) => resolve('output', f));
-} else if (args.some((a) => a.startsWith('--report='))) {
-  const num = args.find((a) => a.startsWith('--report=')).split('=')[1];
-  const f = readdirSync(resolve(process.cwd(), 'output')).find(
-    (x) => x.startsWith(`cv-candidate-${num}-`) && x.endsWith('.payload.json') && !x.includes('-ats.') && !x.includes('-cover.')
-  );
-  if (!f) { console.error(`Error: no tailored CV payload for report ${num}`); process.exit(1); }
-  payloadPaths = [resolve('output', f)];
-} else {
-  payloadPaths = args.filter((a) => !a.startsWith('--')).map((a) => resolve(a));
-}
+// The CLI tail is guarded: 122 of the repo's .mjs files do this, and a
+// hand-rolled `process.argv[1]` comparison silently no-ops through a
+// symlinked checkout - the process exits 0 having done nothing, which
+// every caller reads as success.
+function main() {
+  const args = process.argv.slice(2);
+  const json = args.includes('--json');
 
-if (!payloadPaths.length) {
-  console.error('usage: node scripts/check-cv-tense.mjs <payload.json>... | --all | --report=NNN');
-  process.exit(1);
-}
-
-const conflicts = crossCheck();
-let totalFindings = 0;
-let totalReview = 0;
-let totalChecked = 0;
-let totalUnclassified = 0;
-const all = [];
-
-for (const pp of payloadPaths) {
-  if (!existsSync(pp)) { console.error(`Error: no such payload: ${pp}`); process.exit(1); }
-  const r = checkPayload(pp);
-  totalFindings += r.findings.length;
-  totalReview += r.review.length;
-  totalChecked += r.checked;
-  totalUnclassified += r.unclassified.length;
-  all.push(r);
-
-  if (!json && r.checked === 0) {
-    console.log(`  !! ${pp.split(/[\\/]/).pop()}: 0 bullets could be checked - NOTHING WAS VERIFIED for this file`);
+  let payloadPaths = [];
+  if (args.includes('--all')) {
+    payloadPaths = readdirSync(resolve(process.cwd(), 'output'))
+      .filter((f) => /^cv-candidate-.*\.payload\.json$/.test(f) && !f.includes('-ats.') && !f.includes('-cover.'))
+      .map((f) => resolve('output', f));
+  } else if (args.some((a) => a.startsWith('--report='))) {
+    const num = args.find((a) => a.startsWith('--report=')).split('=')[1];
+    const f = readdirSync(resolve(process.cwd(), 'output')).find(
+      (x) => x.startsWith(`cv-candidate-${num}-`) && x.endsWith('.payload.json') && !x.includes('-ats.') && !x.includes('-cover.')
+    );
+    if (!f) { console.error(`Error: no tailored CV payload for report ${num}`); process.exit(1); }
+    payloadPaths = [resolve('output', f)];
+  } else {
+    payloadPaths = args.filter((a) => !a.startsWith('--')).map((a) => resolve(a));
   }
-  if (!json && (r.findings.length || r.review.length)) {
-    console.log(`  ${pp.split(/[\\/]/).pop()}: ${r.findings.length} error(s), ${r.review.length} needing review`);
-    for (const f of r.findings) {
-      console.log(`     ERROR  "${f.bullet}"`);
-      console.log(`        role        : ${f.role} (${f.roleTense})`);
-      console.log(`        bullet verb : ${f.bulletTense}`);
-      if (f.masterVerb) {
-        console.log(`        master verb : ${f.masterVerb} (${f.masterTense})  - cv.md L${f.masterLine}`);
-      } else {
-        console.log(`        master      : the ROLE governs (the master does not state this duty in the other register)`);
+
+  if (!payloadPaths.length) {
+    console.error('usage: node scripts/check-cv-tense.mjs <payload.json>... | --all | --report=NNN');
+    process.exit(1);
+  }
+
+  const conflicts = crossCheck();
+  let totalFindings = 0;
+  let totalReview = 0;
+  let totalChecked = 0;
+  let totalUnclassified = 0;
+  const all = [];
+
+  for (const pp of payloadPaths) {
+    if (!existsSync(pp)) { console.error(`Error: no such payload: ${pp}`); process.exit(1); }
+    const r = checkPayload(pp);
+    totalFindings += r.findings.length;
+    totalReview += r.review.length;
+    totalChecked += r.checked;
+    totalUnclassified += r.unclassified.length;
+    all.push(r);
+
+    if (!json && r.checked === 0) {
+      console.log(`  !! ${pp.split(/[\\/]/).pop()}: 0 bullets could be checked - NOTHING WAS VERIFIED for this file`);
+    }
+    if (!json && (r.findings.length || r.review.length)) {
+      console.log(`  ${pp.split(/[\\/]/).pop()}: ${r.findings.length} error(s), ${r.review.length} needing review`);
+      for (const f of r.findings) {
+        console.log(`     ERROR  "${f.bullet}"`);
+        console.log(`        role        : ${f.role} (${f.roleTense})`);
+        console.log(`        bullet verb : ${f.bulletTense}`);
+        if (f.masterVerb) {
+          console.log(`        master verb : ${f.masterVerb} (${f.masterTense})  - cv.md L${f.masterLine}`);
+        } else {
+          console.log(`        master      : the ROLE governs (the master does not state this duty in the other register)`);
+        }
+        if (f.masterText) console.log(`        master line : ${String(f.masterText).slice(0, 120)}`);
+        if (f.anchor) console.log(`        anchor      : ${String(f.anchor).slice(0, 90)}`);
       }
-      if (f.masterText) console.log(`        master line : ${String(f.masterText).slice(0, 120)}`);
-      if (f.anchor) console.log(`        anchor      : ${String(f.anchor).slice(0, 90)}`);
-    }
-    for (const f of r.review) {
-      console.log(`     REVIEW "${f.bullet}"`);
-      console.log(`        role        : ${f.role} (${f.roleTense})`);
-      console.log(`        bullet verb : ${f.bulletTense}`);
-      console.log(`        reason      : ${f.reason}`);
-      if (f.masterLine) console.log(`        master line : L${f.masterLine} ${String(f.masterText).slice(0, 100)}`);
-    }
-  }
-}
-
-if (json) {
-  console.log(JSON.stringify({ checked: totalChecked, findings: totalFindings, review: totalReview, unclassified: totalUnclassified, conflicts, details: all }, null, 2));
-} else {
-  console.log(`\n  ${totalChecked} bullet(s) checked, ${totalFindings} error(s), ${totalReview} needing review, ${totalUnclassified} not verb-initial (not checkable)`);
-  if (conflicts.length) {
-    console.log(`\n  Master cross-check (the master is the authority):`);
-    for (const c of conflicts) {
-      if (c.kind === 'disagrees') {
-        console.log(`     the master writes "${c.verb}" in a ${c.roleTense} role, the classifier says ${c.verdict}: ${c.text.slice(0, 80)}`);
-      } else {
-        console.log(`     not verb-initial: "${c.verb} ${c.text.slice(0, 70)}"`);
+      for (const f of r.review) {
+        console.log(`     REVIEW "${f.bullet}"`);
+        console.log(`        role        : ${f.role} (${f.roleTense})`);
+        console.log(`        bullet verb : ${f.bulletTense}`);
+        console.log(`        reason      : ${f.reason}`);
+        if (f.masterLine) console.log(`        master line : L${f.masterLine} ${String(f.masterText).slice(0, 100)}`);
       }
     }
   }
-  if (totalFindings) console.log('  A bullet whose tense contradicts the master wording it cites is a register error.');
+
+  if (json) {
+    console.log(JSON.stringify({ checked: totalChecked, findings: totalFindings, review: totalReview, unclassified: totalUnclassified, conflicts, details: all }, null, 2));
+  } else {
+    console.log(`\n  ${totalChecked} bullet(s) checked, ${totalFindings} error(s), ${totalReview} needing review, ${totalUnclassified} not verb-initial (not checkable)`);
+    if (conflicts.length) {
+      console.log(`\n  Master cross-check (the master is the authority):`);
+      for (const c of conflicts) {
+        if (c.kind === 'disagrees') {
+          console.log(`     the master writes "${c.verb}" in a ${c.roleTense} role, the classifier says ${c.verdict}: ${c.text.slice(0, 80)}`);
+        } else {
+          console.log(`     not verb-initial: "${c.verb} ${c.text.slice(0, 70)}"`);
+        }
+      }
+    }
+    if (totalFindings) console.log('  A bullet whose tense contradicts the master wording it cites is a register error.');
+  }
+  process.exit(totalFindings ? 1 : 0);
+
 }
-process.exit(totalFindings ? 1 : 0);
+
+if (isMainModule(import.meta.url)) {
+  main();
+}

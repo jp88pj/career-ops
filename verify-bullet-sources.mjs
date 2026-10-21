@@ -54,7 +54,11 @@ const DEFAULT_SOURCE = 'cv.md';
 const SUPPORT_RATIO = 0.6;
 
 const stem = (w) => w.replace(/(?:ing|ed|es|s|ion|ions)$/, '');
-const words = (s) => String(s ?? '')
+// EXPORTED so a tool that GENERATES anchors measures support with the same
+// tokenizer this gate measures it with. A second copy of the tokenizer is a
+// second definition of "supported", and the two would drift - the same split
+// brain this file already refuses to have with the anchor matcher.
+export const words = (s) => String(s ?? '')
   .toLowerCase()
   .replace(/[^\p{L}\p{N}\s]/gu, ' ')
   .split(/\s+/)
