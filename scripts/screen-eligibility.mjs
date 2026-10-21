@@ -75,6 +75,17 @@ const GATE_SHAPES = [
 // A gate that names THIS posting rather than a role family.
 const POSTING_SPECIFIC = /this\s+(?:jvn|position|role|posting|title|job|classification|opening)|to\s+apply\s+to\s+this/i;
 
+/**
+ * The positive marker: a posting that says NO EXAM is required.
+ *
+ * This is the other half of the City board, and it is the half that MATTERS.
+ * The City seats the candidate can actually fill are the no-exam ones (the
+ * 56057 and 56058 title codes - the two he applied to). They say so, and
+ * saying so is what separates a posting worth an evaluation from a posting
+ * that is closed to him before anybody reads the duties.
+ */
+const NO_EXAM = /no\s+exam\s+(?:is\s+)?(?:required|necessary|needed)|does\s+not\s+require\s+an\s+exam|non[-\s]?competitive|no\s+test\s+required/i;
+
 function textOf(url) {
   try {
     const out = execFileSync(process.execPath, ['browser-extract.mjs', url, '--mode', 'jd', '--max-chars', '20000'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 240000 });
@@ -109,8 +120,15 @@ for (const p of pending) {
   const gates = gatesIn(text);
   const specific = gates.filter((g) => g.specific);
   const family = gates.filter((g) => !g.specific);
-  const verdict = specific.length ? 'SKIP (this posting says so)' : family.length ? 'REPORT (a role family, not this posting)' : 'clear';
-  results.push({ ...p, text, gates, specific, family, verdict });
+  const noExam = NO_EXAM.test(text);
+  const verdict = specific.length
+    ? 'SKIP (this posting says so)'
+    : noExam
+      ? 'ELIGIBLE (no exam required)'
+      : family.length
+        ? 'REPORT (a role family, not this posting)'
+        : 'clear (no gate found - read it)';
+  results.push({ ...p, text, gates, specific, family, noExam, verdict });
   console.log(`  ${verdict.padEnd(42)} ${p.role.slice(0, 48)}`);
   for (const g of specific.slice(0, 2)) console.log(`      > ${g.sentence.slice(0, 132)}`);
   for (const g of family.slice(0, 1)) console.log(`      (family only) ${g.sentence.slice(0, 112)}`);
