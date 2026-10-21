@@ -644,6 +644,32 @@ node generate-pdf.mjs \
   --report={{REPORT_NUM}}
 ```
 
+**The ERN, and when it may appear.** `cv.md` carries the candidate's NYC
+Parks employee number, `2033687`. It is a hard scope rule, revised 2026-10-20:
+the ERN goes on a **City of New York posting** and **nowhere else**. The City's
+own SmartRecruiters tenant (`jobs.smartrecruiters.com/CityOfNewYork`) and
+`cityjobs.nyc.gov` are the same employer, and the ruling is *"ERN always for
+city jobs, all upside no downside"* - it evidences current City employment
+where no internal-candidate gate exists, and on a City application a municipal
+employee ID reads as an asset rather than noise. Off-platform it is noise:
+**never** on private-sector, charter-school, EdTech, or any other application.
+
+**The test is the BOARD, not the employer's name.** "City University of New
+York" is CUNY, a not-for-profit on its own Workday tenant - not the City. The
+MTA is a New York State authority - not the City. Neither carries the ERN, and
+neither may be rendered with `--ern-scope=cityjobs`.
+
+- City of New York posting -> keep the ERN line in the CV and pass
+  `--ern-scope=cityjobs`.
+- Every other posting -> the ERN line must NOT be in the document at all, and
+  the default `--ern-scope=other` is correct. If the render fails with *"ERN
+  2033687 appears ... but this CV is not for a cityjobs.nyc.gov posting"*, the
+  guard is working: the ERN is still in the document. Remove it and render
+  again.
+
+`generate-pdf.mjs` reads the rendered PDF, not the HTML, so this is checked
+where it matters: the employer receives the PDF.
+
 On success, use `pdf_emoji` = `✅` and set `"pdf"` to the output path in the final JSON.
 
 ATS rules:

@@ -6,6 +6,35 @@ Optional passes:
 
 ## Full pipeline
 
+## The ERN is application-scoped, not a CV line
+
+`cv.md` carries the candidate's NYC Parks employee number, `2033687`, in its
+header. It is a hard scope rule (revised 2026-10-20): the ERN goes on a **City
+of New York posting** and nowhere else. The City's own SmartRecruiters tenant
+and `cityjobs.nyc.gov` are the same employer, and the user's ruling is *"ERN
+always for city jobs, all upside no downside"* - it evidences current City
+employment on an External posting too, where no internal-candidate gate
+exists, and on a City application a municipal employee ID reads as an asset
+rather than noise. Off-platform it is noise: **never** on private-sector,
+charter-school, EdTech, or any other application.
+
+**The test is the BOARD, not the employer's name.** "City University of New
+York" is CUNY, a not-for-profit on its own Workday tenant - not the City. The
+MTA is a New York State authority - not the City. Neither carries the ERN.
+
+- City of New York posting -> keep the ERN line, and render with
+  `--ern-scope=cityjobs`.
+- Any other posting -> the ERN line must not be in the document at all, and the
+  default `--ern-scope=other` is correct. If the render fails with *"ERN 2033687
+  appears ... but this CV is not for a cityjobs.nyc.gov posting"*, the guard is
+  working: remove the ERN from the document and render again. Do NOT pass
+  `--ern-scope=cityjobs` to get past it - that is the leak the guard exists to
+  stop, and the ERN proves CURRENT CITY EMPLOYMENT, which is a different
+  question from what a posting's own gate asks.
+
+`generate-pdf.mjs` reads the rendered PDF, not the HTML, so the scope is
+checked where it matters: the employer receives the PDF.
+
 ## Application-scoped artifacts
 
 When a CV is reused or lightly tailored for an existing application, initialize a bundle with `npm run application:init -- --report {report-number} --company "{company}" --role "{role}" --version 1`. Keep the current JD at `jd/current.md`, the comparison JD at `jd/previous.md`, the source CV at `cv/source/original.html`, the tailored CV at `cv/tailored/v001/cv.html`, the PDF at `cv/tailored/v001/cv.pdf`, the change notes at `cv/tailored/v001/changes.md`, and the reuse decision at `decision/reuse.json` under the printed bundle root. Resolve the application/report first with `node find.mjs {report-or-tracker-number}` so the bundle uses the report number, not an ambiguous tracker row.

@@ -59,6 +59,29 @@ Include Block G in the saved report. Add **URL:** {url} and **Legitimacy:** {tie
 
 ## Step 3 — Generate PDF
 
+**The ERN, and when it may appear.** `cv.md` carries the candidate's NYC Parks
+employee number, `2033687`, and it is a hard scope rule (revised 2026-10-20):
+the ERN goes on a **City of New York posting** and nowhere else. The City's own
+SmartRecruiters tenant and `cityjobs.nyc.gov` are the same employer, and the
+ruling is *"ERN always for city jobs, all upside no downside"* - it evidences
+current City employment where no internal-candidate gate exists. Off-platform
+it is noise: **never** on private-sector, charter-school, EdTech, or any other
+application.
+
+**The test is the BOARD, not the employer's name.** "City University of New
+York" is CUNY, a not-for-profit on its own Workday tenant - not the City. The
+MTA is a New York State authority - not the City.
+
+- City of New York posting -> keep the ERN line, and render with
+  `--ern-scope=cityjobs`.
+- Any other posting -> the ERN line must not be in the document at all, and the
+  default `--ern-scope=other` is correct. If the render fails with *"ERN 2033687
+  appears ... but this CV is not for a cityjobs.nyc.gov posting"*, the guard is
+  working: remove the ERN from the document and render again. Do NOT pass
+  `--ern-scope=cityjobs` to get past it - that is the leak the guard exists to
+  stop, and the ERN proves CURRENT CITY EMPLOYMENT, which is a different
+  question from what a posting's own gate asks.
+
 Read `config/profile.yml`. Check `cv.output_format`:
 
 - If `"latex"`, execute the full pipeline from `modes/latex.md`
