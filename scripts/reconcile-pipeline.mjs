@@ -14,19 +14,27 @@ import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 
 const dryRun = process.argv.includes("--dry-run");
 const ADDITIONS = "batch/tracker-additions";
+// merge-tracker.mjs MOVES a TSV to batch/tracker-additions/merged/ once it has
+// been merged, so the reconciler has to look in both places - the order matters:
+// the merge has to happen first (it produces the tracker rows), and the
+// reconciliation second (it moves the inbox entries).
+const DIRS = [ADDITIONS, `${ADDITIONS}/merged`];
 
 if (!existsSync(ADDITIONS)) { console.error("no batch/tracker-additions directory"); process.exit(1); }
 
 // the TSVs the workers wrote
 const rows = [];
-for (const f of readdirSync(ADDITIONS).filter((x) => x.endsWith(".tsv"))) {
-  const lines = readFileSync(`${ADDITIONS}/${f}`, "utf-8").split("\n").filter((l) => l.trim());
-  if (lines.length < 2) continue;
-  const header = lines[0].split("\t").map((h) => h.trim());
-  const data = lines[1].split("\t").map((d) => d.trim());
-  const rec = Object.fromEntries(header.map((h, i) => [h, data[i] ?? ""]));
-  if (!rec.url) continue;
-  rows.push({ file: f, ...rec });
+for (const dir of DIRS) {
+  if (!existsSync(dir)) continue;
+  for (const f of readdirSync(dir).filter((x) => x.endsWith(".tsv"))) {
+    const lines = readFileSync(`${dir}/${f}`, "utf-8").split("\n").filter((l) => l.trim());
+    if (lines.length < 2) continue;
+    const header = lines[0].split("\t").map((h) => h.trim());
+    const data = lines[1].split("\t").map((d) => d.trim());
+    const rec = Object.fromEntries(header.map((h, i) => [h, data[i] ?? ""]));
+    if (!rec.url) continue;
+    rows.push({ file: f, ...rec });
+  }
 }
 
 if (!rows.length) { console.log("  no tracker additions to reconcile"); process.exit(0); }
