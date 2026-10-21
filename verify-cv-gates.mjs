@@ -68,11 +68,16 @@ for (let i = 0; i < argv.length; i++) {
     // The PAYLOAD is the anchor: readdirSync order is not alphabetical, and
     // picking the .html would have the source-citation gate try to parse HTML.
     //
-    // The cover letter's payload is named for the same report and sorts first
-    // ("...-cover.payload.json" before "...-office-emergency-management..."),
-    // so it has to be excluded or the CV gates would run against the LETTER.
+    // Two sibling artefacts are named for the same report and must be
+    // excluded, or the runner silently gates the WRONG document while
+    // reporting a result:
+    //   ...-cover.payload.json    the cover letter, sorted first
+    //   ...-ats.payload.json      the ATS variant, whose PDF is dated
+    //                             (…-ats-YYYY-MM-DD.pdf) and would leave the
+    //                             PDF-text gate looking for a file that is
+    //                             not there
     const all = readdirSync(dir).filter((l) => l.startsWith(`cv-candidate-${num}-`) && l.endsWith('.payload.json'));
-    const hit = all.find((l) => !l.includes('-cover.')) || all[0];
+    const hit = all.find((l) => !l.includes('-cover.') && !l.includes('-ats.')) || all[0];
     if (!hit) {
       console.error(`No payload in output/ for report ${num}`);
       process.exit(2);

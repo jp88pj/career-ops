@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // The four CV gates, as one command.
@@ -109,4 +109,26 @@ test('--json reports each gate as structured data', () => {
       assert.ok(typeof r.name === 'string' && r.name, 'each gate reports its name');
     }
   });
+});
+
+test('--report picks the CV, not a sibling artefact named for the same report', () => {
+  // Two sibling artefacts carry the same report number and sort first:
+  // the cover letter's payload and the ATS variant's payload. A runner that
+  // gates the wrong one reports a result about the wrong document - and this
+  // is exactly what happened on 2026-10-20, twice, in two different forms.
+  const out = [];
+  for (const n of ['418', '441', '496', '500', '519']) {
+    const dir = join(ROOT, 'output');
+    const files = readdirSync(dir).filter((l) => l.startsWith(`cv-candidate-${n}-`) && l.endsWith('.payload.json'));
+    if (!files.length) continue;
+    const chosen = files.find((l) => !l.includes('-cover.') && !l.includes('-ats.')) || files[0];
+    const res = spawnSync('node', [TOOL, `--report=${n}`, '--json'], { cwd: ROOT, encoding: 'utf8' });
+    const j = JSON.parse(res.stdout || '{}');
+    const gated = basename(j.payload || '');
+    out.push(`    ${n}: gated ${gated}`);
+    assert.equal(gated, chosen, `--report=${n} gated ${gated} instead of ${chosen}`);
+    assert.ok(!gated.includes('-cover.'), `--report=${n} gated the cover letter`);
+    assert.ok(!gated.includes('-ats.'), `--report=${n} gated the ATS variant`);
+  }
+  console.log(out.join('\n'));
 });
