@@ -297,6 +297,11 @@ function customFieldsOf(j) {
   const out = {};
   const put = (k, v) => { if (v !== undefined) out[k] = v; };
   put('titleCode', str('title code'));
+  // The City's own statement of whether the seat needs an EXAM.
+  // "Non-Competitive-5" (the codes he can fill - 56057, 56058) needs none;
+  // "Competitive-1" needs one the record cannot reach. The posting page says
+  // it in the same breath: "Title Classification: No exam required document."
+  put('titleClassification', str('title classification'));
   put('civilServiceTitle', str('civil service title description'));
   put('applicantType', str('applicant type'));
   put('jobType', str('job type'));

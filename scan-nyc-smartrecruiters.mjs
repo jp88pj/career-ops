@@ -210,12 +210,37 @@ async function main() {
   const codeAllowed = (j) => titleCodes.length > 0 && j.titleCode !== undefined
     && titleCodes.includes(String(j.titleCode).trim());
 
+  // THE TITLE CLASSIFICATION - the City's own statement of whether the seat
+  // needs an EXAM, and therefore the eligibility question the code cannot
+  // answer on its own.
+  //
+  // WHY A VETO AND NOT A GATE. The title_codes list is an ESCAPE: a 56058
+  // posting is admitted regardless of what the title filter says, because 131
+  // COMMUNITY COORDINATOR postings carry 124 distinct business titles. So
+  // "the code decides" would throw away seats the list does not name.
+  //
+  // WHY THE VETO IS NEEDED AT ALL. The title branch admits on the BUSINESS
+  // title, and a business title says nothing about eligibility. Measured
+  // 2026-10-21: a Dual Recovery Coordinator posting bound to title code
+  // 1006C was admitted because "Coordinator" matches a positive, and a
+  // Quality Assurance Specialist bound to 34172 was admitted because
+  // "Specialist" does - both are "Competitive-1", both need an exam the record
+  // cannot reach, and both were evaluated to a written qualification gate
+  // before anyone noticed.
+  //
+  // So: a seat that needs an exam is in-lane ONLY if the code is one he can
+  // reach. A seat that needs no exam is in-lane on the title, as before.
+  const examRequired = (j) => /^competitive/i.test(String(j.titleClassification || '').trim())
+    || /exam\s+required/i.test(String(j.titleClassification || '').trim());
+
   for (const j of jobs) {
     const title = String(j.title || '').trim();
     const url = String(j.url || '').trim();
     if (!title || !url) continue;
     if (seen.has(normalizeUrlForDedup(url))) { dupe.push({ url, title }); continue; }
-    const inLane = matchesTitle(title, { hosts: HOSTS, company: COMPANY }) || codeAllowed(j);
+    const inLane = (examRequired(j) && !codeAllowed(j))
+      ? false
+      : (matchesTitle(title, { hosts: HOSTS, company: COMPANY }) || codeAllowed(j));
     if (!inLane) { offLane.push({ url, title }); continue; }
     // The veto runs AFTER the OR, because the code branch would otherwise
     // re-admit everything the title filter rejected.
