@@ -31,7 +31,7 @@
  * the top is a functional-resume technique that buries the candidate's most
  * recent senior title and reads as concealment to ATS parsers and recruiters.
  *
- * --max-pages=N sets the preferred rendered CV length (default: 2 pages).
+ * --max-pages=N sets the preferred rendered CV length (default: 3 pages).
  * The actual page count is checked after Chromium writes the PDF; overflow
  * warns with trimming guidance by default. --strict-pages turns that warning
  * into a hard rejection without publishing the render as successful.
@@ -1147,7 +1147,7 @@ export function reorderCvSections(html, order) {
  * @param {{ maxPages?: number, strictPages?: boolean }} [options]
  * @returns {void}
  */
-export function enforcePageBudget(pageCount, { maxPages = 2, strictPages = false } = {}) {
+export function enforcePageBudget(pageCount, { maxPages = 3, strictPages = false } = {}) {
   if (!Number.isInteger(pageCount) || pageCount < 1) {
     throw new Error(`Could not determine the rendered PDF page count (received ${pageCount}).`);
   }
