@@ -1502,7 +1502,7 @@ async function generatePDF() {
   // No flag seen yet: null, not a paper size. The default belongs to
   // lib/page-format.mjs, which ranks it below the user's config/profile.yml.
   let inputPath, outputPath, format = null, reportNum = '', allowReorder = false, allowNonChronological = false;
-  let maxPages = 2, maxPagesInput = '2', strictPages = false, batchManifestPath = null;
+  let maxPages = 3, maxPagesInput = '3', strictPages = false, batchManifestPath = null;
 
   for (const arg of args) {
     if (arg.startsWith('--format=')) {
@@ -2254,8 +2254,13 @@ async function renderInPage(browser, html, outputPath, opts = {}) {
 
     // Strict overflow leaves the draft on disk but stops before success logs
     // and manifest publication. Default overflow warns and continues.
+    // The DEFAULT budget is three pages (the CLI default above), so the
+    // library path must default to the same number. It used to default to 2
+    // here, which meant a caller that reached renderHtmlToPdf() without an
+    // explicit budget -- the web PDF flow, the batch path's per-entry call --
+    // warned about a three-page CV the CLI itself would have accepted.
     enforcePageBudget(pageCount, {
-      maxPages: opts.maxPages ?? 2,
+      maxPages: opts.maxPages ?? 3,
       strictPages: opts.strictPages ?? false,
     });
 
