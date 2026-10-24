@@ -234,10 +234,30 @@ export function pass(msg) { console.log(`  ✅ ${msg}`); passed++; }
  * Failures increment the shared counter that controls the final process exit
  * code, while still allowing later checks to run and show the full problem set.
  *
+ * THEY ALSO SET THE PROCESS EXIT CODE, which is the point (2026-10-22).
+ * fail() used to log the line and count it, and nothing else: the counter was
+ * only read by finish(), which the discovered suites under tests/ never call
+ * (calling it is a suite-level error - see test-all.mjs's guard). So a suite
+ * whose assertions failed still EXITED 0, and `node --test tests/*.test.mjs`
+ * reported the file as PASSING. A failing assertion that reads as a pass
+ * understates every failure in the suite, and the suite it hid is the suite
+ * nobody looks at.
+ *
+ * The exit code is set, not thrown: throwing would end the file at the first
+ * failure and cost the run the remaining assertions, which is the whole
+ * reason the suite collects failures instead of aborting on them.
+ *
+ * An exit code that is already set is left alone, so a more specific one (2,
+ * say) is not downgraded to 1.
+ *
  * @param {string} msg - Human-readable failure message for the terminal log.
  * @returns {void}
  */
-export function fail(msg) { console.log(`  ❌ ${msg}`); failed++; }
+export function fail(msg) {
+  console.log(`  ❌ ${msg}`);
+  failed++;
+  if (!process.exitCode) process.exitCode = 1;
+}
 
 /**
  * Record and print one non-fatal warning.
@@ -343,7 +363,16 @@ export function finish() {
   // Read before printing so the summary line tells the truth too. The counters
   // stay authoritative for inline assertions; this only adds a failure source
   // that was already being computed and thrown away.
-  const runnerFailed = Boolean(process.exitCode);
+  //
+  // `failed === 0` keeps the two exit-code sources apart. fail() now sets the
+  // process exit code itself (see fail()), so a plain Boolean(process.exitCode)
+  // would report EVERY inline failure as "a failure in a discovered node:test
+  // suite" - a clause that is about a different kind of failure, and one the
+  // count on the same line already accounts for. With no inline failure, a
+  // non-zero exit code can only have come from the node:test runner, which is
+  // what the clause is for. A run that has BOTH kinds reports the inline count
+  // and still exits non-zero.
+  const runnerFailed = Boolean(process.exitCode) && failed === 0;
   // Before the summary, so a run that wrote to the developer's data cannot
   // print "All tests passed" above the line that says it did (#5113).
   const drift = realDataRootDrift();

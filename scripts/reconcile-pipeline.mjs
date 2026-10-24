@@ -1,4 +1,6 @@
 import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { getCareerOpsRoot } from "../path-resolver.mjs";
 
 // Reconcile the pipeline inbox after the workers finish.
 //
@@ -13,7 +15,17 @@ import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 // Usage: node reconcile-pipeline.mjs [--dry-run]
 
 const dryRun = process.argv.includes("--dry-run");
-const ADDITIONS = "batch/tracker-additions";
+
+// The data root is resolved through path-resolver.mjs, NOT through the
+// current directory and NOT through __dirname. The root can be overridden
+// (CAREER_OPS_ROOT, CAREER_OPS_DATA_DIR, or the .career-ops-data marker) and
+// can live OUTSIDE this repository - and merge-tracker.mjs, which produces
+// the tracker rows this script reconciles, writes the additions and the
+// pipeline under THAT root. A hardcoded "data/pipeline.md" therefore read a
+// different inbox (or none at all) in such an install, and the reconciliation
+// silently reconciled nothing.
+const DATA_ROOT = getCareerOpsRoot();
+const ADDITIONS = join(DATA_ROOT, "batch/tracker-additions");
 // merge-tracker.mjs MOVES a TSV to batch/tracker-additions/merged/ once it has
 // been merged, so the reconciler has to look in both places - the order matters:
 // the merge has to happen first (it produces the tracker rows), and the
@@ -40,7 +52,7 @@ for (const dir of DIRS) {
 if (!rows.length) { console.log("  no tracker additions to reconcile"); process.exit(0); }
 
 // the pending lines they correspond to
-const path = "data/pipeline.md";
+const path = join(DATA_ROOT, "data/pipeline.md");
 const lines = readFileSync(path, "utf-8").split("\n");
 
 const done = [];

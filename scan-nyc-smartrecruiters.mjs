@@ -26,10 +26,23 @@
  * in a single JSON response, so this scanner costs one request per run and
  * needs no browser.
  *
- * ONE CAVEAT: this board exposes NO posting date. Every entry reads "n/a" for
- * postedAt. So there is no age signal here at all — a posting on this board
- * may have been open for a day or for a year. Verify liveness at the employer
- * before treating a match as live; the scanner does not claim otherwise.
+ * THE BOARD CARRIES DATES. This scanner used to say the opposite — "this
+ * board exposes NO posting date ... there is no age signal here at all" —
+ * and the claim was false. The SmartRecruiters list payload carries them as
+ * custom fields, "Posted On Date" and "Expire Date"; the provider reads both
+ * (providers/smartrecruiters.mjs) and the scanner passes the posted date into
+ * the pipeline row as `posted:`, so the age signal IS there.
+ *
+ * MEASURED 2026-10-22 against the whole tenant: 1,653 of 1,654 postings
+ * carry a Posted On Date and 1,643 carry an Expire Date (an earlier count on
+ * the 1,626-posting tenant read 1,625 and 1,615 — the same shape, one
+ * posting short at each end).
+ *
+ * WHAT A DATE DOES NOT DO: it is the BOARD's own account of the posting, not
+ * a liveness probe. A posting past its Expire Date is closed by the
+ * employer's own record; one whose Expire Date is still ahead can have been
+ * filled anyway. Verify liveness at the employer before treating a match as
+ * live; the scanner does not claim otherwise.
  *
  * SIBLING: scan-cityjobs.mjs — scan-nystate.mjs — scan-mta.mjs — scan-usajobs.mjs
  *
@@ -61,6 +74,15 @@ import { makeHttpCtx } from './providers/_http.mjs';
 
 const HOSTS = ['jobs.smartrecruiters.com'];
 const TENANT = 'CityOfNewYork';
+
+// The board's "Posted On Date" as epoch milliseconds, or undefined when the
+// posting carries no date. UTC midnight, so the rendered YYYY-MM-DD is the
+// board's own date rather than the local calendar day.
+const postedAtOf = (iso) => {
+  if (!iso) return undefined;
+  const ms = Date.parse(`${String(iso).slice(0, 10)}T00:00:00Z`);
+  return Number.isFinite(ms) ? ms : undefined;
+};
 
 // ── Args ────────────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
@@ -246,11 +268,22 @@ async function main() {
     // re-admit everything the title filter rejected.
     if (isExcluded(title)) { excluded.push({ url, title }); continue; }
     if (!matchesLocation(j.location, url, title)) { offRegion.push({ url, title, location: j.location }); continue; }
+    // The board's posted date, carried into the pipeline row.
+    //
+    // The board publishes it as a YYYY-MM-DD string ("Posted On Date"), but
+    // the pipeline row's `posted:` segment is rendered from epoch
+    // milliseconds (formatPipelineOffer -> postedAtIsoDate), so the string
+    // alone never reached the row: the row carried NO date, which is why this
+    // scanner claimed the board had no age signal. Converted here, at UTC
+    // midnight, so the rendered date is the board's own date and not the local
+    // calendar day.
+    const postedAt = postedAtOf(j.postedOn);
     accepted.push({
       url, title, company: COMPANY, location: j.location || '', source: 'nyc-smartrecruiters',
       ...(j.titleCode !== undefined ? { titleCode: j.titleCode } : {}),
       ...(j.postedOn ? { postedOn: j.postedOn } : {}),
       ...(j.expireOn ? { expireOn: j.expireOn } : {}),
+      ...(postedAt !== undefined ? { postedAt } : {}),
       ...(j.applicantType ? { applicantType: j.applicantType } : {}),
       ...(j.jobType ? { jobType: j.jobType } : {}),
     });
@@ -295,14 +328,24 @@ async function main() {
   console.log(`Vetoed by title:  ${String(excluded.length).padStart(4)}`);
   console.log(`Already seen:       ${dupe.length}`);
   console.log(`NEW OFFERS:         ${accepted.length}`);
+  // The age signal, stated as a measurement rather than as a claim.
+  const boardPosted = jobs.filter((j) => j.postedOn).length;
+  const boardExpire = jobs.filter((j) => j.expireOn).length;
+  const offerPosted = accepted.filter((j) => j.postedOn).length;
+  console.log(`Posted On Date:     ${boardPosted}/${jobs.length} postings`);
+  console.log(`Expire Date:        ${boardExpire}/${jobs.length} postings`);
   console.log('');
   accepted
     .slice()
     .sort((a, b) => a.title.localeCompare(b.title))
     .forEach((j) => console.log(`  • ${j.title}  [${j.location}]`));
-  console.log('\n→ This board exposes NO posting date, so there is no age signal: a');
-  console.log('  posting here may be a day old or a year old. Verify liveness at the');
-  console.log('  employer before treating a match as live.');
+  console.log('');
+  console.log(`→ This board DOES carry dates: ${boardPosted} of its ${jobs.length} postings publish`);
+  console.log(`  a Posted On Date (all ${offerPosted} new offers above reach the pipeline row as`);
+  console.log(`  \`posted:\`), and ${boardExpire} publish an Expire Date. A posting past its`);
+  console.log('  Expire Date is closed by the employer\'s own record; one still inside it can');
+  console.log('  have been filled, so verify liveness at the employer before treating a match');
+  console.log('  as live.');
 }
 
 if (isMainModule(import.meta.url)) {

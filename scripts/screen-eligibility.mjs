@@ -51,6 +51,17 @@
 
 import { readFileSync, writeFileSync, appendFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { join } from 'node:path';
+import { getCareerOpsRoot } from '../path-resolver.mjs';
+
+// The data root is resolved through path-resolver.mjs, NOT through the current
+// directory. It can be overridden (CAREER_OPS_ROOT, CAREER_OPS_DATA_DIR, or
+// the .career-ops-data marker) and can live OUTSIDE this repository - and the
+// inbox this script screens, and the log it appends to, belong to THAT root.
+// A hardcoded "data/pipeline.md" screened the wrong inbox in such an install
+// (or crashed on a missing file), and the skip log went to a directory the
+// rest of the system never reads.
+const DATA_ROOT = getCareerOpsRoot();
 
 const DRY = process.argv.includes('--dry-run');
 const APPLY = process.argv.includes('--apply');
@@ -104,7 +115,7 @@ function gatesIn(text) {
 }
 
 // ---- the pending inbox ----
-const path = 'data/pipeline.md';
+const path = join(DATA_ROOT, 'data/pipeline.md');
 const lines = readFileSync(path, 'utf-8').split('\n');
 let pending = lines
   .filter((l) => /^\s*-\s*\[ \]/.test(l))
@@ -157,7 +168,7 @@ kept.splice(h2 + 1, 0, ...written);
 writeFileSync(path, kept.join('\n'), 'utf-8');
 
 const stamp = new Date().toISOString();
-appendFileSync('data/discard.log', skips.map((r) => `${stamp}\t${r.url}\tpre-screen mismatch: ${r.specific[0].sentence.replace(/[*_#]/g, '').slice(0, 240)}`).join('\n') + '\n', 'utf-8');
+appendFileSync(join(DATA_ROOT, 'data/discard.log'), skips.map((r) => `${stamp}\t${r.url}\tpre-screen mismatch: ${r.specific[0].sentence.replace(/[*_#]/g, '').slice(0, 240)}`).join('\n') + '\n', 'utf-8');
 
 console.log(`\n  ${written.length} skipped and logged:`);
 for (const w of written) console.log('    ' + w.slice(0, 130));

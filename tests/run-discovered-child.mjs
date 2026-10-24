@@ -39,11 +39,23 @@ if (!suite || !resultFile) {
 } else {
   let lingered = false;
   process.on('exit', () => {
+    const counts = { ...results(), lingered };
     try {
-      writeFileSync(resultFile, JSON.stringify({ ...results(), lingered }));
+      writeFileSync(resultFile, JSON.stringify(counts));
     } catch {
       // Nothing to report to: the parent reads a missing file as a dead suite.
     }
+    // A suite that FAILED AN ASSERTION has already reported that failure:
+    // fail() counts it and (since 2026-10-22) sets this process's exit code.
+    // Left alone, the parent reads that exit code as "the suite died from an
+    // error outside its awaited work" and counts a SECOND failure for the
+    // same suite - and the parallel totals would stop matching the serial
+    // ones, which the runner's own test asserts.
+    //
+    // So an exit code the counters explain is cleared here. An exit code they
+    // do NOT explain is a crash - an error thrown after the import resolved -
+    // and that one is left for the parent to report, as it always was.
+    if (process.exitCode && counts.failed > 0) process.exitCode = 0;
   });
 
   // The same import the in-process loop makes, throw containment included.
