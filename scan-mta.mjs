@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * scan-mta.mjs — Metropolitan Transportation Authority careers board
+ * scan-mta.mjs ΓÇö Metropolitan Transportation Authority careers board
  * (careers.mta.org).
  *
  * WHY A DEDICATED SCANNER INSTEAD OF `scan.mjs`:
  * MTA runs Phenom. Its public JSON endpoints under /widgets return HTTP 403
  * (verified 2026-10-16), so the zero-token ATS path cannot enumerate this board
- * at all — the same class of dead end already recorded for the MTA entry in
+ * at all ΓÇö the same class of dead end already recorded for the MTA entry in
  * portals.yml. What DOES work is the human-facing search page, which renders
  * server-side job cards at:
  *
@@ -17,7 +17,7 @@
  * empty page 5. Job URLs have a stable `/jobs/{id}-{slug}` shape, so the
  * numeric id is a durable dedup key even if the slug changes on retitle.
  *
- * SIBLING: scan-cityjobs.mjs (sitemap) · scan-interamt.mjs · scan-bandana.mjs
+ * SIBLING: scan-cityjobs.mjs (sitemap) ┬╖ scan-interamt.mjs ┬╖ scan-bandana.mjs
  *
  * Usage:
  *   node scan-mta.mjs                 # scan, using portals.yml filters
@@ -26,7 +26,7 @@
  *   node scan-mta.mjs --dry-run       # print only, write nothing
  *   node scan-mta.mjs --help
  *
- * IMPORTANT — MTA CIVIL SERVICE:
+ * IMPORTANT ΓÇö MTA CIVIL SERVICE:
  * This scanner does NOT filter on civil-service eligibility, because the MTA
  * posting pages do not expose that flag in a machine-readable field. MTA is a
  * public authority with its own exam lists; a NYC-city ERN does not cover it.
@@ -47,7 +47,7 @@ import { buildShapePolicy, stripShapeNegatives } from './lib/employment-shape.mj
 
 const LISTING_BASE = 'https://careers.mta.org/search/jobs/';
 
-// ── Args ─────────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Args ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(n);
@@ -66,7 +66,7 @@ if (!Number.isInteger(LIMIT) || LIMIT < 1) {
   console.error('Error: --limit takes a whole number'); process.exit(1);
 }
 
-// ── Config ───────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Config ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 let config = {};
 if (existsSync(PORTALS_PATH)) config = yaml.load(readFileSync(PORTALS_PATH, 'utf-8')) || {};
@@ -76,7 +76,7 @@ const titleFilter = config.title_filter || {};
 // Host-scoped rules take precedence over the global positive list, the same
 // seam scan.mjs uses. The global list is tuned for education-and-program boards
 // and, applied raw to a transit authority, admits RailCar Electrical Workers,
-// Structural Designers and five Assistant Vice Presidents — measured, not
+// Structural Designers and five Assistant Vice Presidents ΓÇö measured, not
 // assumed: the dry run on 2026-10-16 returned exactly those.
 // Honour employment_shape.flag_not_veto, as scan.mjs does: the shape words
 // are lifted out of the title negatives so part-time / seasonal / per-diem
@@ -102,7 +102,7 @@ export function matchesLocation(loc) {
   return locAllow.some(k => lower.includes(k));
 }
 
-// ── Enumeration ─────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Enumeration ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 /** Durable dedup key: the numeric Phenom job id, not the mutable slug. */
 export function jobId(url) {
@@ -133,7 +133,7 @@ function readPage(n) {
       source: 'mta',
     }));
   // `totalLinks` is what separates "the board ended here" from "we were served
-  // a challenge shell". A challenge page still parses and still returns links —
+  // a challenge shell". A challenge page still parses and still returns links ΓÇö
   // just none job-shaped. Treating that as an exhausted board truncated
   // enumeration from 327 postings to 300 while still printing a clean summary.
   return { jobs, totalLinks: allLinks.length, ok: true };
@@ -163,20 +163,20 @@ function enumerate(log) {
         res = null;
       }
       if (res && (res.jobs.length > 0 || isExhausted(res))) break;
-      if (attempt < 3) { log(`  page ${p} attempt ${attempt} returned ${res ? res.totalLinks : '?'} links, 0 job-shaped — retrying`); sleep(3000); }
+      if (attempt < 3) { log(`  page ${p} attempt ${attempt} returned ${res ? res.totalLinks : '?'} links, 0 job-shaped ΓÇö retrying`); sleep(3000); }
     }
     if (!res) continue;
     let fresh = 0;
     for (const j of res.jobs) if (j.id && !found.has(j.id)) { found.set(j.id, j); fresh++; }
     log(`  page ${p}: ${res.jobs.length} job links (of ${res.totalLinks} total), ${fresh} new`);
     if (isExhausted(res)) { log(`  page ${p} is the end of the board`); break; }
-    if (!res.jobs.length) { log(`  page ${p} STILL yielded 0 job-shaped links after 3 attempts — stopping, enumeration may be truncated`); break; }
-    if (fresh === 0) { log(`  page ${p} contributed no new ids — stopping`); break; }
+    if (!res.jobs.length) { log(`  page ${p} STILL yielded 0 job-shaped links after 3 attempts ΓÇö stopping, enumeration may be truncated`); break; }
+    if (fresh === 0) { log(`  page ${p} contributed no new ids ΓÇö stopping`); break; }
   }
   return [...found.values()];
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Main ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 async function main() {
   const date = localToday();
@@ -219,7 +219,7 @@ async function main() {
   }
 
   printScanSummaryHeader('MTA Careers Scan (browser)', date);
-  console.log('─'.repeat(56));
+  console.log('ΓöÇ'.repeat(56));
   console.log(`Postings enumerated: ${all.length}`);
   console.log(`Freshness window:    ${useFreshness ? FRESHNESS_DAYS + ' days' : 'disabled (--all)'}`);
   console.log(`Filtered by title:   ${titleSkipped.length}`);
@@ -229,8 +229,8 @@ async function main() {
   console.log(`Deferred (over cap): ${deferred.length}`);
   console.log(`NEW OFFERS:          ${accepted.length}`);
   console.log('');
-  for (const j of accepted) console.log(`  • ${j.title}\n    ${j.url}`);
-  console.log('\n→ MTA roles are UNVERIFIED for civil-service eligibility — confirm with MTA HR.');
+  for (const j of accepted) console.log(`  ΓÇó ${j.title}\n    ${j.url}`);
+  console.log('\nΓåÆ MTA roles are UNVERIFIED for civil-service eligibility ΓÇö confirm with MTA HR.');
 }
 
 if (isMainModule(import.meta.url)) {

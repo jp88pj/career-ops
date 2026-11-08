@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 
 /**
- * scan-cityjobs.mjs — NYC City Jobs scanner (cityjobs.nyc.gov)
+ * scan-cityjobs.mjs ΓÇö NYC City Jobs scanner (cityjobs.nyc.gov)
  *
- * ── WHY THE SITEMAP, NOT /jobs?q= ────────────────────────────────────────────
+ * ΓöÇΓöÇ WHY THE SITEMAP, NOT /jobs?q= ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
  *
  * robots.txt for this site says:
  *
  *   User-agent: *
  *   Disallow: /jobs?*
  *
- * That is the filtered/paged search path — `?q=parks`, `?q=<anything>` — and it
+ * That is the filtered/paged search path ΓÇö `?q=parks`, `?q=<anything>` ΓÇö and it
  * is explicitly disallowed. The site serves it with HTTP 200 and no bot
  * challenge, so nothing mechanical stops a crawler; that is not permission.
  * robots.txt is the publisher's stated policy and this scanner honours it.
@@ -24,15 +24,15 @@
  * a <lastmod> timestamp. Individual /job/ pages are NOT covered by the
  * Disallow rule, so fetching one is fine. So the compliant shape is:
  *
- *   enumerate  → vacanciessitemap.xml   (one request, sanctioned, complete)
- *   filter     → the slug + <lastmod>   (zero extra requests)
- *   enrich     → /job/<slug>-jid-<N>    (only for listings that pass the filter)
+ *   enumerate  ΓåÆ vacanciessitemap.xml   (one request, sanctioned, complete)
+ *   filter     ΓåÆ the slug + <lastmod>   (zero extra requests)
+ *   enrich     ΓåÆ /job/<slug>-jid-<N>    (only for listings that pass the filter)
  *
  * The sitemap carries 1678 vacancies, of which ~740 changed in the last 7 days.
  * Filtering on the slug means a routine run touches a handful of detail pages,
  * not 1678.
  *
- * ── Usage ────────────────────────────────────────────────────────────────────
+ * ΓöÇΓöÇ Usage ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
  *
  *   node scan-cityjobs.mjs                 # scan, using portals.yml queries
  *   node scan-cityjobs.mjs --dry-run       # report only, write nothing
@@ -43,7 +43,7 @@
  *   node scan-cityjobs.mjs --limit 40      # cap detail requests per run
  *   node scan-cityjobs.mjs --all           # ignore the freshness window
  *
- * ── REQUEST BUDGET ───────────────────────────────────────────────────────────
+ * ΓöÇΓöÇ REQUEST BUDGET ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
  * A max-breadth title_filter admits ~500 of the 1133 vacancies in a 14-day
  * window, and enriching each one costs a page fetch. Five hundred requests per
  * scheduled run is not a scan, it is a crawl, so two brakes apply by default:
@@ -81,7 +81,7 @@ const SOURCE = 'cityjobs';
 
 const BOROUGHS = /-in-(?:nyc-)?(manhattan|brooklyn|queens|(?:the-)?bronx|staten-island|all-boros|queens-ny|brooklyn-ny)$/;
 
-// ── Args ────────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Args ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes('--dry-run');
@@ -117,7 +117,7 @@ const DETAIL_LIMIT = (() => {
   return Number(v);
 })();
 
-// ── Config ──────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Config ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 let config = {};
 if (existsSync(PORTALS_PATH)) config = yaml.load(readFileSync(PORTALS_PATH, 'utf-8')) || {};
@@ -216,7 +216,7 @@ const matchesTitle = buildTitleFilterBySource(
 // the one that silently dropped every borough-specific NYC posting.
 export const matchesLocation = buildLocationFilter(config.location_filter);
 
-// ── Parsing ─────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Parsing ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 /**
  * Extract vacancy entries from the sitemap.
@@ -241,7 +241,7 @@ export function parseSitemap(xml) {
  * Turn a URL slug into a readable title.
  *
  * The slug is the site's own restatement of the title ("senior-data-coordinator
- * in Manhattan" → "Senior Data Coordinator"), which is enough to run the title
+ * in Manhattan" ΓåÆ "Senior Data Coordinator"), which is enough to run the title
  * filter without spending a detail request. Fetching the page is reserved for
  * listings that pass, so a routine run reads a handful of pages rather than 1678.
  */
@@ -276,7 +276,7 @@ export function locationFromSlug(url) {
  *
  * JSON-LD is the structured half of the page and is present on every posting
  * checked, with a stable shape:
- *   jobBenefits     "$70,653.00 – $74,955.00"   <- the range, verbatim
+ *   jobBenefits     "$70,653.00 ΓÇô $74,955.00"   <- the range, verbatim
  *   employmentType  ["Full-time"]                <- note: an ARRAY
  *   title           canonical title
  *
@@ -336,7 +336,7 @@ function moneyRange(value) {
 
 /**
  * Pull a numeric range out of the comp string. Accepts the site's en-dash
- * ("$70,653.00 – $74,955.00"), a hyphen, or a single figure. Returns an object
+ * ("$70,653.00 ΓÇô $74,955.00"), a hyphen, or a single figure. Returns an object
  * rather than a display string so the comp gate can compare against a floor
  * numerically instead of re-parsing formatted text.
  */
@@ -345,7 +345,7 @@ function moneyRange(value) {
  *
  * Used only to reject a figure that is arithmetically impossible as an annual
  * salary, not to normalise one. Found 2026-10-06: jid-33840 "Supervisor
- * Dockbuilder" publishes `Salary range: $469.44` in its annual field — that is a
+ * Dockbuilder" publishes `Salary range: $469.44` in its annual field ΓÇö that is a
  * daily or per-shift rate. It happened to be excluded by the $60K comp floor
  * anyway, but by luck rather than by logic: a per-diem rate multiplied by
  * nothing is small, so the floor catches most of them, while a role publishing
@@ -421,7 +421,7 @@ export function parseDetail(html) {
 
   return {
     description: text,
-    salary: salary ? `${formatMoney(salary.min)}–${formatMoney(salary.max)}` : '',
+    salary: salary ? `${formatMoney(salary.min)}ΓÇô${formatMoney(salary.max)}` : '',
     salaryMin: salary ? Number(salary.min) : null,
     salaryMax: salary ? Number(salary.max) : null,
     salarySource: ld?.salary ? 'json-ld' : fromText ? 'page-text' : 'absent',
@@ -466,7 +466,7 @@ export function classifyEmploymentType(raw) {
  * (jid-42582) is Full-time. A title keyword cannot separate those; the body can.
  *
  * Returns one of 'full_time' | 'excluded' | null (not stated / not recognised).
- * null is deliberately not 'full_time' — an unreadable posting should surface to
+ * null is deliberately not 'full_time' ΓÇö an unreadable posting should surface to
  * a human rather than pass as a verified match.
  */
 export function employmentTypeOf(text) {
@@ -573,13 +573,13 @@ async function fetchText(url) {
   return res.text();
 }
 
-// ── Detail mode ─────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Detail mode ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 async function runDetail(jid) {
   const xml = await fetchText(SITEMAP_URL);
   const hit = parseSitemap(xml).find(v => v.jid === String(jid));
   if (!hit) {
-    console.log(`  jid-${jid} is not in the current sitemap — the vacancy may be closed or filled.`);
+    console.log(`  jid-${jid} is not in the current sitemap ΓÇö the vacancy may be closed or filled.`);
     return;
   }
   const d = parseDetail(await fetchText(hit.url));
@@ -591,7 +591,7 @@ async function runDetail(jid) {
   console.log(`  lastmod     : ${hit.lastmod || '(none)'}`);
 }
 
-// ── Main ────────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Main ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 async function main() {
   if (DETAIL_JID) return runDetail(DETAIL_JID);
@@ -604,7 +604,7 @@ async function main() {
   const xml = await fetchText(SITEMAP_URL);
   const all = parseSitemap(xml);
   if (!all.length) {
-    console.error('  ABORT: sitemap yielded 0 vacancies. Treating that as a parse failure, not an empty board — nothing written.');
+    console.error('  ABORT: sitemap yielded 0 vacancies. Treating that as a parse failure, not an empty board ΓÇö nothing written.');
     process.exit(1);
   }
   console.log(`  Vacancies in sitemap: ${all.length}`);
@@ -736,11 +736,11 @@ async function main() {
   if (deferred.length) {
     console.log(`\n${deferred.length} matching listing(s) were not enriched because --limit is ${DETAIL_LIMIT}.`);
     console.log('They were NOT marked seen, so the next run reaches them. Raise the cap with --limit.');
-    for (const d of deferred.slice(0, 5)) console.log(`  ⏸ ${d.title} | jid-${d.jid}`);
+    for (const d of deferred.slice(0, 5)) console.log(`  ΓÅ╕ ${d.title} | jid-${d.jid}`);
   }
   if (errors.length) {
-    console.log(`\nDetail fetch errors (${errors.length}) — listing kept without a body:`);
-    for (const e of errors.slice(0, 5)) console.log(`  ✗ ${e.url}: ${e.error}`);
+    console.log(`\nDetail fetch errors (${errors.length}) ΓÇö listing kept without a body:`);
+    for (const e of errors.slice(0, 5)) console.log(`  Γ£ù ${e.url}: ${e.error}`);
   }
 
   if (newOffers.length) {
@@ -748,20 +748,20 @@ async function main() {
     if (internalOnly.length) {
       console.log(`\nInternal-only (current-employee gate; the ERN belongs on the CV for these): ${internalOnly.length}`);
       for (const o of internalOnly.slice(0, 12)) {
-        console.log(`  🔒 ${o.title} | ${o.location || 'location n/a'} | jid-${/jid-(\d+)/.exec(o.url)?.[1] || '?'}`);
+        console.log(`  ≡ƒöÆ ${o.title} | ${o.location || 'location n/a'} | jid-${/jid-(\d+)/.exec(o.url)?.[1] || '?'}`);
       }
-      if (internalOnly.length > 12) console.log(`  … and ${internalOnly.length - 12} more`);
+      if (internalOnly.length > 12) console.log(`  ΓÇª and ${internalOnly.length - 12} more`);
     }
 
     console.log('\nNew offers:');
     for (const o of newOffers) {
-      const flag = o.eligibilityNote ? '  ⚠ eligibility-restricted' : '';
-      const lock = o.internalOnly === 'true' ? '  🔒 internal-only' : '';
+      const flag = o.eligibilityNote ? '  ΓÜá eligibility-restricted' : '';
+      const lock = o.internalOnly === 'true' ? '  ≡ƒöÆ internal-only' : '';
       console.log(`  + ${o.title} | ${o.location || 'location n/a'} | jid-${/jid-(\d+)/.exec(o.url)?.[1] || '?'}${flag}${lock}`);
     }
-    if (DRY_RUN) console.log('\n(dry run — nothing written)');
+    if (DRY_RUN) console.log('\n(dry run ΓÇö nothing written)');
   }
-  console.log('\n→ Run /career-ops pipeline to evaluate new offers.');
+  console.log('\nΓåÆ Run /career-ops pipeline to evaluate new offers.');
 }
 
 // Guarded like every sibling scanner (#3510): importing this module must not

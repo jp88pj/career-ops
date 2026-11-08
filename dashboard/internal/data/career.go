@@ -3,7 +3,6 @@ package data
 import (
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -18,6 +17,7 @@ import (
 )
 
 var (
+	reReportLink     = regexp.MustCompile(`\[(\d+)\]\(([^)]+)\)`)
 	reScoreValue     = regexp.MustCompile(`(\d+\.?\d*)/5`)
 	reSeparatorRow   = regexp.MustCompile(`^\|\s*:?-+:?(?:\s*\|\s*:?-+:?)*\s*\|?\s*$`)
 	reArchetype      = regexp.MustCompile(`(?i)\*\*(?:Arquetipo|Archetype)(?:\s+(?:detectado|detected))?\*\*\s*\|\s*(.+)`)
@@ -28,7 +28,6 @@ var (
 	reArchetypeColon = regexp.MustCompile(`(?i)\*\*(?:Arquetipo|Archetype):\*\*\s*(.+)`)
 	reArchetypeYAML  = regexp.MustCompile(`(?m)^archetype:\s*"?([^"\n]+)"?\s*$`)
 	reReportURL      = regexp.MustCompile(`(?m)^\*\*URL:\*\*\s*(https?://\S+)`)
-	reReportLabel    = regexp.MustCompile(`^\d+$`)
 	// Backslash escapes a markdown link destination may carry; mirrors the
 	// unescape in tracker-parse.mjs markdownLinkDestination().
 	reMarkdownDestEscape = regexp.MustCompile(`\\([\\()<> ])`)
@@ -66,7 +65,7 @@ const repoRootMarker = "path-resolver.mjs"
 //
 // Only fs.ErrNotExist is treated as "not here". Any other stat error means the
 // directory exists and could not be examined, and walking past it would anchor
-// the data root somewhere else entirely — so it is surfaced rather than
+// the data root somewhere else entirely ΓÇö so it is surfaced rather than
 // swallowed into a silent fallback.
 func ancestorWithMarker(start string) (string, error) {
 	dir := start
@@ -91,7 +90,7 @@ func ancestorWithMarker(start string) (string, error) {
 //
 // AGENTS.md and DATA_CONTRACT.md both say a relative CAREER_OPS_ROOT /
 // CAREER_OPS_TRACKER is "resolved relative to the repository root", and
-// path-resolver.mjs does that with no reference to cwd at all — it resolves
+// path-resolver.mjs does that with no reference to cwd at all ΓÇö it resolves
 // against its own __dirname.
 //
 // Two sources, in order of reliability:
@@ -151,7 +150,7 @@ func resolveTrackerPath(careerOpsPath string) string {
 	// Fall back ONLY when data/applications.md is genuinely absent. Any other
 	// stat failure means the canonical tracker IS there and could not be
 	// examined, and falling back then sends the reader to a legacy path that
-	// usually does not exist — so a permission error on the real tracker
+	// usually does not exist ΓÇö so a permission error on the real tracker
 	// surfaced as "could not find applications.md", the same mix-up this change
 	// removes one step later in ParseApplications.
 	if _, err := os.Stat(dataPath); err == nil {
@@ -163,25 +162,6 @@ func resolveTrackerPath(careerOpsPath string) string {
 		return dataPath
 	}
 	return filepath.Clean(filepath.Join(careerOpsPath, "applications.md"))
-}
-
-// reportHeaderBytes is how much of a report the URL enrichment scans.
-const reportHeaderBytes = 1000
-
-// readFileHead returns at most the first n bytes of the file at path. A file
-// shorter than n is returned whole.
-func readFileHead(path string, n int) ([]byte, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	buf := make([]byte, n)
-	read, err := io.ReadFull(f, buf)
-	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
-		return nil, err
-	}
-	return buf[:read], nil
 }
 
 // ParseApplications reads applications.md and returns parsed applications.
@@ -275,9 +255,9 @@ func ParseApplications(careerOpsPath string) ([]model.CareerApplication, error) 
 		// back to a careerOpsPath-relative path, which is what every
 		// consumer joins against. Legacy root-relative links are kept as a
 		// fallback when the resolved file does not exist.
-		if link, ok := firstNumberedLink(at("report")); ok {
-			app.ReportNumber = link.label
-			app.ReportPath = resolveReportPath(careerOpsPath, filePath, link.target)
+		if rm := reReportLink.FindStringSubmatch(at("report")); rm != nil {
+			app.ReportNumber = rm[1]
+			app.ReportPath = resolveReportPath(careerOpsPath, filePath, rm[2])
 		}
 
 		// Notes column, when present.
@@ -310,15 +290,15 @@ func ParseApplications(careerOpsPath string) ([]model.CareerApplication, error) 
 			continue
 		}
 		fullReport := filepath.Join(careerOpsPath, apps[i].ReportPath)
-		// Only the header (first 1000 bytes) is scanned, so only that much is
-		// read. This runs on every reload, including after each status change,
-		// and reading whole reports to keep 1000 bytes of each scaled with the
-		// size of every report behind a URL-less row.
-		headerBytes, err := readFileHead(fullReport, reportHeaderBytes)
+		reportContent, err := os.ReadFile(fullReport)
 		if err != nil {
 			continue
 		}
-		header := string(headerBytes)
+		header := string(reportContent)
+		// Only scan the header (first 1000 bytes) for speed
+		if len(header) > 1000 {
+			header = header[:1000]
+		}
 
 		// Strategy 1: **URL:** in report
 		if m := reReportURL.FindStringSubmatch(header); m != nil {
@@ -663,7 +643,10 @@ func ComputeMetrics(apps []model.CareerApplication) model.PipelineMetrics {
 		if app.HasPDF {
 			m.WithPDF++
 		}
-		if status != "skip" && status != "rejected" && status != "discarded" {
+		// Terminal states are not actionable. "lapsed" belongs here: it is
+	// terminal in states.yml, and omitting it counted every dead
+	// application as still in play.
+	if status != "skip" && status != "rejected" && status != "lapsed" && status != "discarded" {
 			m.Actionable++
 		}
 	}
@@ -690,27 +673,34 @@ func NormalizeStatus(raw string) string {
 	}
 
 	switch {
-	// Most restrictive first — accepts English, Spanish, and Turkish
-	case s == "hired" || s == "contratado" || s == "contratada" || s == "accepted" || s == "accept" || s == "kabul edildi" || s == "kabul_edildi" || s == "işe alındı" || s == "ise alindi" || s == "işe alindi":
+	// Most restrictive first ΓÇö accepts English, Spanish, and Turkish
+	case s == "hired" || s == "contratado" || s == "contratada" || s == "accepted" || s == "accept" || s == "kabul edildi" || s == "kabul_edildi" || s == "i┼ƒe al─▒nd─▒" || s == "ise alindi" || s == "i┼ƒe alindi":
 		return "hired"
-	case strings.Contains(s, "no aplicar") || strings.Contains(s, "no_aplicar") || s == "skip" || s == "monitor" || strings.Contains(s, "geo blocker") || strings.Contains(s, "geo_blocker") || strings.Contains(s, "uygun değil") || strings.Contains(s, "uygun_değil") || strings.Contains(s, "uygun degil") || strings.Contains(s, "uygun_degil"):
+	case strings.Contains(s, "no aplicar") || strings.Contains(s, "no_aplicar") || s == "skip" || s == "monitor" || strings.Contains(s, "geo blocker") || strings.Contains(s, "geo_blocker") || strings.Contains(s, "uygun de─ƒil") || strings.Contains(s, "uygun_de─ƒil") || strings.Contains(s, "uygun degil") || strings.Contains(s, "uygun_degil"):
 		return "skip"
-	case strings.Contains(s, "interview") || strings.Contains(s, "entrevista") || strings.Contains(s, "mülakat") || strings.Contains(s, "mulakat"):
+	case strings.Contains(s, "interview") || strings.Contains(s, "entrevista") || strings.Contains(s, "m├╝lakat") || strings.Contains(s, "mulakat"):
 		return "interview"
 	case s == "assessment" || s == "screening" || s == "online assessment" || s == "online_assessment" || s == "online screening":
 		return "assessment"
 	case s == "offer" || strings.Contains(s, "oferta") || strings.Contains(s, "teklif"):
 		return "offer"
-	case strings.Contains(s, "responded") || strings.Contains(s, "respondido") || strings.Contains(s, "yanıt verildi") || strings.Contains(s, "yanıt_verildi") || strings.Contains(s, "yanit verildi") || strings.Contains(s, "yanit_verildi"):
+	case strings.Contains(s, "responded") || strings.Contains(s, "respondido") || strings.Contains(s, "yan─▒t verildi") || strings.Contains(s, "yan─▒t_verildi") || strings.Contains(s, "yanit verildi") || strings.Contains(s, "yanit_verildi"):
 		return "responded"
-	case strings.Contains(s, "applied") || strings.Contains(s, "aplicado") || s == "enviada" || s == "aplicada" || s == "sent" || strings.Contains(s, "başvuruldu") || strings.Contains(s, "basvuruldu"):
+	case strings.Contains(s, "applied") || strings.Contains(s, "aplicado") || s == "enviada" || s == "aplicada" || s == "sent" || strings.Contains(s, "ba┼ƒvuruldu") || strings.Contains(s, "basvuruldu"):
 		return "applied"
 	case strings.Contains(s, "rejected") || strings.Contains(s, "rechazado") || s == "rechazada" || strings.Contains(s, "reddedildi"):
 		return "rejected"
+	// Lapsed: the application window elapsed with no employer response and no
+	// follow-up sent. Aliases mirror templates/states.yml -- keep in sync.
+	// Deliberately does NOT claim "cerrada"/"cancelada": states.yml assigns
+	// those to Discarded, and two states cannot both normalize them.
+	case s == "lapsed" || s == "caducado" || s == "caducada" || s == "expired" ||
+		s == "unanswered" || s == "silente" || s == "sessiz" || s == "zaman asimina ugradi":
+		return "lapsed"
 	case strings.Contains(s, "discarded") || strings.Contains(s, "descartado") || s == "descartada" || s == "cerrada" || s == "cancelada" ||
-		strings.HasPrefix(s, "duplicado") || strings.HasPrefix(s, "dup") || strings.Contains(s, "iptal edildi") || strings.Contains(s, "iptal_edildi") || strings.Contains(s, "ıptal edildi") || strings.Contains(s, "ıptal_edildi"):
+		strings.HasPrefix(s, "duplicado") || strings.HasPrefix(s, "dup") || strings.Contains(s, "iptal edildi") || strings.Contains(s, "iptal_edildi") || strings.Contains(s, "─▒ptal edildi") || strings.Contains(s, "─▒ptal_edildi"):
 		return "discarded"
-	case strings.Contains(s, "evaluated") || strings.Contains(s, "evaluada") || s == "condicional" || s == "hold" || s == "evaluar" || s == "verificar" || strings.Contains(s, "değerlendirildi") || strings.Contains(s, "degerlendirildi"):
+	case strings.Contains(s, "evaluated") || strings.Contains(s, "evaluada") || s == "condicional" || s == "hold" || s == "evaluar" || s == "verificar" || strings.Contains(s, "de─ƒerlendirildi") || strings.Contains(s, "degerlendirildi"):
 		return "evaluated"
 	default:
 		return s
@@ -761,15 +751,10 @@ func LoadReportSummary(careerOpsPath, reportPath string) (archetype, tldr, remot
 // the same delimiter logic as ParseApplications: a mixed "| " + tab-separated
 // body, or a pure pipe-delimited row. Field 0 is the first real column (num), so
 // the returned indices match the legacy layout (Status is field 5).
-//
-// A line is tab-delimited only when it holds a tab and at most two pipes, as in
-// tracker-parse.mjs trackerRowSeparator. In a pipe table a tab is note text that
-// set-status.mjs --note keeps verbatim, not a column delimiter.
-// test-fixtures/tracker-row-split-parity.json pins both readers to one table.
 func splitTrackerRow(line string) []string {
 	line = strings.TrimSpace(line)
 	var fields []string
-	if strings.Contains(line, "\t") && strings.Count(line, "|") <= 2 {
+	if strings.Contains(line, "\t") {
 		// Mixed format: starts with "| " then tab-separated.
 		line = strings.TrimPrefix(line, "|")
 		line = strings.TrimSpace(line)
@@ -788,19 +773,19 @@ func splitTrackerRow(line string) []string {
 
 // extractCellURL returns the posting URL a tracker URL cell points at, in
 // either written form: the href of the first http(s) markdown link, or the cell
-// verbatim when it holds none (a bare URL on an older tracker, or a "—"/"N/A"
+// verbatim when it holds none (a bare URL on an older tracker, or a "ΓÇö"/"N/A"
 // placeholder the callers already treat as absent).
 //
 // This is a PORT of extractCellUrl / parseMarkdownLinks / markdownLinkDestination
 // in tracker-parse.mjs, not an approximation of it. It used to be two regexes,
 // and they disagreed with Node at the edges: a hand-edited cell holding two
 // adjacent links read as one malformed URL spanning both. The JobURL tier and
-// merge-tracker's dedup key must agree on a row's URL, so the boundary rules —
+// merge-tracker's dedup key must agree on a row's URL, so the boundary rules ΓÇö
 // first link wins, balanced parentheses kept, `[`/`]` allowed in the
-// destination, the same escapes undone — are the same code, not a lookalike.
+// destination, the same escapes undone ΓÇö are the same code, not a lookalike.
 //
 // This reader is tier 0 of the JobURL enrichment chain since #3452, and a
-// markdown-wrapped cell it could not read would not error — it would look like
+// markdown-wrapped cell it could not read would not error ΓÇö it would look like
 // a row with no URL and silently fall through to the report/scan-history tiers,
 // which resolve a DIFFERENT posting often enough to matter.
 func extractCellURL(cellValue string) string {
@@ -821,19 +806,6 @@ func extractCellURL(cellValue string) string {
 type markdownLink struct {
 	label  string
 	target string
-}
-
-// firstNumberedLink returns the first link in a Report cell whose label is a
-// report number (`[61](../reports/061-….md)`). It walks parseMarkdownLinks so
-// a target with parentheses, such as `001-acme-(berlin)-….md`, survives whole
-// (career-ops-hq/career-ops#5482).
-func firstNumberedLink(cell string) (markdownLink, bool) {
-	for _, link := range parseMarkdownLinks(cell) {
-		if reReportLabel.MatchString(link.label) {
-			return link, true
-		}
-	}
-	return markdownLink{}, false
 }
 
 // parseMarkdownLinks returns every markdown link in value, in order. Mirrors
@@ -953,7 +925,7 @@ var trackerHeaderAliases = map[string]string{
 }
 
 // legacyTrackerColumns is the original fixed layout in splitTrackerRow field
-// space (num=0 … notes=8), used when no recognizable header row is present.
+// space (num=0 ΓÇª notes=8), used when no recognizable header row is present.
 var legacyTrackerColumns = map[string]int{
 	"num": 0, "date": 1, "company": 2, "role": 3, "score": 4,
 	"status": 5, "pdf": 6, "report": 7, "notes": 8,
@@ -975,7 +947,7 @@ func detectTrackerColumns(lines []string) map[string]int {
 			if name, ok := trackerHeaderAliases[strings.ToLower(c)]; ok {
 				// Unconditional assign: with a duplicated header name the LAST
 				// occurrence wins, matching detectColumns in tracker-parse.mjs
-				// (which this function mirrors) — first-wins here made the two
+				// (which this function mirrors) ΓÇö first-wins here made the two
 				// runtimes map the same header row differently.
 				m[name] = i
 			}
@@ -1027,7 +999,7 @@ func UpdateApplicationStatusAndNotes(careerOpsPath string, app model.CareerAppli
 // Reject malformed UI input cheaply; the writer validates against states.yml.
 func isCanonicalStatusName(status string) bool {
 	switch strings.ToLower(status) {
-	case "evaluated", "applied", "responded", "assessment", "interview", "offer", "hired", "rejected", "discarded", "skip":
+	case "evaluated", "applied", "responded", "assessment", "interview", "offer", "hired", "rejected", "lapsed", "discarded", "skip":
 		return true
 	}
 	return false
@@ -1059,10 +1031,12 @@ func StatusPriority(status string) int {
 		return 6
 	case "rejected":
 		return 7
-	case "discarded":
+	case "lapsed":
 		return 8
-	default:
+	case "discarded":
 		return 9
+	default:
+		return 10
 	}
 }
 
@@ -1101,11 +1075,16 @@ func ComputeProgressMetrics(apps []model.CareerApplication, history ...map[int]i
 	// An app in "interview" has passed through evaluated -> applied -> responded -> assessment -> interview.
 	// "hired" is terminal success and proves every earlier stage (a landed job
 	// proves the offer, the interviews, the response, and the submission), so it
-	// counts into all four existing funnel tiers — matching computeFunnel() in stats.mjs, the
+	// counts into all four existing funnel tiers ΓÇö matching computeFunnel() in stats.mjs, the
 	// canonical funnel definition, whose docstring already describes this exact
 	// math as mirroring this function.
 	total := len(apps)
-	applied := statusCounts["applied"] + statusCounts["responded"] + statusCounts["assessment"] + statusCounts["interview"] + statusCounts["offer"] + statusCounts["hired"] + statusCounts["rejected"]
+	// "lapsed" counts into `applied` ONLY, never `responded`: an application
+	// was certainly sent for it, so it belongs in the denominator, but the
+	// state is defined by the absence of any employer reply, so it can never
+	// inflate the numerator. Omitting it would shrink the denominator by
+	// exactly the rows that went quiet and raise the reported response rate.
+	applied := statusCounts["applied"] + statusCounts["responded"] + statusCounts["assessment"] + statusCounts["interview"] + statusCounts["offer"] + statusCounts["hired"] + statusCounts["rejected"] + statusCounts["lapsed"]
 	responded := statusCounts["responded"] + statusCounts["assessment"] + statusCounts["interview"] + statusCounts["offer"] + statusCounts["hired"] + statusCounts["rejected"]
 	assessment := statusCounts["assessment"] + statusCounts["interview"] + statusCounts["offer"] + statusCounts["hired"]
 	interview := statusCounts["interview"] + statusCounts["offer"] + statusCounts["hired"]
@@ -1156,7 +1135,7 @@ func ComputeProgressMetrics(apps []model.CareerApplication, history ...map[int]i
 	pm.TotalOffers = offer
 
 	// Top stage counts every tracked row, including rows backfilled without a
-	// score (#1799) — hence "Tracked", not "Evaluated", which already means both
+	// score (#1799) ΓÇö hence "Tracked", not "Evaluated", which already means both
 	// a status value and the Stats screen's scored count.
 	pm.FunnelStages = []model.FunnelStage{
 		{Label: "Tracked", Count: total, Pct: 100.0},
@@ -1168,7 +1147,7 @@ func ComputeProgressMetrics(apps []model.CareerApplication, history ...map[int]i
 	}
 
 	// Rates (relative to applied). The denominator travels with them so the
-	// renderer can tell an absent rate from a measured 0% — see
+	// renderer can tell an absent rate from a measured 0% ΓÇö see
 	// model.ProgressMetrics.RatesDenominator.
 	pm.RatesDenominator = applied
 	if applied > 0 {

@@ -1,12 +1,39 @@
-# Mode: pdf — ATS-Optimized PDF Generation
+# Mode: pdf ΓÇö ATS-Optimized PDF Generation
 
 Optional passes:
-- **`--hm-audit`:** `/career-ops pdf --hm-audit` adds the hiring-manager audit at Step 20 — an adversarial read of the tailored CV by a separate, research-grounded reviewer before it becomes a PDF (`modes/pdf/hm-audit.md`). Off by default: it costs a subagent dispatch plus web research. Turn it on per run with the flag, or for every run in your own `modes/_custom.md`.
-- **`--ats`:** `/career-ops pdf --ats` adds Step 21a — a second, ATS-parseable render of the same tailored CV, for the application form you paste into while the styled PDF is the one you attach. Off by default: only candidates applying through ATS text forms need it, and everyone else would pay a second render for nothing. Turn it on per run with the flag, or for every run in your own `modes/_custom.md`.
+- **`--hm-audit`:** `/career-ops pdf --hm-audit` adds the hiring-manager audit at Step 20 ΓÇö an adversarial read of the tailored CV by a separate, research-grounded reviewer before it becomes a PDF (`modes/pdf/hm-audit.md`). Off by default: it costs a subagent dispatch plus web research. Turn it on per run with the flag, or for every run in your own `modes/_custom.md`.
+- **`--ats`:** `/career-ops pdf --ats` adds Step 21a ΓÇö a second, ATS-parseable render of the same tailored CV, for the application form you paste into while the styled PDF is the one you attach. Off by default: only candidates applying through ATS text forms need it, and everyone else would pay a second render for nothing. Turn it on per run with the flag, or for every run in your own `modes/_custom.md`.
 
 ## Full pipeline
 
-**Locked Sections:** If `cv.locked_sections` is defined in `profile.yml`, NEVER remove, shorten, or paraphrase those sections during CV generation or tailoring. They must appear verbatim.
+## The ERN is application-scoped, not a CV line
+
+`cv.md` carries the candidate's NYC Parks employee number, `2033687`, in its
+header. It is a hard scope rule (revised 2026-10-20): the ERN goes on a **City
+of New York posting** and nowhere else. The City's own SmartRecruiters tenant
+and `cityjobs.nyc.gov` are the same employer, and the user's ruling is *"ERN
+always for city jobs, all upside no downside"* - it evidences current City
+employment on an External posting too, where no internal-candidate gate
+exists, and on a City application a municipal employee ID reads as an asset
+rather than noise. Off-platform it is noise: **never** on private-sector,
+charter-school, EdTech, or any other application.
+
+**The test is the BOARD, not the employer's name.** "City University of New
+York" is CUNY, a not-for-profit on its own Workday tenant - not the City. The
+MTA is a New York State authority - not the City. Neither carries the ERN.
+
+- City of New York posting -> keep the ERN line, and render with
+  `--ern-scope=cityjobs`.
+- Any other posting -> the ERN line must not be in the document at all, and the
+  default `--ern-scope=other` is correct. If the render fails with *"ERN 2033687
+  appears ... but this CV is not for a cityjobs.nyc.gov posting"*, the guard is
+  working: remove the ERN from the document and render again. Do NOT pass
+  `--ern-scope=cityjobs` to get past it - that is the leak the guard exists to
+  stop, and the ERN proves CURRENT CITY EMPLOYMENT, which is a different
+  question from what a posting's own gate asks.
+
+`generate-pdf.mjs` reads the rendered PDF, not the HTML, so the scope is
+checked where it matters: the employer receives the PDF.
 
 ## Application-scoped artifacts
 
@@ -16,88 +43,95 @@ Run `npm run jd:similarity -- {bundle-root}/jd/current.md {bundle-root}/jd/previ
 
 1. Read `cv.md` as the source of truth
 2. Ask the user for the JD if it is not in context (text or URL)
-   For a new posting (no tracker row yet), run `node precheck-duplicate.mjs --company "$COMPANY" --title "$TITLE" [--url "$URL"] [--req "$REQ"]` once first (read-only, advisory; pass `--url` when the JD came as a URL and `--req` when the posting shows a requisition ID; set each variable from the posting with single quotes or pass an argument array, never paste posting text into the command string) and surface any hit before drafting.
 3. Extract 15-20 keywords from the JD
-4. Run the zero-LLM skill-gap check before drafting anything: **always** write the JD to `jds/{slug}.md` first — required, not conditional, even when a report for this application already exists — then `node jd-skill-gap.mjs jds/{slug}.md --summary`. This classifies the JD's explicit requirements against `cv.md` into three buckets — never surface `result.gap` items as if the candidate has them:
-   - **JD archival (required, #2789):** this write doubles as the JD archive for this application. A `**URL:**` header alone is a live pointer, not an archive — it rots once the posting closes. When this run is part of a full `oferta` evaluation, the report's own `## Job Description (archived verbatim)` section is the primary archive and this `jds/{slug}.md` write is a secondary copy; when `pdf` is run standalone (no report), this file IS the archive, so prefer naming/keying it to the report with `archive-posting.mjs --report={num}` when a report number exists. `check-jd-archive.mjs` validates every report has one form or the other. Never paraphrase the posting under the verbatim heading: if you cannot quote it in full, use `archive-posting.mjs <url>` for a standalone run, or `archive-posting.mjs <url> --company={company-slug} --report={num}` when a report number exists (the slug from the report filename), and use the resulting archive reference instead. If a posting date is visible anywhere in the source — URL-scraped page text, pasted JD text, or a screenshot being transcribed — include it as the first line of the file: `Posted: {date or relative string as shown}`, or `Posted: not visible in source` when absent. Never substitute the report file's own filesystem mtime/creation time for this — it records when the candidate processed the JD, not when the employer posted it.
-   - `existing` — already a named skill in cv.md's Skills section, safe to lead with
-   - `supportedByResume` — not a named skill yet, but cv.md's prose already demonstrates it; legitimate candidates for the Skills section in the user's own words (Step 13's competency grid draws from here first)
-   - `gap` — cv.md has no trace of it at all. **Tell the user explicitly which skills are gaps before generating the CV.** Never paper over a gap by inventing a claim, and never silently drop it from the conversation — the user decides whether to proceed, address it in the cover letter/interview, or skip the role
+4. Run the zero-LLM skill-gap check before drafting anything: **always** write the JD to `jds/{slug}.md` first ΓÇö required, not conditional, even when a report for this application already exists ΓÇö then `node jd-skill-gap.mjs jds/{slug}.md --summary`. This classifies the JD's explicit requirements against `cv.md` into three buckets ΓÇö never surface `result.gap` items as if the candidate has them:
+   - **JD archival (required, #2789):** this write doubles as the JD archive for this application. A `**URL:**` header alone is a live pointer, not an archive ΓÇö it rots once the posting closes. When this run is part of a full `oferta` evaluation, the report's own `## Job Description (archived verbatim)` section is the primary archive and this `jds/{slug}.md` write is a secondary copy; when `pdf` is run standalone (no report), this file IS the archive, so prefer naming/keying it to the report with `archive-posting.mjs --report={num}` when a report number exists. `check-jd-archive.mjs` validates every report has one form or the other. If a posting date is visible anywhere in the source ΓÇö URL-scraped page text, pasted JD text, or a screenshot being transcribed ΓÇö include it as the first line of the file: `Posted: {date or relative string as shown}`, or `Posted: not visible in source` when absent. Never substitute the report file's own filesystem mtime/creation time for this ΓÇö it records when the candidate processed the JD, not when the employer posted it.
+   - `existing` ΓÇö already a named skill in cv.md's Skills section, safe to lead with
+   - `supportedByResume` ΓÇö not a named skill yet, but cv.md's prose already demonstrates it; legitimate candidates for the Skills section in the user's own words (Step 13's competency grid draws from here first)
+   - `gap` ΓÇö cv.md has no trace of it at all. **Tell the user explicitly which skills are gaps before generating the CV.** Never paper over a gap by inventing a claim, and never silently drop it from the conversation ΓÇö the user decides whether to proceed, address it in the cover letter/interview, or skip the role
 
-   If the output prints a `🚨 LOW CONFIDENCE` block, zero skills were classified, so the three empty buckets mean "nothing was classified", not "no gaps found". **Never treat this as a pass, whichever reason is given.** Read the JD yourself to identify the required skills before drafting, and tell the user the automated check produced no result. The reason code says which of the three shapes it is:
-   - `no-requirements-section` — no requirements section was recognized, so no text was scanned at all
-   - `no-skill-candidates` — a requirements section was scanned, but no skill candidates came out of it. This does not mean the skills are absent from the vocabulary; the extractor only picks up capitalized tokens, so a lowercase bullet yields nothing
-   - `empty-jd` — the JD file has no content, so there was nothing to read. Check the file was written correctly before continuing
+   If the output prints a `≡ƒÜ¿ LOW CONFIDENCE` block, zero skills were classified, so the three empty buckets mean "nothing was classified", not "no gaps found". **Never treat this as a pass, whichever reason is given.** Read the JD yourself to identify the required skills before drafting, and tell the user the automated check produced no result. The reason code says which of the three shapes it is:
+   - `no-requirements-section` ΓÇö no requirements section was recognized, so no text was scanned at all
+   - `no-skill-candidates` ΓÇö a requirements section was scanned, but no skill candidates came out of it. This does not mean the skills are absent from the vocabulary; the extractor only picks up capitalized tokens, so a lowercase bullet yields nothing
+   - `empty-jd` ΓÇö the JD file has no content, so there was nothing to read. Check the file was written correctly before continuing
 
-   > ⚠️ **Skill-gap check inconclusive:** [Render in {language.output}: state that the automated skill-gap check returned no classified skills for this JD and so cannot be read as "no gaps"; name which of the three shapes occurred from the reason code (requirements section never found, or found but no candidates extracted, or the JD file was empty); for an empty file, say the JD may not have been saved correctly and should be checked; otherwise say that you will read the JD directly to identify required skills before drafting. Keep the CLI's own English diagnostic out of the user-facing message.]
+   > ΓÜá∩╕Å **Skill-gap check inconclusive:** [Render in {language.output}: state that the automated skill-gap check returned no classified skills for this JD and so cannot be read as "no gaps"; name which of the three shapes occurred from the reason code (requirements section never found, or found but no candidates extracted, or the JD file was empty); for an empty file, say the JD may not have been saved correctly and should be checked; otherwise say that you will read the JD directly to identify required skills before drafting. Keep the CLI's own English diagnostic out of the user-facing message.]
 5. Use `language.output` for the CV language. The JD language and `language.modes_dir` supply market vocabulary and evaluation context, but never override the configured output language.
-6. Detect company location → paper format. Skip this when `config/profile.yml` sets `page_format` to `letter` or `a4`, in any casing and with any surrounding spaces; that is the user's standing answer and it already reaches every renderer. Any other value there, except `auto` (below), is ignored, so keep detecting.
-   - US/Canada → `letter`
-   - Rest of the world → `a4`
-   - When `page_format` is `auto`, do not pick a sheet yourself. Read the hiring entity's country from the evaluation's market signals (jurisdiction, currency, benefits and legal vocabulary; for a remote role, the entity that receives the document) and set the payload's `country` to its ISO 3166-1 alpha-2 code, e.g. `"DE"`. Pass the SAME code to `generate-pdf.mjs --country=DE` (or the batch entry's `country`) and leave `--format` off, because an explicit `--format` outranks `auto`. That keeps the body and the sheet matched. The renderers map it: Letter for the countries Unicode CLDR lists with US Letter as the primary size (`LETTER_COUNTRIES` in `lib/page-format.mjs`), A4 for every other. If you cannot tell the country, leave `country` out and the project default applies.
-7. Detect role archetype → adapt framing
+6. Detect company location ΓåÆ paper format. Skip this when `config/profile.yml` sets `page_format` to `letter` or `a4`, in any casing and with any surrounding spaces; that is the user's standing answer and it already reaches every renderer. Any other value there is ignored, so keep detecting.
+   - US/Canada ΓåÆ `letter`
+   - Rest of the world ΓåÆ `a4`
+7. Detect role archetype ΓåÆ adapt framing
 8. Before tailoring, optionally compare the new JD with the latest tailored CV or JD. Resolve the application/report first with `node find.mjs {report-or-tracker-number}`. Use the resolved report/JD snapshot as `{new-jd.txt}` and the referenced prior CV or prior JD as `{previous-jd-or-cv.txt}`; if either source cannot be located, do not silently reuse a CV. Run `npm run jd:similarity -- {new-jd.txt} {previous-jd-or-cv.txt}` and display the `decision` and `score`. Reuse is allowed only when the recommendation is `reuse` or the user explicitly overrides it; `reuse-with-edits` still requires the listed edits, and `regenerate` requires the normal tailoring flow.
 9. Build an internal recruiter-side risk map from the JD using `modes/heuristics/recruiter-side.md`: likely doubts, matching evidence, and which document section should address each doubt
 10. Rewrite Professional Summary by injecting JD keywords + exit narrative bridge ("Built and sold a business. Now applying systems thinking to [JD domain].")
-11. Select top 3-4 most relevant projects for the job. If `cv.md` carries an Awards / Honors section, populate `awards[]` with the entries that support this role — for an early-career candidate a contest medal or dean's list often outranks a thin project. Omit the key when there is nothing to list and the section disappears entirely; never invent an award to fill it
+11. Select top 3-4 most relevant projects for the job. If `cv.md` carries an Awards / Honors section, populate `awards[]` with the entries that support this role ΓÇö for an early-career candidate a contest medal or dean's list often outranks a thin project. Omit the key when there is nothing to list and the section disappears entirely; never invent an award to fill it
 12. Reorder experience bullets by JD relevance and by the risk map: strongest matching evidence first
-13. Build competency grid from JD requirements (6-8 keyword phrases), prioritizing `existing` and `supportedByResume` skills from Step 4 — never a `gap` skill
+    12a. **ONE COMPLETE CLAIM PER BULLET ΓÇö the master's line is the unit.** `cv.md` holds two layers under each role: the **CV TEXT** (top-level `- ` bullets, the user's own clean phrasing) and the **provenance annotations** indented beneath them (where the detail lives). Read both; write the bullet in the CV's voice.
+        - **A bullet is a COMPLETE CLAIM** ΓÇö a subject and a verb saying what was done, in the master's voice, roughly 60-130 characters.
+        - **Prefer the master's own line VERBATIM.** If the master's line carries two or three duties, use it WHOLE. Several master lines are compound and still read crisply (*"Oversaw health and safety protocols, administered camper and counselor progress reports, and coordinated group mealtime protocols"*), so a compound line is not a defect.
+        - **Never WELD two master lines together.** *"Educate members of the public on parks and playgrounds rules and regulations, and enforce those rules and regulations with respect and integrity"* is the failure the user rejected: two of his own lines fused into one sentence.
+        - **Never SPLIT a master line into fragments.** Splitting is what produces a **stump** ΓÇö *"Oversaw health and safety protocols"*, *"Ensured testing integrity"*, *"Authored the full instructional package"* ΓÇö a bullet that answers "what?" with nothing. **A bullet under ~50 characters is a fragment and a failure**, unless the master's own line is that short. If a half of a line cannot stand as a full claim, the line stays whole.
+        - **No trailing clause bolted onto a complete claim.** If the clause is a second duty it does not go on the end; if it is part of the same claim it stays in the master's own words.
+        - **One `source_anchor` per bullet.** A bullet needing two anchors is a bullet with two facts: split it or cut one. (The gate permits up to 6 anchors; the STYLE does not. The gate is a floor, not a licence.)
+        - Measured 2026-10-20: the user's words on reading the first tailored batch were that the master's bullets are "much cleaner than these" ΓÇö the cause was welding. A later pass over-corrected into splitting, and he rejected that too: *"it still has clunky bullets... the master CV bullets are very clean and crisp."* **The master's lines are the model: use them whole, do not weld them, do not chop them.** `verify-cv-facts` checks claims and `verify-bullet-sources` checks traceability; **neither checks shape**, so only a reader catches this ΓÇö which is why the user did, twice.
+13. Build competency grid from JD requirements (6-8 keyword phrases), prioritizing `existing` and `supportedByResume` skills from Step 4 ΓÇö never a `gap` skill
 14. Inject keywords naturally into existing achievements (NEVER invent)
 15. Apply the six-second clarity gate from `modes/heuristics/recruiter-side.md`: top third must make target role, strongest fit, and proof obvious
-16. Read `name` from `config/profile.yml` → normalize to kebab-case lowercase (e.g. "John Doe" → "john-doe") → `{candidate}`
-17. Build the render payload (see the **JSON Input Schema** below) from the tailored content — emit compact structured JSON, **not** full HTML markup — and write it to `/tmp/cv-{candidate}-{company}.json` — if a report number is already assigned for this run (auto-pipeline, batch, or any parallel fan-out per AGENTS.md "Parallel fan-outs"), include it: `/tmp/cv-{candidate}-{report}-{company}.json`. Two parallel agents handling the same company on the same day (two reqs at one employer) otherwise write the *same* temp path and can silently read each other's JSON. Wherever a later step names `/tmp/cv-{candidate}-{company}.json` (or its `-ats` variant), use this same path, including the `-{report}` segment when present.
-17a. Run the zero-LLM title-consistency check before rendering anything: `node cv-title-check.mjs /tmp/cv-{candidate}[-{report}]-{company}.json --summary`. This pairs each `experience[]` entry in the payload against `cv.md`'s own entry for the same `{company, dates}` and flags any `role` that no longer matches cv.md's canonical title string exactly (case/whitespace normalized only — never a fuzzy or "close enough" match). This is narrower than Step 4's skill-gap check and does not replace it: reordering bullets, reframing the summary, and injecting JD keywords into achievements are legitimate reformulation; a job **title** silently drifting to a more senior-sounding one for the exact same job is not, and is the one thing this check exists to catch.
-    - `⚠️` output means at least one title mismatch was found. For each one, surface it before continuing:
+16. Read `name` from `config/profile.yml` ΓåÆ normalize to kebab-case lowercase (e.g. "John Doe" ΓåÆ "john-doe") ΓåÆ `{candidate}`
+17. Build the render payload (see the **JSON Input Schema** below) from the tailored content ΓÇö emit compact structured JSON, **not** full HTML markup ΓÇö and write it to `/tmp/cv-{candidate}-{company}.json`
+17a. Run the zero-LLM title-consistency check before rendering anything: `node cv-title-check.mjs /tmp/cv-{candidate}-{company}.json --summary`. This pairs each `experience[]` entry in the payload against `cv.md`'s own entry for the same `{company, dates}` and flags any `role` that no longer matches cv.md's canonical title string exactly (case/whitespace normalized only ΓÇö never a fuzzy or "close enough" match). This is narrower than Step 4's skill-gap check and does not replace it: reordering bullets, reframing the summary, and injecting JD keywords into achievements are legitimate reformulation; a job **title** silently drifting to a more senior-sounding one for the exact same job is not, and is the one thing this check exists to catch.
+    - `ΓÜá∩╕Å` output means at least one title mismatch was found. For each one, surface it before continuing:
 
-      > ⚠️ **Title mismatch:** [Render in {language.output}: state that the tailored CV's stated title for "{company} ({dates})" differs from cv.md's canonical title for that same job; quote both title strings verbatim as literal data — never translate or paraphrase them — as cv.md's title "{cvTitle}" and the tailored CV's title "{tailoredTitle}"; then ask whether this is intentional framing to keep or unintended drift to revert to cv.md's title. Never silently pick one side.]
+      > ΓÜá∩╕Å **Title mismatch:** [Render in {language.output}: state that the tailored CV's stated title for "{company} ({dates})" differs from cv.md's canonical title for that same job; quote both title strings verbatim as literal data ΓÇö never translate or paraphrase them ΓÇö as cv.md's title "{cvTitle}" and the tailored CV's title "{tailoredTitle}"; then ask whether this is intentional framing to keep or unintended drift to revert to cv.md's title. Never silently pick one side.]
 
-      A key the CLI reports as ambiguous (more than one cv.md or tailored-CV entry sharing the same `{company, dates}`) is not a clean mismatch and must not be presented as one — surface it the same way but say plainly that multiple titles exist on one or both sides for "{company} ({dates})" and the automated check could not tell which pair to compare, so the user should resolve it by checking `cv.md` and the payload directly.
-    - `✅` output means every matched entry's title is unchanged — continue without comment.
-    - `⚠️ ... title check did not run` means nothing was compared: either `cv.md`'s Experience section could not be parsed, or no payload entry paired with a cv.md entry by `{company, dates}`. This is not a pass. Surface it before continuing:
+      A key the CLI reports as ambiguous (more than one cv.md or tailored-CV entry sharing the same `{company, dates}`) is not a clean mismatch and must not be presented as one ΓÇö surface it the same way but say plainly that multiple titles exist on one or both sides for "{company} ({dates})" and the automated check could not tell which pair to compare, so the user should resolve it by checking `cv.md` and the payload directly.
+    - `Γ£à` output means every matched entry's title is unchanged ΓÇö continue without comment.
+    - `ΓÜá∩╕Å ... title check did not run` means nothing was compared: either `cv.md`'s Experience section could not be parsed, or no payload entry paired with a cv.md entry by `{company, dates}`. This is not a pass. Surface it before continuing:
 
-      > ⚠️ **Title check did not run:** [Render in {language.output}: state that the title-consistency check compared no entries, so no job title in this tailored CV was checked against cv.md; repeat the CLI's reason; ask the user to verify every title against cv.md directly, and suggest running `node doctor.mjs` if the reason is that cv.md could not be parsed.]
+      > ΓÜá∩╕Å **Title check did not run:** [Render in {language.output}: state that the title-consistency check compared no entries, so no job title in this tailored CV was checked against cv.md; repeat the CLI's reason; ask the user to verify every title against cv.md directly, and suggest running `node doctor.mjs` if the reason is that cv.md could not be parsed.]
 
-    - Entries the check could not pair to a cv.md entry (e.g. a date phrasing that doesn't line up character-for-character) are reported separately as unmatched, not as a mismatch — they were not checked, so do not present them to the user as a pass. Surface each one:
+    - Entries the check could not pair to a cv.md entry (e.g. a date phrasing that doesn't line up character-for-character) are reported separately as unmatched, not as a mismatch ΓÇö they were not checked, so do not present them to the user as a pass. Surface each one:
 
-      > ⚠️ **Unmatched entry:** [Render in {language.output}: state that this experience entry for "{company} ({dates})" could not be paired to a cv.md entry, so its title was not checked, and ask the user to verify it directly against cv.md; keep `{company}` and `{dates}` as literal data — never translate or paraphrase them.]
+      > ΓÜá∩╕Å **Unmatched entry:** [Render in {language.output}: state that this experience entry for "{company} ({dates})" could not be paired to a cv.md entry, so its title was not checked, and ask the user to verify it directly against cv.md; keep `{company}` and `{dates}` as literal data ΓÇö never translate or paraphrase them.]
 
       An unreviewed unmatched entry is not a clean result.
-    - This check is warn-only for completed comparisons: mismatches, ambiguous groups, and unmatched entries do not block the pipeline. If the command fails — `cv.md` or the payload cannot be read or parsed, or an `experience[]` entry in the payload is missing `company`, `role`, or `dates` — this is not a warning to continue past: stop, repair the input, and rerun the check before continuing. Continue to Step 18 only once the user has been shown every mismatch, ambiguous group, and unmatched entry from this run — whether they choose to keep, revert, or resolve them, or to accept an unmatched entry as unreviewable — not solely mismatches and ambiguous groups.
-17b. Run the structure check against the payload: `node verify-cv-structure.mjs /tmp/cv-{candidate}[-{report}]-{company}.json`
-    - This is a warning, not a hard gate, before HTML is even built. `verify-cv-facts.mjs` (step 19) blocks *fabrication* — a claim absent from cv.md; this check flags the opposite failure, which fabrication-checking cannot see: cv.md content silently *lost* or *reordered* while tailoring. It catches an experience entry's company descriptor (`"Austin, TX · Series B fintech"`) getting dropped down to a bare city/state, and an experience entry (most often the Career Break) rendered out of cv.md's own chronological order.
-    - It recognizes `## Experience`, `## Work Experience`, `## Professional Experience`, `## Employment History` and `## Work History` sections whose `### Company {—|–|--|-} Location[ · descriptor]` headers use an em dash, en dash, double hyphen, or single hyphen, written plain or as Pandoc Markdown (`## **[Experience]{.smallcaps}**`, `### **Co** --- City`); a `cv.md` written another way reports `UNVERIFIED`, not a violation. If it warns of a real finding, use judgment: fix the payload to match cv.md's descriptor text and entry order if the loss was unintentional, or proceed if it was a deliberate tailoring choice (e.g. the descriptor genuinely doesn't fit this JD). A structural pass, warn, or `UNVERIFIED` result always exits 0 and never blocks step 18 — but a CLI/input error (a missing or unreadable payload/source file, invalid JSON, or a malformed payload shape) exits 1, meaning the check itself failed to run; fix the invocation rather than treating that as just another warning.
-    - This checks structure only (order, descriptor presence) — it does not check every field cv.md carries (e.g. skills-category selection or education descriptions are a judgment call per role, not a hard gate). Still diff the full payload against cv.md's actual content once before building the HTML: carry over every skills category unless there's a specific reason to drop one for the role, and keep education `description` text rather than compressing entries to bare title/org/year.
-18. Run `node build-cv-html.mjs /tmp/cv-{candidate}[-{report}]-{company}.json {html-path} {template}`, where `{html-path}` is the active bundle's `cv/tailored/vNNN/cv.html` or `output/cv-{candidate}-{report}-{company}.html` for a one-off CV (omit `-{report}` only when no report number exists at all, never for a batch or parallel run), and `{template}` is the path printed by **Selecting the template** below (omit it to use the base template). The script owns every tag, CSS class, and HTML escaping. Keep the HTML outside temporary storage because the dashboard's `D` hotkey regenerates from it.
+    - This check is warn-only for completed comparisons: mismatches, ambiguous groups, and unmatched entries do not block the pipeline. If the command fails ΓÇö `cv.md` or the payload cannot be read or parsed, or an `experience[]` entry in the payload is missing `company`, `role`, or `dates` ΓÇö this is not a warning to continue past: stop, repair the input, and rerun the check before continuing. Continue to Step 18 only once the user has been shown every mismatch, ambiguous group, and unmatched entry from this run ΓÇö whether they choose to keep, revert, or resolve them, or to accept an unmatched entry as unreviewable ΓÇö not solely mismatches and ambiguous groups.
+17b. Run the structure check against the payload: `node verify-cv-structure.mjs /tmp/cv-{candidate}-{company}.json`
+    - This is a warning, not a hard gate, before HTML is even built. `verify-cv-facts.mjs` (step 19) blocks *fabrication* ΓÇö a claim absent from cv.md; this check flags the opposite failure, which fabrication-checking cannot see: cv.md content silently *lost* or *reordered* while tailoring. It catches an experience entry's company descriptor (`"Austin, TX ┬╖ Series B fintech"`) getting dropped down to a bare city/state, and an experience entry (most often the Career Break) rendered out of cv.md's own chronological order.
+    - It recognizes `## Experience`, `## Work Experience`, `## Professional Experience`, `## Employment History` and `## Work History` sections whose `### Company {ΓÇö|ΓÇô|--|-} Location[ ┬╖ descriptor]` headers use an em dash, en dash, double hyphen, or single hyphen, written plain or as Pandoc Markdown (`## **[Experience]{.smallcaps}**`, `### **Co** --- City`); a `cv.md` written another way reports `UNVERIFIED`, not a violation. If it warns of a real finding, use judgment: fix the payload to match cv.md's descriptor text and entry order if the loss was unintentional, or proceed if it was a deliberate tailoring choice (e.g. the descriptor genuinely doesn't fit this JD). A structural pass, warn, or `UNVERIFIED` result always exits 0 and never blocks step 18 ΓÇö but a CLI/input error (a missing or unreadable payload/source file, invalid JSON, or a malformed payload shape) exits 1, meaning the check itself failed to run; fix the invocation rather than treating that as just another warning.
+    - This checks structure only (order, descriptor presence) ΓÇö it does not check every field cv.md carries (e.g. skills-category selection or education descriptions are a judgment call per role, not a hard gate). Still diff the full payload against cv.md's actual content once before building the HTML: carry over every skills category unless there's a specific reason to drop one for the role, and keep education `description` text rather than compressing entries to bare title/org/year.
+18. Run `node build-cv-html.mjs /tmp/cv-{candidate}-{company}.json {html-path} {template}`, where `{html-path}` is the active bundle's `cv/tailored/vNNN/cv.html` or `output/cv-{candidate}-{company}.html` for a one-off CV, and `{template}` is the path printed by **Selecting the template** below (omit it to use the base template). The script owns every tag, CSS class, and HTML escaping. Keep the HTML outside temporary storage because the dashboard's `D` hotkey regenerates from it.
 19. Run the fact gate against the generated HTML: `node verify-cv-facts.mjs {html-path}`
     - This is a hard gate before PDF rendering.
     - If it fails, stop and fix the generated HTML by removing invented metrics or adding verified evidence to `cv.md`, `article-digest.md`, or `config/cv-facts.json`.
-20. **Hiring-manager audit — off by default, opt-in only.** Run `modes/pdf/hm-audit.md` if and only if one of these is true; otherwise skip straight to Step 21 without prompting.
+20. **Hiring-manager audit ΓÇö off by default, opt-in only.** Run `modes/pdf/hm-audit.md` if and only if one of these is true; otherwise skip straight to Step 21 without prompting.
     - The invocation carried `--hm-audit` (`/career-ops pdf --hm-audit`, or the same flag on a natural-language request).
     - `modes/_custom.md` turns it on as a house rule.
 
     The fact gate proves nothing was invented; it cannot tell you whether these are the *right* bullets for the role. The audit researches the likely reviewer, dispatches a separate subagent role-playing them, and returns a bullet-by-bullet keep/cut/rewrite verdict plus a blunt "would I advance this to a screen?" call. It adds a subagent dispatch plus web research on top of the tailoring, which is why it is opted into rather than run on every PDF.
 
-    The audit recommends; the user decides. If they take any rewrite, return to Step 17, rebuild the payload and the HTML, and re-run the fact gate before rendering. The audit is persisted only once that decision is known, and records which rewrites were applied — so the `## HM Audit` section never describes a CV the rendered PDF no longer matches. Do not re-run the audit against the rebuilt CV: a second dispatch doubles the cost for a verdict the user has already acted on.
-21. Execute: `node generate-pdf.mjs {html-path} {pdf-path} --format={letter|a4} --report={report number}`. When `page_format` is `auto`, drop `--format` and pass `--country={code}` with the same code the payload carries, since an explicit `--format` outranks `auto`. Here `{pdf-path}` is the active bundle's `cv/tailored/vNNN/cv.pdf` or `output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.pdf` for a one-off CV. `{report number}` is the NNN from the report filename/link (e.g. `008` for `reports/008-acme-….md`), not the tracker `#` column. Pass it whenever the application has (or will have) a report; it records the PDF↔report linkage in `data/pdf-index.tsv` so the dashboard can open and regenerate the exact nested or flat HTML/PDF pair. Omit it only for one-off CVs with no tracker entry.
-    - The rendered PDF has a two-page warning threshold by default. `--max-pages=N` accepts a positive integer; pass `--max-pages=1` when the user or market prefers a one-page CV.
+    The audit recommends; the user decides. If they take any rewrite, return to Step 17, rebuild the payload and the HTML, and re-run the fact gate before rendering. The audit is persisted only once that decision is known, and records which rewrites were applied ΓÇö so the `## HM Audit` section never describes a CV the rendered PDF no longer matches. Do not re-run the audit against the rebuilt CV: a second dispatch doubles the cost for a verdict the user has already acted on.
+21. Execute: `node generate-pdf.mjs {html-path} {pdf-path} --format={letter|a4} --report={report number}`, where `{pdf-path}` is the active bundle's `cv/tailored/vNNN/cv.pdf` or `output/cv-{candidate}-{company}-{YYYY-MM-DD}.pdf` for a one-off CV. `{report number}` is the NNN from the report filename/link (e.g. `008` for `reports/008-acme-ΓÇª.md`), not the tracker `#` column. Pass it whenever the application has (or will have) a report; it records the PDFΓåöreport linkage in `data/pdf-index.tsv` so the dashboard can open and regenerate the exact nested or flat HTML/PDF pair. Omit it only for one-off CVs with no tracker entry.
+    - The rendered PDF has a three-page warning threshold by default (relaxed from
+  two on 2026-10-21). `--max-pages=N` accepts a positive integer; pass `--max-pages=1` when the user or market prefers a one-page CV.
     - If the rendered PDF exceeds its threshold, generation warns loudly with the actual and allowed page counts plus trimming guidance, then reports and indexes the unchanged PDF so existing longer-CV flows keep working.
     - Pass `--strict-pages` only when the user or market requires a hard limit. Strict overflow leaves the draft available for inspection but does not report or index it as successful; trim lower-priority content and rerun.
     - Generation fails when Work Experience is not newest-first, quoting the dates of the role that starts later than the one above it. Return to Step 17 with the roles in reverse-chronological order, rebuild the HTML, and re-run the fact gate before rendering; tailor through the summary, competencies, and bullet selection, never by moving roles. Pass `--allow-nonchronological`, which turns the failure into a warning, only when the user explicitly asks for a non-chronological CV.
-21a. **ATS variant — off by default, opt-in only.** Run this step if and only if the invocation carried `--ats` (`/career-ops pdf --ats`, or the same flag on a natural-language request) or `modes/_custom.md` turns it on as a house rule; otherwise skip straight to Step 22 without prompting. It runs after Step 21 so the payload is final (any Step 20 rewrites are already in it) and the styled CV is done: the variant is an extra, and a failure here never touches the styled HTML/PDF.
+21a. **ATS variant ΓÇö off by default, opt-in only.** Run this step if and only if the invocation carried `--ats` (`/career-ops pdf --ats`, or the same flag on a natural-language request) or `modes/_custom.md` turns it on as a house rule; otherwise skip straight to Step 22 without prompting. It runs after Step 21 so the payload is final (any Step 20 rewrites are already in it) and the styled CV is done: the variant is an extra, and a failure here never touches the styled HTML/PDF.
     - **This is not a template swap.** The `ats` template owns the DOM, not the payload. `competencies[]` renders as tags separated only by CSS gap, under a header parsers don't recognise, so it gets dropped whole whatever the template looks like. Fold the payload first, and fold only this copy; the styled payload keeps its competency grid:
-      `node ats-payload.mjs /tmp/cv-{candidate}[-{report}]-{company}.json --summary > /tmp/cv-{candidate}[-{report}]-{company}-ats.json`
+      `node ats-payload.mjs /tmp/cv-{candidate}-{company}.json --summary > /tmp/cv-{candidate}-{company}-ats.json`
       The fold moves the competencies into a `skills[]` entry (same facts, comma-delimited, under `Skills`) and invents nothing. Its three lints (`employer-in-role`, `parenthetical-in-company`, `multiple-date-ranges`) print on stderr and are **never** applied by the script. Show each finding to the user and leave the decision to them, the same way as Step 17a. A fix they choose goes into the Step 17 payload and both renders are rebuilt; never patch the ATS payload by hand. Exit 1 means the input was unreadable or malformed. Stop and report it; do not render from a partial file.
-    - Resolve the template with `node cv-templates.mjs resolve cv ats` and render: `node build-cv-html.mjs /tmp/cv-{candidate}[-{report}]-{company}-ats.json output/cv-{candidate}[-{report}]-{company}-ats.html {ats-template}`. The output path is `output/` even when the styled CV lives in an application bundle. In this version the ATS variant is something you paste, not something you attach, so it is not a bundle artifact and not the tracker's `PDF` column. That column still reads from the styled PDF alone.
-    - Gate it: `node verify-cv-facts.mjs output/cv-{candidate}[-{report}]-{company}-ats.html`. The fold cannot add a claim, but Step 19 allows fixing a gate failure in the styled **HTML**, and a fix made there never reaches the JSON this variant is built from. Gating the variant catches that drift instead of shipping it. If it fails, fix the Step 17 payload (not either HTML file), rebuild both, and re-run both gates.
-    - No PDF by default: the user copies the text out of the HTML. If they want an uploadable file too, run `node generate-pdf.mjs output/cv-{candidate}[-{report}]-{company}-ats.html output/cv-{candidate}[-{report}]-{company}-ats-{YYYY-MM-DD}.pdf --format={letter|a4}` **without** `--report`. Under `page_format: auto`, use `--country={code}` in place of `--format`. With `--report`, the ATS PDF would be indexed against the report and replace the styled pair the dashboard opens and regenerates.
-22. Verify ATS keyword coverage of the **tailored** CV against the role's evaluation report (when one exists): `node keyword-match.mjs "reports/{###}-{company-slug}-{YYYY-MM-DD}.md" --cv "{html-path}"`. Pass the report's full filename (e.g. `reports/008-acme-2026-09-28.md`), not the bare NNN that Step 21's `--report` takes, and keep both paths quoted. This text-extracts the HTML you just built and reports coverage %, present, thin, and missing keywords — the diagnostic for the document being sent. Surface any missing/thin keywords to the user (reformulate from real experience, never fabricate). If the report has no keyword section, the command prints a `⚠️` line on stderr and scores the skills it finds in the report's archived JD instead. That is a defect in the report, not a pass: tell the user, and add the keyword section to the report. If it exits 1, coverage did not run. Say so in Step 23 rather than leaving the number out.
+    - Resolve the template with `node cv-templates.mjs resolve cv ats` and render: `node build-cv-html.mjs /tmp/cv-{candidate}-{company}-ats.json output/cv-{candidate}-{company}-ats.html {ats-template}`. The output path is `output/` even when the styled CV lives in an application bundle. In this version the ATS variant is something you paste, not something you attach, so it is not a bundle artifact and not the tracker's `PDF` column. That column still reads from the styled PDF alone.
+    - Gate it: `node verify-cv-facts.mjs output/cv-{candidate}-{company}-ats.html`. The fold cannot add a claim, but Step 19 allows fixing a gate failure in the styled **HTML**, and a fix made there never reaches the JSON this variant is built from. Gating the variant catches that drift instead of shipping it. If it fails, fix the Step 17 payload (not either HTML file), rebuild both, and re-run both gates.
+    - No PDF by default: the user copies the text out of the HTML. If they want an uploadable file too, run `node generate-pdf.mjs output/cv-{candidate}-{company}-ats.html output/cv-{candidate}-{company}-ats-{YYYY-MM-DD}.pdf --format={letter|a4}` **without** `--report`. With `--report`, the ATS PDF would be indexed against the report and replace the styled pair the dashboard opens and regenerates.
+22. Verify ATS keyword coverage of the **tailored** CV against the role's evaluation report (when one exists): `node keyword-match.mjs "reports/{###}-{company-slug}-{YYYY-MM-DD}.md" --cv "{html-path}"`. Pass the report's full filename (e.g. `reports/008-acme-2026-09-28.md`), not the bare NNN that Step 21's `--report` takes, and keep both paths quoted. This text-extracts the HTML you just built and reports coverage %, present, thin, and missing keywords ΓÇö the diagnostic for the document being sent. Surface any missing/thin keywords to the user (reformulate from real experience, never fabricate). If the report has no keyword section, the command prints a `ΓÜá∩╕Å` line on stderr and scores the skills it finds in the report's archived JD instead. That is a defect in the report, not a pass: tell the user, and add the keyword section to the report. If it exits 1, coverage did not run. Say so in Step 23 rather than leaving the number out.
 23. Report: PDF path, number of pages, keyword coverage % and whether its keywords came from the report or the archived JD (when Step 22 ran), the ATS variant's HTML path and any lint findings the user left open (when Step 21a ran), and any skill gaps from Step 4 still unaddressed
 
 ## ATS Rules (clean parsing)
 
 - Single-column layout (no sidebars, no parallel columns)
 - Standard headers: "Professional Summary", "Work Experience", "Education", "Skills", "Certifications", "Projects"
-- Optional sections (Professional Summary, Core Competencies, Work Experience, Projects, Education, Certifications, Awards & Honors, Skills) are dropped entirely — header included — when their array is empty or absent, or for Professional Summary when its text is empty or whitespace-only
+- Optional sections (Professional Summary, Core Competencies, Work Experience, Projects, Education, Certifications, Awards & Honors, Skills) are dropped entirely ΓÇö header included ΓÇö when their array is empty or absent, or for Professional Summary when its text is empty or whitespace-only
 - No text in images/SVGs
 - No critical info in PDF headers/footers (ATS ignores them)
 - UTF-8, selectable text (not rasterized)
@@ -105,15 +139,15 @@ Run `npm run jd:similarity -- {bundle-root}/jd/current.md {bundle-root}/jd/previ
 - Distributed JD keywords: Summary (top 5), first bullet of each role, Skills section
 - No hidden text, keyword stuffing, or white-font tricks. Optimize for parseability plus human review.
 
-The bullets above are the rules. `templates/ats-rules.yml` is the same rules as data — it carries the severity of each and, for each, the **"must not flag"** contract: what a check for that rule must stay quiet about. Read it before changing a rule or reading a lint finding; a rule cannot be added, removed, or silenced without that file changing, and each entry quotes the bullet above that it enforces, so the two cannot drift apart.
+The bullets above are the rules. `templates/ats-rules.yml` is the same rules as data ΓÇö it carries the severity of each and, for each, the **"must not flag"** contract: what a check for that rule must stay quiet about. Read it before changing a rule or reading a lint finding; a rule cannot be added, removed, or silenced without that file changing, and each entry quotes the bullet above that it enforces, so the two cannot drift apart.
 
-**Optional template lint:** `node cv-templates.mjs lint cv [template-name]` checks a CV or cover-letter template against those rules and prints findings as JSON. Advisory, never a blocker: it exits 0 whatever it finds, and it never gates a render. Three rules are implemented today — nested tables, hidden text, and the standard-header enumeration. The rest are in the YAML with no detector, reported under `skipped` with the reason, and they are open items rather than passes.
+**Optional template lint:** `node cv-templates.mjs lint cv [template-name]` checks a CV or cover-letter template against those rules and prints findings as JSON. Advisory, never a blocker: it exits 0 whatever it finds, and it never gates a render. Three rules are implemented today ΓÇö nested tables, hidden text, and the standard-header enumeration. The rest are in the YAML with no detector, reported under `skipped` with the reason, and they are open items rather than passes.
 
-**What the lint cannot catch** (also in the YAML, under `cannot_catch`): it reads a template's HTML, so nothing about the *rendered text layer* is in scope. Two measured classes sit entirely outside it, and both satisfy every bullet above — CSS `::before` generated content combined with `position:absolute` (the marker glyph never enters the text stream), and `letter-spacing` / `font-variant: small-caps` fragmenting a heading into separate glyph runs (`PROFESSIONAL SUMMARY` extracts as `P R O F E S S I O N A L S U M M A RY`). Catching those needs a rendered PDF and a text extractor; this project extracts with `pdftotext -layout`. A clean lint is not an ATS pass.
+**What the lint cannot catch** (also in the YAML, under `cannot_catch`): it reads a template's HTML, so nothing about the *rendered text layer* is in scope. Two measured classes sit entirely outside it, and both satisfy every bullet above ΓÇö CSS `::before` generated content combined with `position:absolute` (the marker glyph never enters the text stream), and `letter-spacing` / `font-variant: small-caps` fragmenting a heading into separate glyph runs (`PROFESSIONAL SUMMARY` extracts as `P R O F E S S I O N A L S U M M A RY`). Catching those needs a rendered PDF and a text extractor; this project extracts with `pdftotext -layout`. A clean lint is not an ATS pass.
 
-**Optional parseability check:** after generating the HTML you can score it for ATS-friendliness with `node verify-ats.mjs output/cv-{candidate}[-{report}]-{company}.html` (see `modes/ats.md`). This is deterministic, read-only, and advisory — it reports a 0-100 score plus concrete issues but never blocks generation (unlike the `verify-cv-facts.mjs` fact gate in Step 18).
+**Optional parseability check:** after generating the HTML you can score it for ATS-friendliness with `node verify-ats.mjs output/cv-{candidate}-{company}.html` (see `modes/ats.md`). This is deterministic, read-only, and advisory ΓÇö it reports a 0-100 score plus concrete issues but never blocks generation (unlike the `verify-cv-facts.mjs` fact gate in Step 18).
 
-The `ats` mode also has an earlier, **payload**-level stage (`ats-payload.mjs`), which necessarily runs before the HTML exists and so before the step above. It is **not** a step of this pipeline — whether `pdf` should emit an ATS variant in the same pass is still open in #3202 — but if a user asks for the `ats` mode, read `modes/ats.md` for both stages rather than only the score.
+The `ats` mode also has an earlier, **payload**-level stage (`ats-payload.mjs`), which necessarily runs before the HTML exists and so before the step above. It is **not** a step of this pipeline ΓÇö whether `pdf` should emit an ATS variant in the same pass is still open in #3202 ΓÇö but if a user asks for the `ats` mode, read `modes/ats.md` for both stages rather than only the score.
 
 ## Recruiter Review Gates
 
@@ -146,15 +180,15 @@ The `ats` mode also has an earlier, **payload**-level stage (`ats-payload.mjs`),
 ## Keyword injection strategy (ethical, truth-based)
 
 Examples of legitimate reformulation:
-- JD says "RAG pipelines" and CV says "LLM workflows with retrieval" → change to "RAG pipeline design and LLM orchestration workflows"
-- JD says "MLOps" and CV says "observability, evals, error handling" → change to "MLOps and observability: evals, error handling, cost monitoring"
-- JD says "stakeholder management" and CV says "collaborated with team" → change to "stakeholder management across engineering, operations, and business"
+- JD says "RAG pipelines" and CV says "LLM workflows with retrieval" ΓåÆ change to "RAG pipeline design and LLM orchestration workflows"
+- JD says "MLOps" and CV says "observability, evals, error handling" ΓåÆ change to "MLOps and observability: evals, error handling, cost monitoring"
+- JD says "stakeholder management" and CV says "collaborated with team" ΓåÆ change to "stakeholder management across engineering, operations, and business"
 
 **NEVER add skills that the candidate does not have. Only reword real experience using the exact JD vocabulary.**
 
 ## Template HTML
 
-**Before generating: read `modes/_custom.md` (if it exists) and apply its formatting/content house rules to every CV in this session — including every item of a batch.** Rules recorded there (date formats, section-order preferences, content to always/never include) are persistent user instructions, not suggestions; in an interactive session, if the user corrects the same thing twice in conversation, propose it through the `retro` mode (`modes/retro.md`), which writes to `modes/_custom.md` only the rules the user accepts. A batch or delegated worker never writes `modes/_custom.md`, `modes/_profile.md`, or `config/profile.yml`. It reports the preference to its parent instead.
+**Before generating: read `modes/_custom.md` (if it exists) and apply its formatting/content house rules to every CV in this session ΓÇö including every item of a batch.** Rules recorded there (date formats, section-order preferences, content to always/never include) are persistent user instructions, not suggestions; if the user corrects the same thing twice in conversation, write it into `modes/_custom.md` so it stops drifting.
 
 ### Selecting the template
 
@@ -165,11 +199,11 @@ Resolve which template to fill with the shared resolver (do not hardcode `cv-tem
 - Otherwise run: `node cv-templates.mjs resolve cv`
   (this returns the `cv.template` default from `config/profile.yml`, or the base `cv-template.html` when unset).
 
-The command prints the absolute path of the template to fill; a non-zero exit means the named template is missing or invalid — surface that message to the user instead of silently falling back.
+The command prints the absolute path of the template to fill; a non-zero exit means the named template is missing or invalid ΓÇö surface that message to the user instead of silently falling back.
 
 To show the user their options (e.g. "what CV templates do I have?"), run `node cv-templates.mjs list cv` and present each `displayName`.
 
-`build-cv-html.mjs` fills that resolved template from the JSON payload you build — it owns every tag, CSS class, and the HTML escaping, so you **never emit full HTML markup** and do **not** escape `&`/`<`/`>`/quotes yourself. Pass the resolved path as the third argument (`node build-cv-html.mjs <input.json> <output.html> <template.html>`); omit it to fall back to the base `cv-template.html`. This is the HTML twin of `build-cv-latex.mjs` (see `modes/latex.md`) and cuts the PDF step's output tokens from full markup down to the compact payload below (#557).
+`build-cv-html.mjs` fills that resolved template from the JSON payload you build ΓÇö it owns every tag, CSS class, and the HTML escaping, so you **never emit full HTML markup** and do **not** escape `&`/`<`/`>`/quotes yourself. Pass the resolved path as the third argument (`node build-cv-html.mjs <input.json> <output.html> <template.html>`); omit it to fall back to the base `cv-template.html`. This is the HTML twin of `build-cv-latex.mjs` (see `modes/latex.md`) and cuts the PDF step's output tokens from full markup down to the compact payload below (#557).
 
 ### JSON Input Schema
 
@@ -237,63 +271,62 @@ Write a JSON file with this structure, then run `node build-cv-html.mjs <input.j
 | Field | Type | Notes |
 |-------|------|-------|
 | `lang` | string | CV language code (`en`, `es`, `zh-CN`, `ja`, `ar`). Drives language-specific CSS: `zh-CN` enables Simplified Chinese fonts and strict CJK line breaking; `ja` enables a Japanese CJK font fallback; `ar` enables RTL + Arabic fonts. Defaults to `en`. |
-| `page_format` | string | `letter` → `8.5in` page width, `a4` → `210mm`. Omit it and both the body width and the sheet fall back to `config/profile.yml` `page_format`, then to `letter`. Set it and you should pass the SAME value to `generate-pdf.mjs --format`, so the body and the sheet match. |
-| `country` | string | Optional. The employer's ISO 3166-1 alpha-2 code (e.g. `DE`). Read only when the effective `page_format` is `auto`; otherwise ignored. |
+| `page_format` | string | `letter` ΓåÆ `8.5in` page width, `a4` ΓåÆ `210mm`. Omit it and both the body width and the sheet fall back to `config/profile.yml` `page_format`, then to `letter`. Set it and you should pass the SAME value to `generate-pdf.mjs --format`, so the body and the sheet match. |
 | `candidate.name` | string | From `profile.yml`. |
-| `candidate.title` | string | Optional professional headline shown directly under the name (e.g. "Senior Backend Engineer"). Read it from `candidate.title` in `config/profile.yml`. An ATS reads this first to place the candidate; a CV with no title forces the reader to infer the role. Omit or leave empty → no title element, byte-identical to before. Tailor it to the JD's own title wording when the candidate's real level supports it (never inflate). |
-| `candidate.phone` | string | Optional — **omit or leave empty** to drop the `tel:` link and its separator (no empty cell). |
+| `candidate.title` | string | Optional professional headline shown directly under the name (e.g. "Senior Backend Engineer"). Read it from `candidate.title` in `config/profile.yml`. An ATS reads this first to place the candidate; a CV with no title forces the reader to infer the role. Omit or leave empty ΓåÆ no title element, byte-identical to before. Tailor it to the JD's own title wording when the candidate's real level supports it (never inflate). |
+| `candidate.phone` | string | Optional ΓÇö **omit or leave empty** to drop the `tel:` link and its separator (no empty cell). |
 | `candidate.email` | string | From `profile.yml`. |
-| `candidate.linkedin` | `{url, display}` | Optional — omit to drop the item and its separator. |
-| `candidate.github` | `{url, display}` | Optional — omit to drop the item and its separator. |
-| `candidate.portfolio` | `{url, display}` | Optional — omit to drop the item and its separator. |
+| `candidate.linkedin` | `{url, display}` | Optional ΓÇö omit to drop the item and its separator. |
+| `candidate.github` | `{url, display}` | Optional ΓÇö omit to drop the item and its separator. |
+| `candidate.portfolio` | `{url, display}` | Optional ΓÇö omit to drop the item and its separator. |
 | `candidate.location` | string | From `profile.yml`. |
 | `candidate.photo` | string | Opt-in profile photo (#264): a local path or `data:` URL. Empty/absent emits **no `<img>`**, rendering pixel-for-pixel identical to the photoless layout (US/UK/many-market ATS penalize photos; opt in for DACH/European markets). |
 | `candidate.photo_style` | string | Optional photo framing: `rounded` (default), `circle`, or `square`. Read it from `candidate.photo_style` in `config/profile.yml`; invalid values fail before HTML is written. |
 | `sections` | object | Optional localized section titles; any omitted key falls back to the English default shown above. |
-| `summary` | string | Personalized summary with keywords. Supports `**…**` emphasis (see **Markdown bold** below). |
-| `competencies` | string[] | 6-8 keyword phrases → competency tags. |
-| `experience[]` | object | `company`, `role`, `location` (optional), `context` (optional), `dates`, `bullets` (reordered, keyword-injected; `**…**` emphasis supported). `context` is an un-bulleted italic line rendered directly under the role, for one line of background about the company (stage, size, an acquisition), not an achievement. Use only facts already in `cv.md`: when it states none for that role, omit `context` rather than write one. Keep it short; keep achievements in `bullets`. Optional section — omit the key or pass `[]` and the whole block is dropped, header included. Only for candidates with no professional history to list (students, new graduates, career changers); never drop it to hide a gap. |
+| `summary` | string | Personalized summary with keywords. Supports `**ΓÇª**` emphasis (see **Markdown bold** below). |
+| `competencies` | string[] | 6-8 keyword phrases ΓåÆ competency tags. |
+| `experience[]` | object | `company`, `role`, `location` (optional), `context` (optional), `dates`, `bullets` (reordered, keyword-injected; `**ΓÇª**` emphasis supported). `context` is an un-bulleted italic line rendered directly under the role, for one line of background about the company (stage, size, an acquisition), not an achievement. Use only facts already in `cv.md`: when it states none for that role, omit `context` rather than write one. Keep it short; keep achievements in `bullets`. Optional section ΓÇö omit the key or pass `[]` and the whole block is dropped, header included. Only for candidates with no professional history to list (students, new graduates, career changers); never drop it to hide a gap. |
 | `projects[]` | object | `name`, `url` (optional project/repo link), `badge` (optional), `tech` (optional), `description` (a `bullets` array is also accepted and joined into the description line). |
 | `education[]` | object | `title` (degree), `org` (institution), `location` (optional, city/state), `year`, `description` (optional). |
 | `certifications[]` | object | `title`, `org`, `year`. |
-| `awards[]` | object | `title` (award name), `org` (issuing body, optional), `year` (optional). Optional section — omit the key or pass `[]` and the whole block is dropped, header included. Use it for competitive or academic distinctions (olympiad medals, hackathon wins, dean's list) that carry more signal than a thin experience section. |
-| `skills[]` | object | `items` (**required**): a non-blank comma-separated string, or a non-empty array of non-blank strings — every element must be text, since the builder joins the whole array. `category` (optional): omitted, the line renders without its prefix. |
+| `awards[]` | object | `title` (award name), `org` (issuing body, optional), `year` (optional). Optional section ΓÇö omit the key or pass `[]` and the whole block is dropped, header included. Use it for competitive or academic distinctions (olympiad medals, hackathon wins, dean's list) that carry more signal than a thin experience section. |
+| `skills[]` | object | `items` (**required**): a non-blank comma-separated string, or a non-empty array of non-blank strings ΓÇö every element must be text, since the builder joins the whole array. `category` (optional): omitted, the line renders without its prefix. |
 | `consent` | string | Opt-in GDPR/RODO consent footer text. Empty/absent emits **no visible footer** (the `.cv-consent:empty { display: none }` CSS rule hides the empty div and its border-top), so existing CVs are unchanged. Mirrors the `{{PHOTO}}` opt-in slot pattern (#264). |
 
 `build-cv-html.mjs` errors out (non-zero exit) if any template placeholder is left unresolved, so a malformed payload fails loudly instead of shipping a broken CV. Run `node build-cv-html.mjs --test` for a self-test render.
 
 **The key names above are enforced, not suggestions (#3523).** Every list section (`experience`, `projects`, `education`, `certifications`, `awards`, `skills`) is rendered from exactly the keys listed in this table. The payload root must be an object. Before rendering, `build-cv-html.mjs` validates each entry:
 
-- **Missing or blank required field → hard error, non-zero exit, no HTML written.** Required: `company` + `role` for experience, `name` for projects, `title` for education, certifications and awards, `items` for skills (a non-blank string or a non-empty array of them; `category` stays optional).
-- **A key no builder reads → warning on stderr and in the report's `warnings[]`;** the build proceeds and the key is ignored.
-- **A top-level section name the builder does not read → warning**, naming the nearest known key. A payload with `educations` instead of `education` used to validate clean and drop the section silently; it now says so.
+- **Missing or blank required field ΓåÆ hard error, non-zero exit, no HTML written.** Required: `company` + `role` for experience, `name` for projects, `title` for education, certifications and awards, `items` for skills (a non-blank string or a non-empty array of them; `category` stays optional).
+- **A key no builder reads ΓåÆ warning on stderr and in the report's `warnings[]`;** the build proceeds and the key is ignored.
+- **A top-level section name the builder does not read ΓåÆ warning**, naming the nearest known key. A payload with `educations` instead of `education` used to validate clean and drop the section silently; it now says so.
 
-Do **not** substitute the LaTeX builder's vocabulary — `institution`/`degree`/`dates`/`coursework` is the `modes/latex.md` education schema, **not** this one — nor `employer` for a company or `name` for a certification. Such an entry used to render as an empty block while the report still said `"valid": true`, and CVs went out with no education section at all. It is now rejected by name. When in doubt, check `counts.educationEntries` (and its siblings) in the JSON report: a zero there means the section is empty in the PDF.
+Do **not** substitute the LaTeX builder's vocabulary ΓÇö `institution`/`degree`/`dates`/`coursework` is the `modes/latex.md` education schema, **not** this one ΓÇö nor `employer` for a company or `name` for a certification. Such an entry used to render as an empty block while the report still said `"valid": true`, and CVs went out with no education section at all. It is now rejected by name. When in doubt, check `counts.educationEntries` (and its siblings) in the JSON report: a zero there means the section is empty in the PDF.
 
 ### Markdown bold
 
-Wrap a span in `**…**` to emphasise it — typically the quantified result a recruiter should catch in the six-second scan:
+Wrap a span in `**ΓÇª**` to emphasise it ΓÇö typically the quantified result a recruiter should catch in the six-second scan:
 
 ```json
 "bullets": ["Cut p99 latency from 840 ms to **120 ms** across 14 services"]
 ```
 
-`generate-pdf.mjs` converts it to `<strong>` during ATS normalization (#1728), and the template styles it in both the summary and job bullets. On the HTML path the conversion walks every text node, so **any** field can carry `**…**`.
+`generate-pdf.mjs` converts it to `<strong>` during ATS normalization (#1728), and the template styles it in both the summary and job bullets. On the HTML path the conversion walks every text node, so **any** field can carry `**ΓÇª**`.
 
-**The LaTeX twin is narrower — check `modes/latex.md` before reusing a payload across both.** `build-cv-latex.mjs` renders `**…**` as `\textbf{…}` (#3351) only in what it emits inside a `\resumeItem`: `experience[].bullets`, `projects[].bullets`, and the `education[].coursework` line. It has no `summary` field at all, and `projects[].name`, `awards[].title` and the `skills[]` fields print `**` literally. Bullets emphasise the same way in both formats; nothing else is guaranteed to.
+**The LaTeX twin is narrower ΓÇö check `modes/latex.md` before reusing a payload across both.** `build-cv-latex.mjs` renders `**ΓÇª**` as `\textbf{ΓÇª}` (#3351) only in what it emits inside a `\resumeItem`: `experience[].bullets`, `projects[].bullets`, and the `education[].coursework` line. It has no `summary` field at all, and `projects[].name`, `awards[].title` and the `skills[]` fields print `**` literally. Bullets emphasise the same way in both formats; nothing else is guaranteed to.
 
-**The escaping runs first, and that order is the safety property.** `build-cv-html.mjs` owns the HTML escaping, and only the `**` markers it left untouched are reinterpreted afterwards — a literal `<script>` typed into a bullet stays escaped inside the bold span. Only `**`-delimited spans are affected; single asterisks and unmatched markers stay literal.
+**The escaping runs first, and that order is the safety property.** `build-cv-html.mjs` owns the HTML escaping, and only the `**` markers it left untouched are reinterpreted afterwards ΓÇö a literal `<script>` typed into a bullet stays escaped inside the bold span. Only `**`-delimited spans are affected; single asterisks and unmatched markers stay literal.
 
-**A bold span cannot contain a `*`.** `**tripled *3x* throughput**` matches nothing and ships the asterisks literally — no error, no warning. Rewrite it as `**tripled 3x throughput**` rather than nesting emphasis.
+**A bold span cannot contain a `*`.** `**tripled *3x* throughput**` matches nothing and ships the asterisks literally ΓÇö no error, no warning. Rewrite it as `**tripled 3x throughput**` rather than nesting emphasis.
 
-Emphasis is not a substitute for evidence — bold reorders attention, it does not add claims. The no-fabrication rule applies to bolded text exactly as it does to the rest of the bullet, and bolding every other phrase emphasises nothing.
+Emphasis is not a substitute for evidence ΓÇö bold reorders attention, it does not add claims. The no-fabrication rule applies to bolded text exactly as it does to the rest of the bullet, and bolding every other phrase emphasises nothing.
 
 ### Profile photo (opt-in, market-specific)
 
 The `{{PHOTO}}` slot is **off by default** and intentionally market-specific:
 
 - **DACH / much of continental Europe** (Germany, Austria, Switzerland): a professional photo is standard and often expected. Opt in by setting `candidate.photo` in `config/profile.yml` (a local file path or a `data:` URL).
-- **US / UK / Canada / Australia and many ATS-first markets**: photos are discouraged and can trip bias-avoidance filters. Leave `candidate.photo` empty — the `{{PHOTO}}` line is dropped entirely, no `<img>` is emitted, and the CV renders **pixel-for-pixel identical** to today's photoless layout.
+- **US / UK / Canada / Australia and many ATS-first markets**: photos are discouraged and can trip bias-avoidance filters. Leave `candidate.photo` empty ΓÇö the `{{PHOTO}}` line is dropped entirely, no `<img>` is emitted, and the CV renders **pixel-for-pixel identical** to today's photoless layout.
 
 When set, the photo floats into the top corner (mirrored for RTL/Arabic) and the header/summary text wraps beside it; `.cv-photo` in `cv-template.html` controls its size and framing.
 
@@ -303,7 +336,7 @@ URLs so the saved HTML remains portable. To inspect the result before PDF
 generation, run:
 
 ```bash
-node build-cv-html.mjs --preview /tmp/cv-{candidate}[-{report}]-{company}.json {template}
+node build-cv-html.mjs --preview /tmp/cv-{candidate}-{company}.json {template}
 ```
 
 The preview is written to `output/cv-preview.html`. A missing, unreadable, empty,
@@ -312,7 +345,7 @@ or unsupported photo fails with an actionable error before any output is written
 To read a built CV as prose without a browser (headless runs, or diffing against `cv.md`), render the same payload to markdown. It is zero-token, re-runs no tailoring, and uses the same resolved section titles and entry filtering as the HTML:
 
 ```bash
-node build-cv-html.mjs /tmp/cv-{candidate}[-{report}]-{company}.json --markdown {output.md} {template}
+node build-cv-html.mjs /tmp/cv-{candidate}-{company}.json --markdown {output.md} {template}
 ```
 
 Pass the same `{template}` the HTML build used (omit it for the default template) so the markdown follows that template's section order.
@@ -320,31 +353,31 @@ Pass the same `{template}` the HTML build used (omit it for the default template
 ## Canva CV Generation (optional)
 
 If `config/profile.yml` has `cv.canva_resume_design_id` set, offer the user a choice before generating:
-- **"HTML/PDF (fast, ATS-optimized)"** — existing flow above
-- **"Canva CV (visual, design-preserving)"** — new flow below
+- **"HTML/PDF (fast, ATS-optimized)"** ΓÇö existing flow above
+- **"Canva CV (visual, design-preserving)"** ΓÇö new flow below
 
 If the user has no `cv.canva_resume_design_id`, skip this prompt and use the HTML/PDF flow.
 
 ### Canva workflow
 
-#### Step 1 — Duplicate the base design
+#### Step 1 ΓÇö Duplicate the base design
 
-a. `export-design` the base design (using `cv.canva_resume_design_id`) as PDF → get download URL
-b. `import-design-from-url` using that download URL → creates a new editable design (the duplicate)
+a. `export-design` the base design (using `cv.canva_resume_design_id`) as PDF ΓåÆ get download URL
+b. `import-design-from-url` using that download URL ΓåÆ creates a new editable design (the duplicate)
 c. Note the new `design_id` for the duplicate
 
-#### Step 2 — Read the design structure
+#### Step 2 ΓÇö Read the design structure
 
-a. `get-design-content` on the new design → returns all text elements (richtexts) with their content
+a. `get-design-content` on the new design ΓåÆ returns all text elements (richtexts) with their content
 b. Map text elements to CV sections by content matching:
-   - Look for the candidate's name → header section
-   - Look for "Summary" or "Professional Summary" → summary section
-   - Look for company names from cv.md → experience sections
-   - Look for degree/school names → education section
-   - Look for skill keywords → skills section
+   - Look for the candidate's name ΓåÆ header section
+   - Look for "Summary" or "Professional Summary" ΓåÆ summary section
+   - Look for company names from cv.md ΓåÆ experience sections
+   - Look for degree/school names ΓåÆ education section
+   - Look for skill keywords ΓåÆ skills section
 c. If mapping fails, show the user what was found and ask for guidance
 
-#### Step 3 — Generate tailored content
+#### Step 3 ΓÇö Generate tailored content
 
 Same content generation as the HTML flow (Steps 1-11 above):
 - Rewrite Professional Summary with JD keywords + exit narrative
@@ -352,9 +385,9 @@ Same content generation as the HTML flow (Steps 1-11 above):
 - Select top competencies from JD requirements
 - Inject keywords naturally (NEVER invent)
 
-**IMPORTANT — Character budget rule:** Each replacement text MUST be approximately the same length as the original text it replaces (within ±15% character count). If tailored content is longer, condense it. The Canva design has fixed-size text boxes — longer text causes overlapping with adjacent elements. Count the characters in each original element from Step 2 and enforce this budget when generating replacements.
+**IMPORTANT ΓÇö Character budget rule:** Each replacement text MUST be approximately the same length as the original text it replaces (within ┬▒15% character count). If tailored content is longer, condense it. The Canva design has fixed-size text boxes ΓÇö longer text causes overlapping with adjacent elements. Count the characters in each original element from Step 2 and enforce this budget when generating replacements.
 
-#### Step 4 — Apply edits
+#### Step 4 ΓÇö Apply edits
 
 a. `start-editing-transaction` on the duplicate design
 b. `perform-editing-operations` with `find_and_replace_text` for each section:
@@ -377,7 +410,7 @@ d. **Verify layout before commit:**
 e. Show the user the final preview and ask for approval
 f. `commit-editing-transaction` to save (ONLY after user approval)
 
-#### Step 5 — Export and download PDF
+#### Step 5 ΓÇö Export and download PDF
 
 a. `export-design` the duplicate as PDF (format: a4 or letter based on JD location)
 b. **IMMEDIATELY** download the PDF using Bash:
@@ -389,14 +422,14 @@ c. Verify the download:
    ```bash
    file output/cv-{candidate}-{company}-canva-{YYYY-MM-DD}.pdf
    ```
-   Must show "PDF document". If it shows XML or HTML, the URL expired — re-export and retry.
+   Must show "PDF document". If it shows XML or HTML, the URL expired ΓÇö re-export and retry.
 d. Report: PDF path, file size, Canva design URL (for manual tweaking)
 
 #### Error handling
 
-- If `import-design-from-url` fails → fall back to HTML/PDF pipeline with message
-- If text elements can't be mapped → warn user, show what was found, ask for manual mapping
-- If `find_and_replace_text` finds no matches → try broader substring matching
+- If `import-design-from-url` fails ΓåÆ fall back to HTML/PDF pipeline with message
+- If text elements can't be mapped ΓåÆ warn user, show what was found, ask for manual mapping
+- If `find_and_replace_text` finds no matches ΓåÆ try broader substring matching
 - Always provide the Canva design URL so the user can edit manually if auto-edit fails
 
 ## Cover Letter Sub-flow
@@ -411,7 +444,7 @@ Want a cover letter for this role too?
 - Or run `/career-ops cover {slug}` later
 ```
 
-Apply `voice-dna.md` (if present) to the cover letter — full guardrail, conversational voice included (Tier 1 + Tier 2). The CV PDF itself stays Tier 1 only (formal ATS register). See `_writing.md` → Voice DNA.
+Apply `voice-dna.md` (if present) to the cover letter ΓÇö full guardrail, conversational voice included (Tier 1 + Tier 2). The CV PDF itself stays Tier 1 only (formal ATS register). See `_writing.md` ΓåÆ Voice DNA.
 
 If the user says yes, run the full cover letter flow from `modes/cover.md` in slug mode:
 1. Load the existing `## Cover Letter Draft` from the evaluation report as a starting point
@@ -427,4 +460,4 @@ Do not auto-generate the cover letter PDF without going through the interactive 
 
 ## Post-generation
 
-If the job is already in the tracker, flip its PDF cell from ❌ to ✅ with `node mark-pdf-ready.mjs {report number}` (the same report number passed to `--report` above). Do not edit `data/applications.md` by hand.
+If the job is already in the tracker, flip its PDF cell from Γ¥î to Γ£à with `node mark-pdf-ready.mjs {report number}` (the same report number passed to `--report` above). Do not edit `data/applications.md` by hand.

@@ -26,6 +26,7 @@ type Catalog struct {
 	TabTop        string
 	TabSkip       string
 	TabRejected   string
+	TabLapsed     string
 	TabDiscarded  string
 
 	// Table column headers
@@ -108,6 +109,7 @@ type Catalog struct {
 	StatusInterview  string
 	StatusOffer      string
 	StatusRejected   string
+	StatusLapsed     string
 	StatusDiscarded  string
 	StatusSkip       string
 	StatusHired      string
@@ -234,27 +236,12 @@ func (c *Catalog) StatusLabel(norm string) string {
 		return c.StatusSkip
 	case "rejected":
 		return c.StatusRejected
+	case "lapsed":
+		return c.StatusLapsed
 	case "discarded":
 		return c.StatusDiscarded
 	default:
 		return norm
-	}
-}
-
-// WorkModeLabel returns the localized display label for a derived work mode
-// ("Remote", "RemoteFlex", "Hybrid", "Full").
-func (c *Catalog) WorkModeLabel(mode string) string {
-	switch mode {
-	case "Remote":
-		return c.ModeRemote
-	case "RemoteFlex":
-		return c.ModeRemoteFlex
-	case "Hybrid":
-		return c.ModeHybrid
-	case "Full":
-		return c.ModeFull
-	default:
-		return mode
 	}
 }
 
@@ -284,7 +271,7 @@ func (c *Catalog) FormatTimeAgo(dateStr string) string {
 
 // PieChartSectionTitle formats a section title with the standard pie chart icon.
 func PieChartSectionTitle(title string) string {
-	return "🎯 " + title
+	return "≡ƒÄ» " + title
 }
 
 // SeniorityLabel returns the localized display label for a seniority category.
@@ -322,9 +309,10 @@ var En = Catalog{
 	TabInterview:  "INTERVIEW",
 	TabResponded:  "RESPONDED",
 	TabAssessment: "ASSESSMENT",
-	TabTop:        "TOP ≥4",
+	TabTop:        "TOP ΓëÑ4",
 	TabSkip:       "SKIP",
 	TabRejected:   "REJECTED",
+	TabLapsed:     "LAPSED",
 	TabDiscarded:  "DISCARDED",
 
 	// Table column headers
@@ -347,9 +335,9 @@ var En = Catalog{
 
 	// Work modes
 	ModeRemote:     "Remote",
-	ModeRemoteFlex: "Remote (flex)",
+	ModeRemoteFlex: "RemoteFlex",
 	ModeHybrid:     "Hybrid",
-	ModeFull:       "On-site",
+	ModeFull:       "Full",
 
 	// Progress screen
 	ProgressTitle:   "SEARCH PROGRESS",
@@ -367,7 +355,7 @@ var En = Catalog{
 	FitQualityDistribution: "Fit Quality Distribution",
 	SeniorityMix:           "Seniority Mix",
 	QualityBreakdown:       "Quality Breakdown:",
-	MeetQualityBar:         "✓ %.0f%% meet ≥4.0 bar",
+	MeetQualityBar:         "Γ£ô %.0f%% meet ΓëÑ4.0 bar",
 	SalaryBandDist:         "Salary Band Distribution:",
 	ArchetypeTitle:         "By Archetype",
 	WorkModeTitle:          "By Work Mode",
@@ -381,7 +369,7 @@ var En = Catalog{
 	PayMedian:              "Median: ",
 	PayMax:                 "Max: ",
 	PaySourceSplit:         "%d posted, %d estimated",
-	InsightVolumeFit:       "Primary volume in %s (%d roles, %.0f%%) · Highest fit in %s (%.1f/5 avg fit)",
+	InsightVolumeFit:       "Primary volume in %s (%d roles, %.0f%%) ┬╖ Highest fit in %s (%.1f/5 avg fit)",
 	InsightVolumePrimary:   "Primary archetype is %s (%d roles, %.0f%% of evaluated pipeline)",
 	InsightWorkMode:        "Workplace distribution: %.0f%% of roles operate as %s",
 	InsightPayBenchmark:    "Compensation benchmark: Median top pay is $%.0fK (peak $%.0fK) across %d data points",
@@ -407,6 +395,7 @@ var En = Catalog{
 	StatusInterview:  "Interview",
 	StatusOffer:      "Offer",
 	StatusRejected:   "Rejected",
+	StatusLapsed:     "Lapsed",
 	StatusDiscarded:  "Discarded",
 	StatusSkip:       "SKIP",
 	StatusHired:      "Hired",
@@ -451,7 +440,7 @@ var En = Catalog{
 
 	// Picker overlay titles & bar hints
 	PickerChangeStatus: "Change status:",
-	PickerColumnsTitle: "─── Columns (SPACE toggle · ESC close) ───",
+	PickerColumnsTitle: "ΓöÇΓöÇΓöÇ Columns (SPACE toggle ┬╖ ESC close) ΓöÇΓöÇΓöÇ",
 	SearchHintInput:    "   Enter: keep   Esc: cancel   Ctrl+U: clear",
 	SearchHintNormal:   "   Esc: clear   /: edit",
 	SearchMatching:     "  %d/%d matching",
@@ -477,40 +466,41 @@ var En = Catalog{
 // Tr is the static Turkish translation catalog.
 var Tr = Catalog{
 	// Screen banners & general
-	AppTitle:       "KARİYER HATTI",
+	AppTitle:       "KAR─░YER HATTI",
 	OffersSummary:  "%d ilan | Ort %s/5",
 	NoOffersMatch:  "Bu filtreye uyan ilan yok",
-	LoadingPreview: "Önizleme yükleniyor...",
+	LoadingPreview: "├ûnizleme y├╝kleniyor...",
 
 	// Tabs & filters
-	TabAll:        "TÜMÜ",
-	TabEvaluated:  "DEĞERLENDİRİLDİ",
-	TabApplied:    "BAŞVURULDU",
-	TabInterview:  "MÜLAKAT",
-	TabResponded:  "YANIT VERİLDİ",
-	TabAssessment: "DEĞERLENDİRME",
-	TabTop:        "EN İYİ ≥4",
-	TabSkip:       "UYGUN DEĞİL",
-	TabRejected:   "REDDEDİLDİ",
-	TabDiscarded:  "İPTAL",
+	TabAll:        "T├£M├£",
+	TabEvaluated:  "DE─₧ERLEND─░R─░LD─░",
+	TabApplied:    "BA┼₧VURULDU",
+	TabInterview:  "M├£LAKAT",
+	TabResponded:  "YANIT VER─░LD─░",
+	TabAssessment: "DE─₧ERLEND─░RME",
+	TabTop:        "EN ─░Y─░ ΓëÑ4",
+	TabSkip:       "UYGUN DE─₧─░L",
+	TabRejected:   "REDDED─░LD─░",
+	TabLapsed:     "S├£RES─░ DOLDU",
+	TabDiscarded:  "─░PTAL",
 
 	// Table column headers
 	ColFit:      "UYUM",
-	ColDate:     "TARİH",
-	ColCompany:  "ŞİRKET",
-	ColRole:     "POZİSYON",
+	ColDate:     "TAR─░H",
+	ColCompany:  "┼₧─░RKET",
+	ColRole:     "POZ─░SYON",
 	ColStatus:   "DURUM",
 	ColLocation: "KONUM",
-	ColPay:      "ÜCRET",
+	ColPay:      "├£CRET",
 	ColPosted:   "YAYIN",
 	ColLast:     "SON",
 
 	// Preview labels
 	LabelLoc:     "Konum: ",
-	LabelPay:     "Ücret: ",
-	LabelLast:    "Son iletişim: ",
-	LabelRemote:  "Çalışma Şekli: ",
-	LabelOutcome: "Sonuç: ",
+	LabelPay:     "├£cret: ",
+	LabelLast:    "Son ileti┼ƒim: ",
+	LabelRemote:  "├çal─▒┼ƒma ┼₧ekli: ",
+	LabelOutcome: "Sonu├º: ",
 
 	// Work modes
 	ModeRemote:     "Uzaktan",
@@ -519,126 +509,127 @@ var Tr = Catalog{
 	ModeFull:       "Ofiste",
 
 	// Progress screen
-	ProgressTitle:   "TAKİP İLERLEMESİ",
+	ProgressTitle:   "TAK─░P ─░LERLEMES─░",
 	ProgressSummary: "%d takipte | %.1f ort. puan",
 	FunnelTitle:     "Pipeline Hunisi",
-	ScoresTitle:     "Puan Dağılımı",
-	RatesTitle:      "Dönüşüm Oranları",
-	WeeklyTitle:     "Haftalık Aktivite",
-	ActiveInfo:      "%d aktif başvuru | %d toplam teklif",
+	ScoresTitle:     "Puan Da─ƒ─▒l─▒m─▒",
+	RatesTitle:      "D├╢n├╝┼ƒ├╝m Oranlar─▒",
+	WeeklyTitle:     "Haftal─▒k Aktivite",
+	ActiveInfo:      "%d aktif ba┼ƒvuru | %d toplam teklif",
 
 	// Stats screen
-	StatsTitle:             "TAKİP İSTATİSTİKLERİ",
-	StatsSummary:           "%d değerlendirildi | %d arketip",
-	StatsStrategicInsights: "STRATEJİK İÇGÖRÜLER",
-	FitQualityDistribution: "Uyum Kalitesi Dağılımı",
-	SeniorityMix:           "Kıdem Dağılımı",
-	QualityBreakdown:       "Kalite Dağılımı:",
-	MeetQualityBar:         "✓ %%%.0f ≥4.0 barajını geçiyor",
-	SalaryBandDist:         "Maaş Aralığı Dağılımı:",
-	ArchetypeTitle:         "Arketipe Göre",
-	WorkModeTitle:          "Çalışma Şekline Göre",
-	LocationTitle:          "Konuma Göre",
-	PayTitle:               "Ücret Aralığı (ilan üst sınırı, $)",
-	ColArchetype:           "ARKETİP",
+	StatsTitle:             "TAK─░P ─░STAT─░ST─░KLER─░",
+	StatsSummary:           "%d de─ƒerlendirildi | %d arketip",
+	StatsStrategicInsights: "STRATEJ─░K ─░├çG├ûR├£LER",
+	FitQualityDistribution: "Uyum Kalitesi Da─ƒ─▒l─▒m─▒",
+	SeniorityMix:           "K─▒dem Da─ƒ─▒l─▒m─▒",
+	QualityBreakdown:       "Kalite Da─ƒ─▒l─▒m─▒:",
+	MeetQualityBar:         "Γ£ô %%%.0f ΓëÑ4.0 baraj─▒n─▒ ge├ºiyor",
+	SalaryBandDist:         "Maa┼ƒ Aral─▒─ƒ─▒ Da─ƒ─▒l─▒m─▒:",
+	ArchetypeTitle:         "Arketipe G├╢re",
+	WorkModeTitle:          "├çal─▒┼ƒma ┼₧ekline G├╢re",
+	LocationTitle:          "Konuma G├╢re",
+	PayTitle:               "├£cret Aral─▒─ƒ─▒ (ilan ├╝st s─▒n─▒r─▒, $)",
+	ColArchetype:           "ARKET─░P",
 	ColCount:               "SAYI",
 	ColAvgScore:            "ORT. UYUM",
-	PayCount:               "Veri noktası: ",
+	PayCount:               "Veri noktas─▒: ",
 	PayAvg:                 "Ort: ",
 	PayMedian:              "Medyan: ",
 	PayMax:                 "Maks: ",
 	PaySourceSplit:         "%d ilan, %d tahmini",
-	InsightVolumeFit:       "En yüksek hacim %s alanında (%d ilan, %%%.0f) · En yüksek uyum %s alanında (ort. %.1f/5)",
-	InsightVolumePrimary:   "Ana arketip %s (%d ilan, değerlendirilen hattın %%%.0f'i)",
-	InsightWorkMode:        "Çalışma yeri dağılımı: ilanların %%%.0f'i %s olarak çalışıyor",
-	InsightPayBenchmark:    "Ücret karşılaştırması: medyan üst maaş $%.0fK (en yüksek $%.0fK) — %d veri noktası",
+	InsightVolumeFit:       "En y├╝ksek hacim %s alan─▒nda (%d ilan, %%%.0f) ┬╖ En y├╝ksek uyum %s alan─▒nda (ort. %.1f/5)",
+	InsightVolumePrimary:   "Ana arketip %s (%d ilan, de─ƒerlendirilen hatt─▒n %%%.0f'i)",
+	InsightWorkMode:        "├çal─▒┼ƒma yeri da─ƒ─▒l─▒m─▒: ilanlar─▒n %%%.0f'i %s olarak ├ºal─▒┼ƒ─▒yor",
+	InsightPayBenchmark:    "├£cret kar┼ƒ─▒la┼ƒt─▒rmas─▒: medyan ├╝st maa┼ƒ $%.0fK (en y├╝ksek $%.0fK) ΓÇö %d veri noktas─▒",
 
 	// Seniority levels
-	SeniorityExecutive:      "Yönetici",
-	SeniorityStaffPrincipal: "Kıdemli Uzman / Lider",
-	SeniorityLeadManager:    "Takım Lideri / Müdür",
-	SenioritySenior:         "Kıdemli",
+	SeniorityExecutive:      "Y├╢netici",
+	SeniorityStaffPrincipal: "K─▒demli Uzman / Lider",
+	SeniorityLeadManager:    "Tak─▒m Lideri / M├╝d├╝r",
+	SenioritySenior:         "K─▒demli",
 	SeniorityMidLevel:       "Orta Seviye",
-	SeniorityJuniorEntry:    "Başlangıç / Giriş",
+	SeniorityJuniorEntry:    "Ba┼ƒlang─▒├º / Giri┼ƒ",
 
 	// Relative dates
-	TimeToday:     "bugün",
-	TimeYesterday: "dün",
-	TimeDaysAgo:   "%d gün önce",
+	TimeToday:     "bug├╝n",
+	TimeYesterday: "d├╝n",
+	TimeDaysAgo:   "%d g├╝n ├╢nce",
 
 	// Status display names
-	StatusEvaluated:  "Değerlendirildi",
-	StatusApplied:    "Başvuruldu",
-	StatusResponded:  "Yanıt Verildi",
-	StatusAssessment: "Değerlendirme",
-	StatusInterview:  "Mülakat",
+	StatusEvaluated:  "De─ƒerlendirildi",
+	StatusApplied:    "Ba┼ƒvuruldu",
+	StatusResponded:  "Yan─▒t Verildi",
+	StatusAssessment: "De─ƒerlendirme",
+	StatusInterview:  "M├╝lakat",
 	StatusOffer:      "Teklif",
 	StatusRejected:   "Reddedildi",
-	StatusDiscarded:  "İptal Edildi",
-	StatusSkip:       "Uygun Değil",
-	StatusHired:      "İşe Alındı",
+	StatusLapsed:     "Suresi Doldu",
+	StatusDiscarded:  "─░ptal Edildi",
+	StatusSkip:       "Uygun De─ƒil",
+	StatusHired:      "─░┼ƒe Al─▒nd─▒",
 
 	// Additional UI strings
 	NoData:        "Veri yok",
-	EmptyFile:     "(boş dosya)",
-	RateResponse:  "Yanıt Oranı: ",
-	RateInterview: "Mülakat Oranı: ",
-	RateOffer:     "Teklif Oranı: ",
+	EmptyFile:     "(bo┼ƒ dosya)",
+	RateResponse:  "Yan─▒t Oran─▒: ",
+	RateInterview: "M├╝lakat Oran─▒: ",
+	RateOffer:     "Teklif Oran─▒: ",
 
 	// Footer descriptions & hints
 	HelpNav:        " gezin  ",
 	HelpTabs:       " sekmeler  ",
 	HelpSearch:     " ara  ",
-	HelpSort:       " sırala  ",
+	HelpSort:       " s─▒rala  ",
 	HelpRefresh:    " yenile  ",
 	HelpReport:     " rapor  ",
-	HelpOpenURL:    " URL aç  ",
-	HelpOpenPDF:    " PDF'i aç  ",
-	HelpRegenPDF:   " PDF üret  ",
+	HelpOpenURL:    " URL a├º  ",
+	HelpOpenPDF:    " PDF'i a├º  ",
+	HelpRegenPDF:   " PDF ├╝ret  ",
 	HelpChange:     " durum  ",
-	HelpColumns:    " sütunlar  ",
-	HelpView:       " görünüm  ",
+	HelpColumns:    " s├╝tunlar  ",
+	HelpView:       " g├╢r├╝n├╝m  ",
 	HelpProgress:   " ilerleme  ",
 	HelpStats:      " istatistik  ",
-	HelpQuit:       " çıkış",
-	HelpScroll:     " kaydır  ",
+	HelpQuit:       " ├º─▒k─▒┼ƒ",
+	HelpScroll:     " kayd─▒r  ",
 	HelpPage:       " sayfa  ",
-	HelpTopEnd:     " baş/son  ",
+	HelpTopEnd:     " ba┼ƒ/son  ",
 	HelpLanguage:   " dil  ",
 	HelpManifesto:  " manifesto  ",
 	HelpBack:       " geri",
 	HelpNavigate:   " gezin  ",
-	HelpToggle:     " değiştir  ",
+	HelpToggle:     " de─ƒi┼ƒtir  ",
 	HelpClose:      " kapat",
 	HelpConfirm:    " onayla  ",
 	HelpCancel:     " iptal",
-	HelpFilterLive: " canlı filtrele  ",
+	HelpFilterLive: " canl─▒ filtrele  ",
 	HelpKeep:       " kaydet  ",
 	HelpClear:      " temizle  ",
 
 	// Picker overlay titles & bar hints
-	PickerChangeStatus: "Durumu değiştir:",
-	PickerColumnsTitle: "─── Sütunlar (SPACE değiştir · ESC kapat) ───",
+	PickerChangeStatus: "Durumu de─ƒi┼ƒtir:",
+	PickerColumnsTitle: "ΓöÇΓöÇΓöÇ S├╝tunlar (SPACE de─ƒi┼ƒtir ┬╖ ESC kapat) ΓöÇΓöÇΓöÇ",
 	SearchHintInput:    "   Enter: kaydet   Esc: iptal   Ctrl+U: temizle",
-	SearchHintNormal:   "   Esc: temizle   /: düzenle",
-	SearchMatching:     "  %d/%d eşleşen",
-	SortLabel:          "[Sırala: %s]",
-	ViewLabel:          "[Görünüm: %s]",
-	ShownCount:         "%d gösterilen",
+	SearchHintNormal:   "   Esc: temizle   /: d├╝zenle",
+	SearchMatching:     "  %d/%d e┼ƒle┼ƒen",
+	SortLabel:          "[S─▒rala: %s]",
+	ViewLabel:          "[G├╢r├╝n├╝m: %s]",
+	ShownCount:         "%d g├╢sterilen",
 	ColReport:          "RAP",
 	ColPDF:             "PDF",
 
 	// Sort & view modes
 	SortScore:    "puan",
 	SortDate:     "tarih",
-	SortCompany:  "şirket",
+	SortCompany:  "┼ƒirket",
 	SortStatus:   "durum",
 	SortLocation: "konum",
-	SortPay:      "ücret",
+	SortPay:      "├╝cret",
 	SortLast:     "son",
-	SortPosted:   "yayın",
+	SortPosted:   "yay─▒n",
 	ViewGrouped:  "gruplu",
-	ViewFlat:     "düz",
+	ViewFlat:     "d├╝z",
 }
 
 // Es is the static Spanish translation catalog.
@@ -656,9 +647,10 @@ var Es = Catalog{
 	TabInterview:  "ENTREVISTA",
 	TabResponded:  "RESPONDIDAS",
 	TabAssessment: "PRUEBA",
-	TabTop:        "TOP ≥4",
+	TabTop:        "TOP ΓëÑ4",
 	TabSkip:       "OMITIR",
 	TabRejected:   "RECHAZADAS",
+	TabLapsed:     "CADUCADAS",
 	TabDiscarded:  "DESCARTADAS",
 
 	// Table column headers
@@ -667,45 +659,45 @@ var Es = Catalog{
 	ColCompany:  "EMPRESA",
 	ColRole:     "PUESTO",
 	ColStatus:   "ESTADO",
-	ColLocation: "UBICACIÓN",
+	ColLocation: "UBICACI├ôN",
 	ColPay:      "SALARIO",
 	ColPosted:   "PUBLIC.",
-	ColLast:     "ÚLTIMO",
+	ColLast:     "├ÜLTIMO",
 
 	// Preview labels
 	LabelLoc:     "Ubic: ",
 	LabelPay:     "Salario: ",
-	LabelLast:    "Último contacto: ",
+	LabelLast:    "├Ültimo contacto: ",
 	LabelRemote:  "Remoto: ",
 	LabelOutcome: "Resultado: ",
 
 	// Work modes
 	ModeRemote:     "Remoto",
 	ModeRemoteFlex: "Remoto (Flex)",
-	ModeHybrid:     "Híbrido",
+	ModeHybrid:     "H├¡brido",
 	ModeFull:       "Presencial",
 
 	// Progress screen
-	ProgressTitle:   "PROGRESO DE BÚSQUEDA",
-	ProgressSummary: "%d en seguimiento | %.1f puntuación media",
+	ProgressTitle:   "PROGRESO DE B├ÜSQUEDA",
+	ProgressSummary: "%d en seguimiento | %.1f puntuaci├│n media",
 	FunnelTitle:     "Embudo del proceso",
-	ScoresTitle:     "Distribución de puntuaciones",
-	RatesTitle:      "Tasas de conversión",
+	ScoresTitle:     "Distribuci├│n de puntuaciones",
+	RatesTitle:      "Tasas de conversi├│n",
 	WeeklyTitle:     "Actividad semanal",
 	ActiveInfo:      "%d solicitudes activas | %d ofertas totales",
 
 	// Stats screen
-	StatsTitle:             "ESTADÍSTICAS DE BÚSQUEDA",
+	StatsTitle:             "ESTAD├ìSTICAS DE B├ÜSQUEDA",
 	StatsSummary:           "%d evaluadas | %d arquetipos",
-	StatsStrategicInsights: "INSIGHTS ESTRATÉGICOS",
-	FitQualityDistribution: "Distribución de Calidad de Ajuste",
-	SeniorityMix:           "Mix de Antigüedad",
+	StatsStrategicInsights: "INSIGHTS ESTRAT├ëGICOS",
+	FitQualityDistribution: "Distribuci├│n de Calidad de Ajuste",
+	SeniorityMix:           "Mix de Antig├╝edad",
 	QualityBreakdown:       "Desglose de Calidad:",
-	MeetQualityBar:         "✓ %.0f%% supera el umbral de ≥4.0",
-	SalaryBandDist:         "Distribución por Rangos Salariales:",
+	MeetQualityBar:         "Γ£ô %.0f%% supera el umbral de ΓëÑ4.0",
+	SalaryBandDist:         "Distribuci├│n por Rangos Salariales:",
 	ArchetypeTitle:         "Por Arquetipo",
 	WorkModeTitle:          "Por Modalidad",
-	LocationTitle:          "Por Ubicación",
+	LocationTitle:          "Por Ubicaci├│n",
 	PayTitle:               "Rango salarial (tope publicado, $)",
 	ColArchetype:           "ARQUETIPO",
 	ColCount:               "CANTIDAD",
@@ -713,17 +705,17 @@ var Es = Catalog{
 	PayCount:               "Puntos de datos: ",
 	PayAvg:                 "Prom: ",
 	PayMedian:              "Mediana: ",
-	PayMax:                 "Máx: ",
+	PayMax:                 "M├íx: ",
 	PaySourceSplit:         "%d publicados, %d estimados",
-	InsightVolumeFit:       "Mayor volumen en %s (%d puestos, %.0f%%) · Mayor ajuste en %s (ajuste prom. %.1f/5)",
+	InsightVolumeFit:       "Mayor volumen en %s (%d puestos, %.0f%%) ┬╖ Mayor ajuste en %s (ajuste prom. %.1f/5)",
 	InsightVolumePrimary:   "Arquetipo principal: %s (%d puestos, %.0f%% del flujo evaluado)",
-	InsightWorkMode:        "Distribución laboral: el %.0f%% de los puestos opera como %s",
-	InsightPayBenchmark:    "Referencia salarial: La mediana de salario máximo es $%.0fK (pico $%.0fK) en %d puntos de datos",
+	InsightWorkMode:        "Distribuci├│n laboral: el %.0f%% de los puestos opera como %s",
+	InsightPayBenchmark:    "Referencia salarial: La mediana de salario m├íximo es $%.0fK (pico $%.0fK) en %d puntos de datos",
 
 	// Seniority levels
 	SeniorityExecutive:      "Ejecutivo",
 	SeniorityStaffPrincipal: "Staff / Principal",
-	SeniorityLeadManager:    "Líder / Manager",
+	SeniorityLeadManager:    "L├¡der / Manager",
 	SenioritySenior:         "Senior",
 	SeniorityMidLevel:       "Nivel Medio",
 	SeniorityJuniorEntry:    "Junior / Inicial",
@@ -741,20 +733,21 @@ var Es = Catalog{
 	StatusInterview:  "Entrevista",
 	StatusOffer:      "Oferta",
 	StatusRejected:   "Rechazada",
+	StatusLapsed:     "Caducado",
 	StatusDiscarded:  "Descartada",
 	StatusSkip:       "OMITIR",
 	StatusHired:      "Contratada",
 
 	// Additional UI strings
 	NoData:        "Sin datos",
-	EmptyFile:     "(archivo vacío)",
+	EmptyFile:     "(archivo vac├¡o)",
 	RateResponse:  "Tasa de respuesta: ",
 	RateInterview: "Tasa de entrevistas: ",
 	RateOffer:     "Tasa de ofertas: ",
 
 	// Footer descriptions & hints
 	HelpNav:        " navegar  ",
-	HelpTabs:       " pestañas  ",
+	HelpTabs:       " pesta├▒as  ",
 	HelpSearch:     " buscar  ",
 	HelpSort:       " ordenar  ",
 	HelpRefresh:    " actualizar  ",
@@ -766,14 +759,14 @@ var Es = Catalog{
 	HelpColumns:    " columnas  ",
 	HelpView:       " vista  ",
 	HelpProgress:   " progreso  ",
-	HelpStats:      " estadísticas  ",
+	HelpStats:      " estad├¡sticas  ",
 	HelpQuit:       " salir",
 	HelpScroll:     " desplazar  ",
-	HelpPage:       " página  ",
+	HelpPage:       " p├ígina  ",
 	HelpTopEnd:     " inicio/fin  ",
 	HelpLanguage:   " idioma  ",
 	HelpManifesto:  " manifiesto  ",
-	HelpBack:       " atrás",
+	HelpBack:       " atr├ís",
 	HelpNavigate:   " navegar  ",
 	HelpToggle:     " alternar  ",
 	HelpClose:      " cerrar",
@@ -785,7 +778,7 @@ var Es = Catalog{
 
 	// Picker overlay titles & bar hints
 	PickerChangeStatus: "Cambiar estado:",
-	PickerColumnsTitle: "─── Columnas (SPACE alternar · ESC cerrar) ───",
+	PickerColumnsTitle: "ΓöÇΓöÇΓöÇ Columnas (SPACE alternar ┬╖ ESC cerrar) ΓöÇΓöÇΓöÇ",
 	SearchHintInput:    "   Enter: guardar   Esc: cancelar   Ctrl+U: limpiar",
 	SearchHintNormal:   "   Esc: limpiar   /: editar",
 	SearchMatching:     "  %d/%d coincidencias",
@@ -796,13 +789,13 @@ var Es = Catalog{
 	ColPDF:             "PDF",
 
 	// Sort & view modes
-	SortScore:    "puntuación",
+	SortScore:    "puntuaci├│n",
 	SortDate:     "fecha",
 	SortCompany:  "empresa",
 	SortStatus:   "estado",
-	SortLocation: "ubicación",
+	SortLocation: "ubicaci├│n",
 	SortPay:      "salario",
-	SortLast:     "último",
+	SortLast:     "├║ltimo",
 	SortPosted:   "publicado",
 	ViewGrouped:  "agrupado",
 	ViewFlat:     "plano",
@@ -814,7 +807,7 @@ var Current = &En
 // languages is the single source of truth for which languages exist, in the
 // order ToggleLang cycles them. SetLang, GetLang and ToggleLang all read it, so
 // adding a language is one entry here rather than three separate edits that can
-// drift — which is how ToggleLang came to be unable to reach Spanish.
+// drift ΓÇö which is how ToggleLang came to be unable to reach Spanish.
 //
 // Order matters twice: it is the cycle order, and SetLang matches by prefix in
 // this order. "en" before "es" is harmless since neither is a prefix of the
@@ -846,7 +839,7 @@ func SetLang(lang string) {
 // It used to flip between &En and &Tr, with every other catalog falling into
 // the else branch and landing on English. Spanish was added after that was
 // written, so a user who started the dashboard in Spanish pressed the key the
-// help bar advertises as "lang" and could not get back — the toggle could only
+// help bar advertises as "lang" and could not get back ΓÇö the toggle could only
 // ever reach English and Turkish. Cycling makes every supported language
 // reachable from every other one.
 func ToggleLang() {

@@ -16,6 +16,13 @@ func funnelRank(status string) int {
 	switch NormalizeStatus(status) {
 	case "applied":
 		return 1
+	// Lapsed ranks 1, alongside Applied, never 2. An application was sent
+	// for it so it belongs in everApplied's denominator, but the state means
+	// no employer ever replied, so it can never count as a response. Ranking
+	// it 0 (the unmapped default) would drop those rows from the denominator
+	// and quietly raise the reported response rate.
+	case "lapsed":
+		return 1
 	case "responded", "rejected":
 		return 2
 	case "assessment":
@@ -36,7 +43,7 @@ type StatusLedger struct {
 	// row that moved on to Rejected still counts the Interview it had.
 	Reached map[int]int
 	// LatestDate is the date of each tracker #'s most recent surviving
-	// transition — what the DATE column shows. Absent when the row has none.
+	// transition ΓÇö what the DATE column shows. Absent when the row has none.
 	LatestDate map[int]string
 }
 
@@ -86,7 +93,7 @@ type ledgerObservation struct {
 // observation (so a mis-click's later date does not linger), and a
 // `correction` line re-dates the latest observation with the same target
 // (so a transition moved to an earlier day actually moves). Source validity
-// is deliberately not a gate here — for a display date a `backfill` line is
+// is deliberately not a gate here ΓÇö for a display date a `backfill` line is
 // still the best information there is.
 func parseStatusLedger(content string) StatusLedger {
 	reached := make(map[int]int)

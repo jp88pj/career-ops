@@ -1,7 +1,7 @@
 // @ts-check
 /** @typedef {import('./_types.js').Provider} Provider */
 
-// SmartRecruiters provider — hits the public postings API.
+// SmartRecruiters provider ΓÇö hits the public postings API.
 // Auto-detects from careers_url pattern
 // `https://(careers|jobs).smartrecruiters.com/<slug>`. A tracked_companies
 // entry can also set `provider: smartrecruiters` explicitly to bypass
@@ -15,7 +15,7 @@
 //     detailLimit: 25      # max detail calls per sweep when fetchDetails=true
 //
 // Detail enrichment answers "what does this job say", not "is this endpoint
-// alive" — it is skipped entirely while verify-portals is probing, and runs
+// alive" ΓÇö it is skipped entirely while verify-portals is probing, and runs
 // in small batches so a 400-posting board cannot hammer the shared API host.
 
 import { intInRange } from './_config-utils.mjs';
@@ -46,8 +46,8 @@ function parseSmartRecruitersConfig(entry) {
  *
  * The detail payload nests HTML bodies under `jobAd.sections`, keyed by a
  * fixed section set (companyDescription, jobDescription, qualifications,
- * additionalInformation). Joined in that order — company context first,
- * call-to-action last — then stripped by the shared pipeline.
+ * additionalInformation). Joined in that order ΓÇö company context first,
+ * call-to-action last ΓÇö then stripped by the shared pipeline.
  *
  * @param {any} detail
  * @returns {string}
@@ -73,7 +73,7 @@ function assertSmartRecruitersUrl(url) {
   }
   if (parsed.protocol !== 'https:') throw new Error(`smartrecruiters: URL must use HTTPS: ${url}`);
   if (!ALLOWED_SMARTRECRUITERS_HOSTS.has(parsed.hostname)) {
-    throw new Error(`smartrecruiters: untrusted hostname "${parsed.hostname}" — must be one of: ${[...ALLOWED_SMARTRECRUITERS_HOSTS].join(', ')}`);
+    throw new Error(`smartrecruiters: untrusted hostname "${parsed.hostname}" ΓÇö must be one of: ${[...ALLOWED_SMARTRECRUITERS_HOSTS].join(', ')}`);
   }
   return url;
 }
@@ -144,7 +144,7 @@ export default {
     }
 
     // Detail enrichment answers "what does this job say", not "is this
-    // endpoint alive" — skip it entirely while probing so it never spends
+    // endpoint alive" ΓÇö skip it entirely while probing so it never spends
     // budget a liveness check has no use for (same rule as vdab).
     const { fetchDetails, detailLimit } = parseSmartRecruitersConfig(entry);
     const probing = Number.isInteger(ctx?.maxPages) && ctx.maxPages > 0;
@@ -191,7 +191,7 @@ export default {
  * - location: prefer `fullLocation`; else assemble from city/region/country
  *   parts (skipping empties); append "Remote" when `location.remote` is true.
  * - url: `j.ref` is an `api.smartrecruiters.com/v1/companies/<slug>/postings/<id>`
- *   URL — rewrite to the public `jobs.smartrecruiters.com/<slug>/<id>-<title-slug>`.
+ *   URL ΓÇö rewrite to the public `jobs.smartrecruiters.com/<slug>/<id>-<title-slug>`.
  *   The public site has no `/postings/` segment; carrying it over yields a 404,
  *   which the liveness checker then reports as an expired posting (#1612).
  *   SmartRecruiters resolves the page by id alone, so the trailing title slug is
@@ -223,7 +223,7 @@ export function parseSmartRecruitersResponse(json, companyName, companySlug) {
           && parsedRef.protocol === 'https:'
           && parsedRef.hostname === 'api.smartrecruiters.com'
           && parsedRef.pathname.startsWith('/v1/companies/')) {
-        // /v1/companies/<slug>/postings/<id> → <slug>, <id>
+        // /v1/companies/<slug>/postings/<id> ΓåÆ <slug>, <id>
         const [refSlug, postings, refId] = parsedRef.pathname
           .slice('/v1/companies/'.length)
           .split('/')
@@ -251,6 +251,66 @@ export function parseSmartRecruitersResponse(json, companyName, companySlug) {
       id: typeof j.id === 'string' || typeof j.id === 'number' ? String(j.id) : undefined,
       ...(requisitionId ? { requisitionId } : {}),
       ...(language ? { language } : {}),
+      ...(customFieldsOf(j)),
     }];
   });
+}
+
+// The SmartRecruiters list payload carries a `customField` array of
+// {fieldLabel, valueLabel} pairs. On the NYC tenant it holds the fields that
+// decide whether a posting is worth reading at all:
+//
+//   Title Code                   the CIVIL SERVICE title code (56058 = Community
+//                                Coordinator) -- a posting bound to one code can
+//                                carry ANY business title, so matching on the
+//                                title alone misses most of a title family
+//   Civil Service Title Description
+//   Applicant Type               "External (NYC Careers)" vs internal-only
+//   Job Type                     Full-Time / Part-Time -- a part-time RATE
+//                                must not be annualised
+//   Posted On Date / Expire Date  the board DOES carry dates, in the list
+//   Salary Min / Salary Max      the comp band, per posting
+//   Agency / Borough
+//
+// The provider previously dropped all of it, which is why the NYC SmartRecruiters
+// scanner reported that the board has no posting date. It has dates; the
+// provider was not reading them.
+function customFieldsOf(j) {
+  const cf = j?.customField;
+  if (!Array.isArray(cf) || cf.length === 0) return {};
+  const by = new Map();
+  for (const f of cf) {
+    const label = String(f?.fieldLabel ?? '').trim().toLowerCase();
+    if (!label) continue;
+    if (!by.has(label)) by.set(label, String(f?.valueLabel ?? f?.valueId ?? '').trim());
+  }
+  const num = (label) => {
+    const v = by.get(label);
+    if (v === undefined || v === '') return undefined;
+    const n = Number(String(v).replace(/[$,\s]/g, ''));
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const str = (label) => {
+    const v = by.get(label);
+    return v === undefined || v === '' ? undefined : v;
+  };
+  const out = {};
+  const put = (k, v) => { if (v !== undefined) out[k] = v; };
+  put('titleCode', str('title code'));
+  // The City's own statement of whether the seat needs an EXAM.
+  // "Non-Competitive-5" (the codes he can fill - 56057, 56058) needs none;
+  // "Competitive-1" needs one the record cannot reach. The posting page says
+  // it in the same breath: "Title Classification: No exam required document."
+  put('titleClassification', str('title classification'));
+  put('civilServiceTitle', str('civil service title description'));
+  put('applicantType', str('applicant type'));
+  put('jobType', str('job type'));
+  put('postedOn', str('posted on date'));
+  put('expireOn', str('expire date'));
+  put('salaryBand', str('salary band'));
+  put('agency', str('agency'));
+  put('borough', str('borough'));
+  put('salaryMin', num('salary min'));
+  put('salaryMax', num('salary max'));
+  return out;
 }

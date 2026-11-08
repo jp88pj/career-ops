@@ -2,7 +2,6 @@ package screens
 
 import (
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -115,7 +114,7 @@ type PipelineHistoryFailedMsg struct {
 //
 // Sibling of PipelineHistoryFailedMsg, for the more consequential of the two
 // files: rebuilding the pipeline from a failed tracker read empties it, and
-// ComputeProgressMetrics then reports every rate as 0% — an empty pipeline and
+// ComputeProgressMetrics then reports every rate as 0% ΓÇö an empty pipeline and
 // a search that looks like it is failing, because a file could not be opened.
 type PipelineTrackerFailedMsg struct {
 	Err string
@@ -170,6 +169,7 @@ const (
 	filterAssessment = "assessment"
 	filterSkip       = "skip"
 	filterRejected   = "rejected"
+	filterLapsed     = "lapsed"
 	filterDiscarded  = "discarded"
 	filterTop        = "top"
 )
@@ -190,6 +190,7 @@ func getPipelineTabs() []pipelineTab {
 		{filterTop, i18n.Current.TabTop},
 		{filterSkip, i18n.Current.TabSkip},
 		{filterRejected, i18n.Current.TabRejected},
+		{filterLapsed, i18n.Current.TabLapsed},
 		{filterDiscarded, i18n.Current.TabDiscarded},
 	}
 }
@@ -200,12 +201,12 @@ var sortCycle = []string{sortScore, sortDate, sortCompany, sortStatus, sortLocat
 type ColumnID int
 
 const (
-	// Optional columns — user-toggleable via the column picker (C key).
+	// Optional columns ΓÇö user-toggleable via the column picker (C key).
 	ColDate        ColumnID = iota // DATE: latest status change (ledger), else the tracker's evaluation date
 	ColLocation                    // LOCATION city+state
 	ColPay                         // PAY range
-	ColHasReport                   // RPT: ✓/—
-	ColHasPDF                      // PDF: ✓/—
+	ColHasReport                   // RPT: Γ£ô/ΓÇö
+	ColHasPDF                      // PDF: Γ£ô/ΓÇö
 	ColLastContact                 // LAST contact date
 	ColPosted                      // POSTED: how long the req has been open
 )
@@ -224,8 +225,8 @@ func getOptionalCols() []colDef {
 		{ColDate, i18n.Current.ColDate, "", 10, true},
 		{ColLocation, i18n.Current.ColLocation, "", 20, true},
 		{ColPay, i18n.Current.ColPay, "", 16, true},
-		{ColHasReport, i18n.Current.ColReport, "✓/—", 4, false},
-		{ColHasPDF, i18n.Current.ColPDF, "✓/—", 4, false},
+		{ColHasReport, i18n.Current.ColReport, "Γ£ô/ΓÇö", 4, false},
+		{ColHasPDF, i18n.Current.ColPDF, "Γ£ô/ΓÇö", 4, false},
 		{ColLastContact, i18n.Current.ColLast, "", 10, false},
 		{ColPosted, i18n.Current.ColPosted, "", 10, false},
 	}
@@ -251,6 +252,7 @@ func getStatusPairs(currentNormalized string) []StatusPair {
 		{i18n.Current.StatusOffer, "Offer"},
 		{i18n.Current.StatusHired, "Hired"},
 		{i18n.Current.StatusRejected, "Rejected"},
+		{i18n.Current.StatusLapsed, "Lapsed"},
 		{i18n.Current.StatusDiscarded, "Discarded"},
 		{i18n.Current.StatusSkip, "Skip"},
 	}
@@ -292,7 +294,7 @@ func (m PipelineModel) currentStatusPairs() []StatusPair {
 }
 
 // statusGroupOrder defines display order for grouped view.
-var statusGroupOrder = []string{"hired", "interview", "offer", "assessment", "responded", "applied", "evaluated", "skip", "rejected", "discarded"}
+var statusGroupOrder = []string{"hired", "interview", "offer", "assessment", "responded", "applied", "evaluated", "skip", "rejected", "lapsed", "discarded"}
 
 // PipelineModel implements the career pipeline dashboard screen.
 type PipelineModel struct {
@@ -311,19 +313,19 @@ type PipelineModel struct {
 	// Status picker sub-state
 	statusPicker bool
 	statusCursor int
-	// Discard reason picker sub-state (Issue 1380) — opens when status
+	// Discard reason picker sub-state (Issue 1380) ΓÇö opens when status
 	// transitions to Discarded or SKIP, pre-populated from the report's
 	// predicted discard_reasons, plus canonical fallback options.
 	discardPicker         bool
 	discardCursor         int
 	discardOptions        []string                // predicted + canonical options shown to user
-	discardCustomInput    bool                    // true when "Other…" is selected and user is typing
-	discardCustomText     string                  // free-text typed for "Other…" reason
+	discardCustomInput    bool                    // true when "OtherΓÇª" is selected and user is typing
+	discardCustomText     string                  // free-text typed for "OtherΓÇª" reason
 	discardPendingApp     model.CareerApplication // app awaiting the reason pick
 	discardPendingStatus  string                  // new status to commit with the reason
 	discardPredictedCount int                     // count of predicted reasons (from report)
 
-	// PDF picker sub-state — shown when one application matches several
+	// PDF picker sub-state ΓÇö shown when one application matches several
 	// generated CVs (role variants from the same company).
 	pdfPicker  bool
 	pdfCursor  int
@@ -331,10 +333,10 @@ type PipelineModel struct {
 	// flash is a one-shot notice rendered in place of the help bar; any
 	// keypress clears it.
 	flash string
-	// Search sub-state — narrows the active tab by substring on company/role/notes.
+	// Search sub-state ΓÇö narrows the active tab by substring on company/role/notes.
 	searchInput bool   // true while the user is typing the query
 	searchQuery string // committed (or in-progress) lowercased query
-	// Column picker sub-state — opened with C, closed with esc.
+	// Column picker sub-state ΓÇö opened with C, closed with esc.
 	colPicker    bool
 	colPickerIdx int
 	visibleCols  map[ColumnID]bool
@@ -422,7 +424,7 @@ func (m PipelineModel) WithReloadedData(apps []model.CareerApplication, metrics 
 	reloaded.sortMode = m.sortMode
 	reloaded.activeTab = m.activeTab
 	reloaded.viewMode = m.viewMode
-	// Preserve search state across refresh — otherwise pressing `r` silently drops a
+	// Preserve search state across refresh ΓÇö otherwise pressing `r` silently drops a
 	// committed query and the user loses their place mid-investigation.
 	reloaded.searchQuery = m.searchQuery
 	reloaded.searchInput = m.searchInput
@@ -547,7 +549,7 @@ func (m PipelineModel) Update(msg tea.Msg) (PipelineModel, tea.Cmd) {
 				seen[c] = true
 			}
 		}
-		opts = append(opts, "Other…")
+		opts = append(opts, "OtherΓÇª")
 		m.discardPicker = true
 		m.discardCursor = 0
 		m.discardOptions = opts
@@ -565,7 +567,7 @@ func (m PipelineModel) handleKey(msg tea.KeyMsg) (PipelineModel, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		// While a search is committed, Esc clears the search (matches vim's `:nohl`
-		// ergonomics). With no query, Esc is a no-op — q is the only quit key, which
+		// ergonomics). With no query, Esc is a no-op ΓÇö q is the only quit key, which
 		// keeps the help bar honest and avoids accidental exits.
 		if m.searchQuery != "" {
 			m.searchQuery = ""
@@ -644,7 +646,7 @@ func (m PipelineModel) handleKey(msg tea.KeyMsg) (PipelineModel, tea.Cmd) {
 	case "enter":
 		if app, ok := m.CurrentApp(); ok && app.ReportPath != "" {
 			fullPath := filepath.Join(m.careerOpsPath, app.ReportPath)
-			title := fmt.Sprintf("%s — %s", app.Company, app.Role)
+			title := fmt.Sprintf("%s ΓÇö %s", app.Company, app.Role)
 			jobURL := app.JobURL
 			return m, func() tea.Msg {
 				return PipelineOpenReportMsg{Path: fullPath, Title: title, JobURL: jobURL, App: app}
@@ -672,7 +674,7 @@ func (m PipelineModel) handleKey(msg tea.KeyMsg) (PipelineModel, tea.Cmd) {
 			manifest := data.LoadPDFManifest(m.careerOpsPath)
 			candidates := data.ResolvePDFs(data.PDFWorkspaceRoot(m.careerOpsPath), app, manifest)
 			if len(candidates) == 0 {
-				m.flash = "No CV PDF found for this application — generate one with /career-ops pdf"
+				m.flash = "No CV PDF found for this application ΓÇö generate one with /career-ops pdf"
 			} else {
 				return m, m.openPDFCmd(candidates[0]) // newest first
 			}
@@ -697,14 +699,14 @@ func (m PipelineModel) handleKey(msg tea.KeyMsg) (PipelineModel, tea.Cmd) {
 				}
 			}
 			if !found || entry.HTMLPath == "" {
-				m.flash = "No source HTML found for this application — run /career-ops pdf first"
+				m.flash = "No source HTML found for this application ΓÇö run /career-ops pdf first"
 				return m, nil
 			}
 			if _, err := os.Stat(filepath.Join(workspaceRoot, filepath.FromSlash(entry.HTMLPath))); err != nil {
 				m.flash = "Source HTML missing: " + entry.HTMLPath
 				return m, nil
 			}
-			m.flash = "Regenerating PDF via generate-pdf.mjs — this takes a few seconds..."
+			m.flash = "Regenerating PDF via generate-pdf.mjs ΓÇö this takes a few seconds..."
 			path, report := workspaceRoot, entry.ReportNumber
 			html, pdf, format := entry.HTMLPath, entry.PDFPath, entry.Format
 			return m, func() tea.Msg {
@@ -789,7 +791,7 @@ func (m PipelineModel) handleKey(msg tea.KeyMsg) (PipelineModel, tea.Cmd) {
 // keeps query, refreshes filtered list). Backspace + printable chars edit
 // the query and live-update the filter so the user sees results as they type.
 //
-// Report previews are NOT lazy-loaded on every keystroke — that would trigger
+// Report previews are NOT lazy-loaded on every keystroke ΓÇö that would trigger
 // a synchronous os.ReadFile per rune/backspace/ctrl+u and stutter live
 // typing. Instead the load fires once when the user commits (Enter) or
 // cancels (Esc); subsequent cursor movement in handleKey loads as before.
@@ -930,11 +932,11 @@ func (m PipelineModel) handlePDFPicker(msg tea.KeyMsg) (PipelineModel, tea.Cmd) 
 }
 
 // handleDiscardPicker consumes keys while the discard reason picker is open
-// (Issue 1380). When "Other…" is focused and Enter is pressed, it enters a
+// (Issue 1380). When "OtherΓÇª" is focused and Enter is pressed, it enters a
 // free-text sub-mode where the user types a custom reason and confirms with
 // Enter again. Esc at any point skips tagging and just commits the status.
 func (m PipelineModel) handleDiscardPicker(msg tea.KeyMsg) (PipelineModel, tea.Cmd) {
-	// Free-text sub-mode for "Other…"
+	// Free-text sub-mode for "OtherΓÇª"
 	if m.discardCustomInput {
 		switch msg.String() {
 		case "enter":
@@ -967,7 +969,7 @@ func (m PipelineModel) handleDiscardPicker(msg tea.KeyMsg) (PipelineModel, tea.C
 
 	switch msg.String() {
 	case "esc":
-		// Skip reason tagging — still commit the status change.
+		// Skip reason tagging ΓÇö still commit the status change.
 		m.discardPicker = false
 		return m, func() tea.Msg {
 			return PipelineUpdateStatusMsg{
@@ -994,7 +996,7 @@ func (m PipelineModel) handleDiscardPicker(msg tea.KeyMsg) (PipelineModel, tea.C
 			break
 		}
 		chosen := m.discardOptions[m.discardCursor]
-		if chosen == "Other…" {
+		if chosen == "OtherΓÇª" {
 			m.discardCustomInput = true
 			m.discardCustomText = ""
 			return m, nil
@@ -1028,7 +1030,7 @@ func (m PipelineModel) StartDiscardReasonFlow(app model.CareerApplication, statu
 			seen[c] = true
 		}
 	}
-	opts = append(opts, "Other…")
+	opts = append(opts, "OtherΓÇª")
 	m.discardPicker = true
 	m.discardCursor = 0
 	m.discardOptions = opts
@@ -1227,8 +1229,8 @@ func (m *PipelineModel) applyFilterAndSort() {
 // effectiveDate is what the DATE column shows and what the date sort orders
 // by: the row's latest status transition from status-log.tsv when it has one,
 // otherwise the tracker's own Date cell (the evaluation date). Other readers
-// of app.Date — the hired-flow weeks math, the LAST column's "same as date"
-// elision — mean the evaluation date on purpose and do not go through here.
+// of app.Date ΓÇö the hired-flow weeks math, the LAST column's "same as date"
+// elision ΓÇö mean the evaluation date on purpose and do not go through here.
 func effectiveDate(app model.CareerApplication) string {
 	if app.StatusDate != "" {
 		return app.StatusDate
@@ -1276,7 +1278,7 @@ func (m PipelineModel) sortLess() func(a, b model.CareerApplication) bool {
 	default: // sortScore
 		// Unevaluated rows float to the TOP, not the bottom. Their Score is
 		// Go's zero value, so a plain `a.Score > b.Score` ranks them below the
-		// worst-scoring role in the pipeline — which reads as "these are the
+		// worst-scoring role in the pipeline ΓÇö which reads as "these are the
 		// weakest" when it means "these have not been looked at yet".
 		// "Needs evaluating" is more actionable than "scored badly".
 		return func(a, b model.CareerApplication) bool {
@@ -1375,8 +1377,15 @@ func (m PipelineModel) View() string {
 	metricsBar := m.renderMetrics()
 	sortBar := m.renderSortBar()
 	searchBar := m.renderSearchBar()
+	body := m.renderBody()
 	preview := m.renderPreview()
 	help := m.renderHelp()
+
+	// Apply scroll to body
+	bodyLines := strings.Split(body, "\n")
+	if m.scrollOffset > 0 && m.scrollOffset < len(bodyLines) {
+		bodyLines = bodyLines[m.scrollOffset:]
+	}
 
 	// Calculate available height for body
 	previewLines := strings.Count(preview, "\n") + 1
@@ -1384,14 +1393,10 @@ func (m PipelineModel) View() string {
 	if availHeight < 3 {
 		availHeight = 3
 	}
-
-	// Render only the rows that will be shown. An offset past the end shows the
-	// body from the top, as slicing the fully rendered body used to.
-	bodyLines := m.renderBodyWindow(m.scrollOffset, availHeight)
-	if len(bodyLines) == 0 {
-		bodyLines = m.renderBodyWindow(0, availHeight)
+	if len(bodyLines) > availHeight {
+		bodyLines = bodyLines[:availHeight]
 	}
-	body := strings.Join(bodyLines, "\n")
+	body = strings.Join(bodyLines, "\n")
 
 	// Column picker overlay
 	if m.colPicker {
@@ -1440,7 +1445,7 @@ func (m PipelineModel) renderSearchBar() string {
 
 	display := queryStyle.Render(m.searchQuery)
 	if m.searchInput {
-		display += lipgloss.NewStyle().Foreground(m.theme.Blue).Render("█")
+		display += lipgloss.NewStyle().Foreground(m.theme.Blue).Render("Γûê")
 	}
 
 	tabFiltered := m.countForFilter(getPipelineTabs()[m.activeTab].filter)
@@ -1492,13 +1497,13 @@ func (m PipelineModel) renderTabs() string {
 				Foreground(m.theme.Blue).
 				Padding(0, 0)
 			tabs = append(tabs, style.Render(label))
-			underParts = append(underParts, strings.Repeat("━", lipgloss.Width(label)))
+			underParts = append(underParts, strings.Repeat("Γöü", lipgloss.Width(label)))
 		} else {
 			style := lipgloss.NewStyle().
 				Foreground(m.theme.Subtext).
 				Padding(0, 0)
 			tabs = append(tabs, style.Render(label))
-			underParts = append(underParts, strings.Repeat("─", lipgloss.Width(label)))
+			underParts = append(underParts, strings.Repeat("ΓöÇ", lipgloss.Width(label)))
 		}
 	}
 
@@ -1565,40 +1570,14 @@ func (m PipelineModel) renderSortBar() string {
 }
 
 func (m PipelineModel) renderBody() string {
-	return strings.Join(m.renderBodyWindow(0, math.MaxInt), "\n")
-}
-
-// renderBodyWindow returns the body's display lines from line `start`, at most
-// `height` of them: the same lines as rendering the whole body and slicing it,
-// without rendering the rows outside the window. View used to render every
-// filtered row on each keypress and then keep a screenful.
-//
-// A row or group header that is not rendered counts as one line. That holds for
-// both: every cell is truncated to its column and neither sets a width that
-// could wrap. The selected row is the exception, since it is padded to the
-// screen width and can wrap on a narrow terminal, so it is always rendered and
-// counted by its real line count.
-func (m PipelineModel) renderBodyWindow(start, height int) []string {
-	lines := make([]string, 0, min(height, len(m.filtered)+8))
-	line := 0 // index of the next display line
-	emit := func(s string) bool {
-		for _, l := range strings.Split(s, "\n") {
-			if line >= start && len(lines) < height {
-				lines = append(lines, l)
-			}
-			line++
-		}
-		return len(lines) < height
-	}
-
 	if len(m.filtered) == 0 {
 		emptyStyle := lipgloss.NewStyle().
 			Foreground(m.theme.Subtext).
 			Padding(1, 2)
-		emit(emptyStyle.Render(i18n.Current.NoOffersMatch))
-		return lines
+		return emptyStyle.Render(i18n.Current.NoOffersMatch)
 	}
 
+	var lines []string
 	prevStatus := ""
 	padStyle := lipgloss.NewStyle().Padding(0, 2)
 
@@ -1607,41 +1586,30 @@ func (m PipelineModel) renderBodyWindow(start, height int) []string {
 
 		// Group header in grouped mode
 		if m.viewMode == "grouped" && norm != prevStatus {
+			count := m.countByNormStatus(norm)
+			headerStyle := lipgloss.NewStyle().
+				Bold(true).
+				Foreground(m.theme.Subtext)
+			lines = append(lines, padStyle.Render(
+				headerStyle.Render(fmt.Sprintf("ΓöÇΓöÇ %s (%d) %s",
+					strings.ToUpper(statusLabel(norm)), count,
+					strings.Repeat("ΓöÇ", max(0, m.width-30-len(statusLabel(norm)))))),
+			))
 			prevStatus = norm
-			if line < start {
-				line++
-			} else {
-				count := m.countByNormStatus(norm)
-				headerStyle := lipgloss.NewStyle().
-					Bold(true).
-					Foreground(m.theme.Subtext)
-				if !emit(padStyle.Render(
-					headerStyle.Render(fmt.Sprintf("── %s (%d) %s",
-						strings.ToUpper(statusLabel(norm)), count,
-						strings.Repeat("─", max(0, m.width-30-len(statusLabel(norm)))))),
-				)) {
-					break
-				}
-			}
 		}
 
 		selected := i == m.cursor
-		if line < start && !selected {
-			line++
-			continue
-		}
-		if !emit(m.renderAppLine(app, selected)) {
-			break
-		}
+		line := m.renderAppLine(app, selected)
+		lines = append(lines, line)
 	}
 
-	return lines
+	return strings.Join(lines, "\n")
 }
 
 // colWidths holds per-column rune budgets for the table.
 type colWidths struct {
 	num, score, company, status, role int
-	// optional columns — 0 means the column is hidden
+	// optional columns ΓÇö 0 means the column is hidden
 	date, loc, pay, rpt, pdf, last, posted int
 }
 
@@ -1695,12 +1663,12 @@ func (m PipelineModel) columnWidths() colWidths {
 // column turned on.
 //
 // It used to be a fixed 14, which is the value for all seven optional columns
-// visible — so the full layout landed exactly on the terminal edge while every
+// visible ΓÇö so the full layout landed exactly on the terminal edge while every
 // narrower layout was left up to 7 runes short of the width it had been given.
 // Deriving it from the visible segments keeps the row the same width in every
 // combination, and keeps a future eighth column from silently taking it over.
 func (m PipelineModel) rowOverhead(c colWidths) int {
-	segments := 5 // #, score, company, role, status — always rendered
+	segments := 5 // #, score, company, role, status ΓÇö always rendered
 	for _, w := range []int{c.date, c.loc, c.pay, c.rpt, c.pdf, c.last, c.posted} {
 		if w > 0 {
 			segments++
@@ -1708,10 +1676,10 @@ func (m PipelineModel) rowOverhead(c colWidths) int {
 	}
 	const (
 		leadingSpace = 1 // the " " prefixed before the join
-		outerPadding = 4 // lipgloss Padding(0, 2) — two runes on each side
+		outerPadding = 4 // lipgloss Padding(0, 2) ΓÇö two runes on each side
 		// The score segment is budgeted c.score above but rendered unpadded, so
 		// the budget gets the difference back. Measured against the DATA row,
-		// where the score is always fmt.Sprintf("%.1f") — three runes. The
+		// where the score is always fmt.Sprintf("%.1f") ΓÇö three runes. The
 		// header uses the ColFit label instead, which is wider in some locales
 		// ("UYUM", "AJUSTE"); that pre-existing header/row drift is not
 		// something the role width can fix for both at once.
@@ -1736,25 +1704,25 @@ func (m PipelineModel) workModeColor(mode string) lipgloss.Color {
 }
 
 func (m PipelineModel) renderLocCell(app model.CareerApplication, width int) string {
-	text := i18n.Current.WorkModeLabel(app.WorkMode)
+	text := app.WorkMode
 	if app.Location != "" {
 		if text != "" {
-			text += " · " + app.Location
+			text += " ┬╖ " + app.Location
 		} else {
 			text = app.Location
 		}
 	}
 	if text == "" {
-		text = "—"
+		text = "ΓÇö"
 	}
 	return lipgloss.NewStyle().Foreground(m.workModeColor(app.WorkMode)).Width(width).Render(truncateRunes(text, width))
 }
 
 func (m PipelineModel) renderCheckCell(yes bool, width int) string {
-	text := "—"
+	text := "ΓÇö"
 	color := m.theme.Subtext
 	if yes {
-		text = "✓"
+		text = "Γ£ô"
 		color = m.theme.Green
 	}
 	return lipgloss.NewStyle().Foreground(color).Width(width).Render(text)
@@ -1774,19 +1742,19 @@ const (
 // beyond. Rows whose notes carry no "posted <date>" render a subtle dash.
 func (m PipelineModel) renderPostedCell(app model.CareerApplication, width int) string {
 	if app.PostedOn == "" {
-		return lipgloss.NewStyle().Foreground(m.theme.Subtext).Width(width).Render("—")
+		return lipgloss.NewStyle().Foreground(m.theme.Subtext).Width(width).Render("ΓÇö")
 	}
 	posted, err := time.Parse("2006-01-02", app.PostedOn)
 	if err != nil {
-		return lipgloss.NewStyle().Foreground(m.theme.Subtext).Width(width).Render("—")
+		return lipgloss.NewStyle().Foreground(m.theme.Subtext).Width(width).Render("ΓÇö")
 	}
 	// A requisition cannot have gone live in the future. Such a date is bad data
 	// (a typo, or a provider field that isn't the posting date at all), and it
 	// would otherwise read as the freshest possible req: time.Since is negative,
-	// which lands in the first case below and paints it green — the one colour
+	// which lands in the first case below and paints it green ΓÇö the one colour
 	// that says "act on this now".
 	if posted.After(time.Now()) {
-		return lipgloss.NewStyle().Foreground(m.theme.Subtext).Width(width).Render("—")
+		return lipgloss.NewStyle().Foreground(m.theme.Subtext).Width(width).Render("ΓÇö")
 	}
 	days := int(time.Since(posted).Hours() / 24)
 	color := m.theme.Red
@@ -1868,7 +1836,7 @@ func (m PipelineModel) renderAppLine(app model.CareerApplication, selected bool)
 	cw := m.columnWidths()
 
 	// Tracker number (fixed width)
-	numText := "#—"
+	numText := "#ΓÇö"
 	if app.Number > 0 {
 		numText = fmt.Sprintf("#%d", app.Number)
 	}
@@ -1879,7 +1847,7 @@ func (m PipelineModel) renderAppLine(app model.CareerApplication, selected bool)
 	scoreStyle := m.scoreStyle(app.Score)
 	scoreText := fmt.Sprintf("%.1f", app.Score)
 	if !app.HasScore {
-		// Show the tracker's own sentinel (— / N/A / -). Fall back to an em
+		// Show the tracker's own sentinel (ΓÇö / N/A / -). Fall back to an em
 		// dash when the cell is empty or too wide for the score column.
 		scoreStyle = lipgloss.NewStyle().Foreground(m.theme.Subtext)
 		scoreText = strings.TrimSpace(app.ScoreRaw)
@@ -1899,7 +1867,7 @@ func (m PipelineModel) renderAppLine(app model.CareerApplication, selected bool)
 	// the tracker's own (evaluation) date.
 	dateText := effectiveDate(app)
 	if dateText == "" {
-		dateText = "—"
+		dateText = "ΓÇö"
 	}
 	dateStyle := lipgloss.NewStyle().Foreground(m.theme.Subtext).Width(cw.date)
 
@@ -1937,7 +1905,7 @@ func (m PipelineModel) renderAppLine(app model.CareerApplication, selected bool)
 		segments = append(segments, m.renderCheckCell(app.HasPDF, cw.pdf))
 	}
 	if cw.last > 0 {
-		lastText := "—"
+		lastText := "ΓÇö"
 		if app.LastContact != "" {
 			lastText = formatTimeAgo(app.LastContact)
 		}
@@ -1972,20 +1940,20 @@ func (m PipelineModel) renderPreview() string {
 	divider := lipgloss.NewStyle().Foreground(m.theme.Overlay)
 
 	var lines []string
-	lines = append(lines, padStyle.Render(divider.Render(strings.Repeat("─", m.width-4))))
+	lines = append(lines, padStyle.Render(divider.Render(strings.Repeat("ΓöÇ", m.width-4))))
 
 	labelStyle := lipgloss.NewStyle().Foreground(m.theme.Sky).Bold(true)
 	valueStyle := lipgloss.NewStyle().Foreground(m.theme.Text)
 	dimStyle := lipgloss.NewStyle().Foreground(m.theme.Subtext)
 
-	// Quick facts derived from notes — available even when there is no report,
+	// Quick facts derived from notes ΓÇö available even when there is no report,
 	// and the only place narrow terminals see location/pay/last-contact.
 	var facts []string
 	if app.WorkMode != "" || app.Location != "" {
-		loc := i18n.Current.WorkModeLabel(app.WorkMode)
+		loc := app.WorkMode
 		if app.Location != "" {
 			if loc != "" {
-				loc += " · " + app.Location
+				loc += " ┬╖ " + app.Location
 			} else {
 				loc = app.Location
 			}
@@ -2048,18 +2016,18 @@ func (m PipelineModel) renderPreview() string {
 	return strings.Join(lines, "\n")
 }
 
-// previewOutcome returns "what happened" to a closed-out application — the raw
+// previewOutcome returns "what happened" to a closed-out application ΓÇö the raw
 // status (which often carries the decision date, e.g. "descartado 2026-03-12")
 // plus the tracker notes holding the reason. Returns "" for apps still in play.
 func previewOutcome(app model.CareerApplication) string {
 	switch data.NormalizeStatus(app.Status) {
-	case "discarded", "skip", "rejected":
+	case "discarded", "skip", "rejected", "lapsed":
 	default:
 		return ""
 	}
 	outcome := strings.TrimSpace(strings.ReplaceAll(app.Status, "**", ""))
 	if app.Notes != "" {
-		outcome += " — " + app.Notes
+		outcome += " ΓÇö " + app.Notes
 	}
 	return outcome
 }
@@ -2123,14 +2091,14 @@ func (m PipelineModel) renderHelp() string {
 
 	if m.colPicker {
 		return style.Render(
-			keyStyle.Render("↑↓/jk") + descStyle.Render(i18n.Current.HelpNavigate) +
+			keyStyle.Render("ΓåæΓåô/jk") + descStyle.Render(i18n.Current.HelpNavigate) +
 				keyStyle.Render("SPACE") + descStyle.Render(i18n.Current.HelpToggle) +
 				keyStyle.Render("Esc/C") + descStyle.Render(i18n.Current.HelpClose))
 	}
 
 	if m.statusPicker || m.pdfPicker {
 		return style.Render(
-			keyStyle.Render("↑↓/jk") + descStyle.Render(i18n.Current.HelpNavigate) +
+			keyStyle.Render("ΓåæΓåô/jk") + descStyle.Render(i18n.Current.HelpNavigate) +
 				keyStyle.Render("Enter") + descStyle.Render(i18n.Current.HelpConfirm) +
 				keyStyle.Render("Esc") + descStyle.Render(i18n.Current.HelpCancel))
 	}
@@ -2146,12 +2114,12 @@ func (m PipelineModel) renderHelp() string {
 	// The manifesto segment is an OSC 8 hyperlink (utm_source=dashboard);
 	// terminals without support show the same text, just not clickable. The
 	// gap math uses the plain text so the escapes never skew the layout.
-	const brandPlain = "built on the CareerOps Manifesto · career-ops by santifer.io"
+	const brandPlain = "built on the CareerOps Manifesto ┬╖ career-ops by santifer.io"
 	manifestoLink := "\x1b]8;;https://career-ops.org/manifesto?utm_source=dashboard\x1b\\built on the CareerOps Manifesto\x1b]8;;\x1b\\"
-	brand := lipgloss.NewStyle().Foreground(m.theme.Overlay).Render(manifestoLink + " · career-ops by santifer.io")
+	brand := lipgloss.NewStyle().Foreground(m.theme.Overlay).Render(manifestoLink + " ┬╖ career-ops by santifer.io")
 
-	keys := keyStyle.Render("↑↓/jk") + descStyle.Render(i18n.Current.HelpNav) +
-		keyStyle.Render("←→/hl") + descStyle.Render(i18n.Current.HelpTabs) +
+	keys := keyStyle.Render("ΓåæΓåô/jk") + descStyle.Render(i18n.Current.HelpNav) +
+		keyStyle.Render("ΓåÉΓåÆ/hl") + descStyle.Render(i18n.Current.HelpTabs) +
 		keyStyle.Render("/") + descStyle.Render(i18n.Current.HelpSearch) +
 		keyStyle.Render("s") + descStyle.Render(i18n.Current.HelpSort) +
 		keyStyle.Render("r") + descStyle.Render(i18n.Current.HelpRefresh) +
@@ -2216,7 +2184,7 @@ func (m PipelineModel) overlayHiredFlow() string {
 	switch m.hiredStep {
 	case 1:
 		winContent = lipgloss.JoinVertical(lipgloss.Center,
-			lipgloss.NewStyle().Foreground(m.theme.Green).Bold(true).Render("🎉 CONGRATULATIONS! 🎉"),
+			lipgloss.NewStyle().Foreground(m.theme.Green).Bold(true).Render("≡ƒÄë CONGRATULATIONS! ≡ƒÄë"),
 			"",
 			lipgloss.NewStyle().Foreground(m.theme.Text).Render("You landed the job!"),
 			lipgloss.NewStyle().Foreground(m.theme.Text).Render(fmt.Sprintf("%s @ %s", m.hiredApp.Role, m.hiredApp.Company)),
@@ -2227,7 +2195,7 @@ func (m PipelineModel) overlayHiredFlow() string {
 		)
 	case 2:
 		winContent = lipgloss.JoinVertical(lipgloss.Center,
-			lipgloss.NewStyle().Foreground(m.theme.Green).Bold(true).Render("Share your story? 🚀"),
+			lipgloss.NewStyle().Foreground(m.theme.Green).Bold(true).Render("Share your story? ≡ƒÜÇ"),
 			"",
 			lipgloss.NewStyle().Foreground(m.theme.Text).Render("We'd love to hear your story on GitHub!"),
 			lipgloss.NewStyle().Foreground(m.theme.Text).Render("Your story helps others in the community see what's possible."),
@@ -2237,7 +2205,7 @@ func (m PipelineModel) overlayHiredFlow() string {
 	case 3:
 		weeks := m.calculateWeeksToHire()
 		winContent = lipgloss.JoinVertical(lipgloss.Center,
-			lipgloss.NewStyle().Foreground(m.theme.Green).Bold(true).Render("Opt-in Anonymous Stat? 📊"),
+			lipgloss.NewStyle().Foreground(m.theme.Green).Bold(true).Render("Opt-in Anonymous Stat? ≡ƒôè"),
 			"",
 			lipgloss.NewStyle().Foreground(m.theme.Text).Render("Help us count community hires in the public README:"),
 			lipgloss.NewStyle().Foreground(m.theme.Subtext).Render(fmt.Sprintf("- Role: %s", m.hiredApp.Role)),
@@ -2254,7 +2222,7 @@ func (m PipelineModel) overlayHiredFlow() string {
 }
 
 // overlayPDFPicker renders the PDF chooser inline at the bottom of the body,
-// mirroring overlayStatusPicker. Choices show the PDF filename only — the
+// mirroring overlayStatusPicker. Choices show the PDF filename only ΓÇö the
 // directory is always output/ and the role variant lives in the name.
 func (m PipelineModel) overlayPDFPicker(body string) string {
 	bodyLines := strings.Split(body, "\n")
@@ -2305,7 +2273,7 @@ func (m PipelineModel) overlayColPicker(body string) string {
 		check := "[ ]"
 		checkColor := m.theme.Subtext
 		if on {
-			check = "[✓]"
+			check = "[Γ£ô]"
 			checkColor = m.theme.Green
 		}
 		style := lipgloss.NewStyle().Foreground(m.theme.Text).Width(pickerWidth)
@@ -2342,7 +2310,7 @@ func (m PipelineModel) scoreStyle(score float64) lipgloss.Style {
 
 func (m PipelineModel) statusColorMap() map[string]lipgloss.Color {
 	return map[string]lipgloss.Color{
-		"hired":      m.theme.Green, // terminal success — never uncoloured (default) like an unknown status
+		"hired":      m.theme.Green, // terminal success ΓÇö never uncoloured (default) like an unknown status
 		"interview":  m.theme.Green,
 		"offer":      m.theme.Green,
 		"applied":    m.theme.Sky,
@@ -2351,6 +2319,7 @@ func (m PipelineModel) statusColorMap() map[string]lipgloss.Color {
 		"evaluated":  m.theme.Text,
 		"skip":       m.theme.Red,
 		"rejected":   m.theme.Subtext,
+		"lapsed":     m.theme.Subtext,
 		"discarded":  m.theme.Subtext,
 	}
 }
@@ -2367,7 +2336,7 @@ func (m PipelineModel) countByNormStatus(status string) int {
 
 // formatTimeAgo renders an ISO date as a relative duration in calendar days:
 // i18n.Current.TimeToday, i18n.Current.TimeYesterday, or "Nd ago". Tracker dates are day-granular (no
-// time-of-day), so we never report sub-day hours — doing so would fabricate
+// time-of-day), so we never report sub-day hours ΓÇö doing so would fabricate
 // precision the data doesn't have (e.g. an entry dated today would otherwise
 // read "13h ago" simply because it's 1pm, not because contact was 13h back).
 func formatTimeAgo(dateStr string) string {
@@ -2392,7 +2361,7 @@ func statusLabel(norm string) string {
 
 // overlayDiscardPicker renders the discard reason picker inline at the bottom
 // of the body (Issue 1380). Predicted reasons (from the report) are listed
-// first, followed by the canonical fallback options, with an "Other…" entry
+// first, followed by the canonical fallback options, with an "OtherΓÇª" entry
 // that switches to free-text input when selected.
 func (m PipelineModel) overlayDiscardPicker(body string) string {
 	bodyLines := strings.Split(body, "\n")
@@ -2410,21 +2379,21 @@ func (m PipelineModel) overlayDiscardPicker(body string) string {
 
 	if m.discardCustomInput {
 		// Free-text sub-mode
-		picker = append(picker, padStyle.Render(titleStyle.Render("─── Reason (type + Enter) ───────────────")))
-		cursor := lipgloss.NewStyle().Foreground(m.theme.Blue).Render("█")
+		picker = append(picker, padStyle.Render(titleStyle.Render("ΓöÇΓöÇΓöÇ Reason (type + Enter) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ")))
+		cursor := lipgloss.NewStyle().Foreground(m.theme.Blue).Render("Γûê")
 		picker = append(picker, padStyle.Render(inputStyle.Render("> "+m.discardCustomText+cursor)))
 		picker = append(picker, padStyle.Render(hintStyle.Render("Enter: confirm   Esc: back")))
 	} else {
 		numPredicted := m.discardPredictedCount
 
-		heading := "─── Discard reason (↑↓ navigate · Enter confirm · Esc skip) ─"
+		heading := "ΓöÇΓöÇΓöÇ Discard reason (ΓåæΓåô navigate ┬╖ Enter confirm ┬╖ Esc skip) ΓöÇ"
 		picker = append(picker, padStyle.Render(titleStyle.Render(heading)))
 		if numPredicted > 0 {
-			picker = append(picker, padStyle.Render(hintStyle.Render("  ★ Predicted by agent:")))
+			picker = append(picker, padStyle.Render(hintStyle.Render("  Γÿà Predicted by agent:")))
 		}
 		for i, opt := range m.discardOptions {
 			if i == numPredicted && numPredicted > 0 {
-				picker = append(picker, padStyle.Render(hintStyle.Render("  ── Other options:")))
+				picker = append(picker, padStyle.Render(hintStyle.Render("  ΓöÇΓöÇ Other options:")))
 			}
 			style := lipgloss.NewStyle().Foreground(m.theme.Text).Width(pickerWidth)
 			if i == m.discardCursor {
@@ -2436,7 +2405,7 @@ func (m PipelineModel) overlayDiscardPicker(body string) string {
 			}
 			label := opt
 			if i < numPredicted {
-				label = "★ " + opt
+				label = "Γÿà " + opt
 			}
 			picker = append(picker, padStyle.Render(style.Render(prefix+label)))
 		}

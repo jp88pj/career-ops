@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * scan-bandana.mjs — Bandana.com scanner via Playwright
+ * scan-bandana.mjs ΓÇö Bandana.com scanner via Playwright
  *
  * Bandana (workwise-solutions.com) is a Next.js SPA with no public REST API:
  * /search returns an SSR shell and job cards load client-side. Playwright
@@ -26,7 +26,7 @@
  * Reads `bandana_searches` from portals.yml. Each entry:
  *   - name:      label used in output (optional)
  *   - location:  metro to type into the location box; omitted/empty = site
- *                default (geo-centers on NYC, JC — "New York, NY" pins it)
+ *                default (geo-centers on NYC, JC ΓÇö "New York, NY" pins it)
  *   - remote:    true adds ?wt=Remote (remote-first query)
  *
  * Fallback without config: one NYC-metro pass + one remote pass.
@@ -51,19 +51,19 @@ import { isMainModule } from './lib/is-main-module.mjs';
 import { buildTitleFilterBySource } from './title-keywords.mjs';
 import { buildShapePolicy, stripShapeNegatives } from './lib/employment-shape.mjs';
 
-// ── Config ───────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Config ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 const SCAN_HISTORY = SCAN_HISTORY_PATH;
 const DATA_ROOT    = getCareerOpsRoot();
 
 const SEARCH_BASE  = 'https://bandana.com/search';
 const JOBS_BASE    = 'https://bandana.com/jobs/';
-// Remote-first query — the URL Bandana itself produces after toggling the
+// Remote-first query ΓÇö the URL Bandana itself produces after toggling the
 // Remote/Onsite filter, so it is stable without driving the dropdown.
 const REMOTE_QUERY = `${SEARCH_BASE}?r=Anytime&s=relevance&wt=Remote`;
 // The personalized "For You" feed and the local session file that --login
 // writes and --personal reuses. The nav's "JOBS FOR YOU" resolves to the
-// /profile/tracker/lineup page, which client-side redirects to /search?fy=1 —
+// /profile/tracker/lineup page, which client-side redirects to /search?fy=1 ΓÇö
 // that final URL renders the feed with the same job-card markup as /search.
 const FOR_YOU_URL = 'https://bandana.com/search?fy=1';
 const PERSONAL_STATE = join(DATA_ROOT, 'output', 'bandana-storage-state.json');
@@ -73,7 +73,7 @@ const DEFAULT_SEARCHES = [
   { name: 'Remote (US)', remote: true },
 ];
 
-// ── Args ─────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Args ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 const args = process.argv.slice(2);
 const DRY_RUN    = args.includes('--dry-run');
@@ -82,7 +82,7 @@ const NO_DATE_FILTER = args.includes('--all');
 const LOGIN      = args.includes('--login');
 const PERSONAL   = args.includes('--personal');
 
-// ── Load portals.yml ─────────────────────────────────────────────────
+// ΓöÇΓöÇ Load portals.yml ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 let config = {};
 if (existsSync(PORTALS_PATH)) {
@@ -96,7 +96,7 @@ const bandanaSearches = Array.isArray(config.bandana_searches)
   ? config.bandana_searches.filter(s => s && typeof s === 'object' && s.enabled !== false)
   : DEFAULT_SEARCHES;
 
-// ── Filters ───────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Filters ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 // REWIRED 2026-10-18. This file hand-rolled its own title matcher from the
 // GLOBAL positive/negative lists only:
 //
@@ -141,7 +141,7 @@ function matchesLocation(loc) {
   return locAllow.some(k => lower.includes(k));
 }
 
-// ── Date helpers ─────────────────────────────────────────────────────
+// ΓöÇΓöÇ Date helpers ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 // Relative Bandana labels: "16h", "2d", "26d". Approximate to an epoch the
 // same way any continuous posting fed to a pipeline should be: a card posted
@@ -168,13 +168,13 @@ function loadLastScanDate() {
   return latest;
 }
 
-// ── Card extraction ──────────────────────────────────────────────────
+// ΓöÇΓöÇ Card extraction ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 // Card innerText layout (verified on prod 2026-09-18):
 //   <title>
 //   <Company>
-//    · <Neighborhood>
-//    · <16h | 2d | 26d>
+//   ┬á┬╖ <Neighborhood>
+//   ┬á┬╖ <16h | 2d | 26d>
 //   <$ pay | Pay not disclosed>
 //   [Promoted]
 //   <Full-time | Part-time | Internship>
@@ -192,8 +192,8 @@ function parseCardText(text) {
   }
 
   const company = lines[idx + 1] || '';
-  const neighborhood = (lines.find(l => l.startsWith('·')) || '').replace(/^·\s*/, '').trim();
-  const postedRel = (lines.filter(l => l.startsWith('·'))[1] || '').replace(/^·\s*/, '').trim();
+  const neighborhood = (lines.find(l => l.startsWith('┬╖')) || '').replace(/^┬╖\s*/, '').trim();
+  const postedRel = (lines.filter(l => l.startsWith('┬╖'))[1] || '').replace(/^┬╖\s*/, '').trim();
   const pay = lines.find(l => /^(\$\d|Pay not disclosed)/i.test(l)) || '';
 
   return { title, company, neighborhood, postedRel, pay, expired };
@@ -211,7 +211,7 @@ async function extractCards(page) {
   );
 }
 
-// ── Search driver ────────────────────────────────────────────────────
+// ΓöÇΓöÇ Search driver ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 async function searchInput(page) {
   return page.locator(
@@ -225,11 +225,11 @@ async function runSearch(page, search, isFirst) {
 
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
 
-  // The openbox SPA hydrates client-side after SSR — give it a moment before
+  // The openbox SPA hydrates client-side after SSR ΓÇö give it a moment before
   // interacting, or input events are swallowed and no cards ever render.
   await page.waitForTimeout(4000);
 
-  // Dismiss the onboarding tooltip — it has a backdrop that blocks clicks.
+  // Dismiss the onboarding tooltip ΓÇö it has a backdrop that blocks clicks.
   const gotIt = page.locator('button:has-text("Got it")').first();
   const gotItShown = await gotIt.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false);
   if (gotItShown) {
@@ -291,11 +291,11 @@ async function runSearch(page, search, isFirst) {
   return found;
 }
 
-// ── Authenticated "For You" pass ──────────────────────────────────────
+// ΓöÇΓöÇ Authenticated "For You" pass ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 // Saves a real login session to output/bandana-storage-state.json so the
 // personal pass can run headless afterwards. Runs in a visible browser: the
-// candidate types their own credentials — nothing here holds or stores them.
+// candidate types their own credentials ΓÇö nothing here holds or stores them.
 async function loginPersonal() {
   mkdirSync(join(DATA_ROOT, 'output'), { recursive: true });
 
@@ -319,7 +319,7 @@ async function loginPersonal() {
   await page.waitForTimeout(4000);
 
   // Wait for the REAL authenticated signal: a NextAuth session token cookie.
-  // (CSRF + callback tokens exist before login — detecting those, or just seeing
+  // (CSRF + callback tokens exist before login ΓÇö detecting those, or just seeing
   // cards on the anonymous shell, saves a logged-out session. The session token
   // only appears once the account is actually signed in.)
   const hasSessionCookie = async () => {
@@ -345,11 +345,11 @@ async function loginPersonal() {
   }
 
   if (saved) {
-    console.log(`\n✅ Session saved to ${PERSONAL_STATE}`);
+    console.log(`\nΓ£à Session saved to ${PERSONAL_STATE}`);
     console.log('Now run: node scan-bandana.mjs --personal');
   } else {
     console.log('\nSession was not saved (no For You cards detected before timeout).');
-    console.log('The window is still open — if you see the feed, tell me and I can retry,');
+    console.log('The window is still open ΓÇö if you see the feed, tell me and I can retry,');
     console.log('or you can close the window now.');
   }
 
@@ -405,7 +405,7 @@ async function runForYou(page) {
   return found;
 }
 
-// ── Main ─────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Main ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 async function main() {
   mkdirSync(join(DATA_ROOT, 'data'), { recursive: true });
@@ -421,9 +421,9 @@ async function main() {
 
   const lastScanDate = NO_DATE_FILTER ? null : loadLastScanDate();
   if (NO_DATE_FILTER) {
-    console.log(`  --all: date filter disabled — accepting every rendered card`);
+    console.log(`  --all: date filter disabled ΓÇö accepting every rendered card`);
   } else if (lastScanDate) {
-    console.log(`  Last Bandana scan: ${lastScanDate.toISOString().slice(0, 10)} — skipping older postings`);
+    console.log(`  Last Bandana scan: ${lastScanDate.toISOString().slice(0, 10)} ΓÇö skipping older postings`);
   }
 
   let totalFound = 0;
@@ -496,7 +496,7 @@ async function main() {
       process.stdout.write(personalTitle);
       try {
         if (!existsSync(PERSONAL_STATE)) {
-          throw new Error(`no saved session at ${PERSONAL_STATE} — run \`node scan-bandana.mjs --login\` first`);
+          throw new Error(`no saved session at ${PERSONAL_STATE} ΓÇö run \`node scan-bandana.mjs --login\` first`);
         }
         const pContext = await browser.newContext({
           locale: 'en-US',
@@ -510,7 +510,7 @@ async function main() {
         totalFound += hits.length;
         process.stdout.write(`${hits.length} found\n`);
         // For You is curated by the candidate's own swipes/saves, and Bandana
-        // geo-centers the whole feed on the saved location — so its titles,
+        // geo-centers the whole feed on the saved location ΓÇö so its titles,
         // bare-neighborhood labels, and posting dates all legitimately diverge
         // from the configured filters. Bypass title, location, and date for
         // this pass; keep expired + dedup.
@@ -536,9 +536,9 @@ async function main() {
   }
 
   // Summary
-  console.log(`\n${'━'.repeat(45)}`);
-  console.log(`Bandana Scan — ${date}`);
-  console.log(`${'━'.repeat(45)}`);
+  console.log(`\n${'Γöü'.repeat(45)}`);
+  console.log(`Bandana Scan ΓÇö ${date}`);
+  console.log(`${'Γöü'.repeat(45)}`);
   console.log(`Searches run:       ${bandanaSearches.length}`);
   console.log(`Total found:        ${totalFound}`);
   console.log(`Skipped expired:    ${expiredSkipped.length}`);
@@ -550,7 +550,7 @@ async function main() {
 
   if (errors.length > 0) {
     console.log(`\nErrors (${errors.length}):`);
-    for (const e of errors) console.log(`  ✗ "${e.search}": ${e.error}`);
+    for (const e of errors) console.log(`  Γ£ù "${e.search}": ${e.error}`);
   }
 
   if (newOffers.length > 0) {
@@ -559,13 +559,13 @@ async function main() {
       console.log(`  + ${o.company} | ${o.title} | ${o.location || 'N/A'}`);
     }
     if (DRY_RUN) {
-      console.log('\n(dry run — not saved)');
+      console.log('\n(dry run ΓÇö not saved)');
     } else {
       console.log(`\nSaved to data/pipeline.md`);
     }
   }
 
-  console.log('\n→ Run /career-ops pipeline to evaluate new offers.');
+  console.log('\nΓåÆ Run /career-ops pipeline to evaluate new offers.');
 }
 
 // Guarded like every sibling scanner (scan-interamt.mjs:378): importing this

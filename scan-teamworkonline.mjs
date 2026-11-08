@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 /**
- * scan-teamworkonline.mjs — TeamWork Online, the sports/entertainment job board.
+ * scan-teamworkonline.mjs ΓÇö TeamWork Online, the sports/entertainment job board.
  *
  * WHY: measured 2026-10-17, the eight big US sports companies already tracked
  * (MLB, MLB Network, Mets, NHL, DAZN, Hudl, FloSports, Sportradar) hold 354
  * postings between them and contain ZERO safety, security, event-operations or
  * venue roles. They post league-office corporate work. TeamWork Online covers
- * the long tail those boards miss — arenas, venue management companies, event
- * services agencies and minor-league venues — and its first probe already
+ * the long tail those boards miss ΓÇö arenas, venue management companies, event
+ * services agencies and minor-league venues ΓÇö and its first probe already
  * surfaced "In-house Security" (Key Bank Center), "Building Security Manager"
  * (Delta Center) and "Sports League Program Manager".
  *
- * READ PATH — Cloudflare, so a browser is mandatory:
+ * READ PATH ΓÇö Cloudflare, so a browser is mandatory:
  *   Plain HTTPS returns HTTP 403 with the "Just a moment..." interstitial on
  *   every path, including /jobs/. `browser-extract.mjs` passes the challenge
  *   cleanly, so every fetch here shells out to it. This is the cost: roughly
@@ -25,7 +25,7 @@
  *   /<category>-jobs/<emp>/<emp>-jobs/<slug>              job detail
  *
  * CROSS-LINKING IS WHY THIS IS CHEAPER THAN EXPECTED:
- *   Employer pages are not isolated — they link out to jobs at OTHER employers
+ *   Employer pages are not isolated ΓÇö they link out to jobs at OTHER employers
  *   and in OTHER categories. The Arena Network page alone returned 46 job URLs
  *   spanning Allied Universal Event Services, Sports Facilities Companies and
  *   the Delta Center. A 5-page probe yielded 100 unique jobs. The full 2-level
@@ -38,7 +38,7 @@
  *       the identical employer index, because search is client-side only. Do not
  *       spend a request on it; filter locally instead.
  *
- * SIBLING: scan-builtinnyc.mjs · scan-mta.mjs · scan-nystate.mjs · scan-usajobs.mjs
+ * SIBLING: scan-builtinnyc.mjs ┬╖ scan-mta.mjs ┬╖ scan-nystate.mjs ┬╖ scan-usajobs.mjs
  *
  * Usage:
  *   node scan-teamworkonline.mjs                 # operations-heavy categories
@@ -68,7 +68,7 @@ const OPS_CATEGORIES = ['arenas-facilities-jobs', 'agency-jobs', 'multiple-prope
 const ALL_CATEGORIES = [...OPS_CATEGORIES, 'sports-technology-jobs', 'basketball-jobs', 'hockey-jobs',
   'baseball-jobs', 'football-jobs', 'motorsports-jobs', 'golf-tennis-jobs'];
 
-// ── Args ─────────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Args ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(n);
 const val = (n, d) => { const i = argv.indexOf(n); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };
@@ -77,7 +77,7 @@ const DRY = flag('--dry-run');
 const MAX_EMPLOYERS = Number(val('--max-employers', '40'));
 const CATEGORIES = flag('--all-categories') ? ALL_CATEGORIES : OPS_CATEGORIES;
 
-// ── Config ───────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Config ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 let config = {};
 if (existsSync(PORTALS_PATH)) config = yaml.load(readFileSync(PORTALS_PATH, 'utf-8')) || {};
 // Honour employment_shape.flag_not_veto, as scan.mjs does: the shape words
@@ -89,7 +89,7 @@ const matchesTitle = buildTitleFilterBySource(
   config.source_title_filters
 );
 
-// ── Browser fetch ────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Browser fetch ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 let fetches = 0;
 function fetchLinks(url) {
   fetches++;
@@ -103,7 +103,7 @@ function fetchLinks(url) {
 
 const segs = (u) => { try { return new URL(String(u)).pathname.split('/').filter(Boolean); } catch { return []; } };
 
-// ── Main ─────────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Main ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 async function main() {
   const found = new Map();
   const employersSeen = new Set();
@@ -178,7 +178,7 @@ async function main() {
   }
 
   printScanSummaryHeader('TeamWork Online (sports/entertainment)', localToday());
-  console.log('─'.repeat(56));
+  console.log('ΓöÇ'.repeat(56));
   console.log(`Browser fetches:     ${fetches}   (Cloudflare blocks plain HTTP; ~3-6s each)`);
   console.log(`Categories:          ${CATEGORIES.length}  (${CATEGORIES.join(', ')})`);
   console.log(`Unique jobs:         ${all.length}`);
@@ -186,8 +186,8 @@ async function main() {
   console.log(`Already seen:        ${dupe.length}`);
   console.log(`NEW OFFERS:          ${rows.length}`);
   console.log('');
-  rows.forEach((j) => console.log(`  • ${j.title}`));
-  console.log('\n→ Location is NOT on the listing card; read it from the job page before');
+  rows.forEach((j) => console.log(`  ΓÇó ${j.title}`));
+  console.log('\nΓåÆ Location is NOT on the listing card; read it from the job page before');
   console.log('  deciding commutable. Venue roles are on-site by nature and many are');
   console.log('  part-time or seasonal - check the employment type before treating as a role.');
 }

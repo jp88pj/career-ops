@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * scan-builtinnyc.mjs — builtinnyc.com, a NYC job board (aggregator).
+ * scan-builtinnyc.mjs ΓÇö builtinnyc.com, a NYC job board (aggregator).
  *
  * WHY THIS EXISTS: measured 2026-10-16, builtinnyc is the single largest
- * source in the tracker — 114 of 283 rows (40%) — and it was configured
+ * source in the tracker ΓÇö 114 of 283 rows (40%) ΓÇö and it was configured
  * nowhere. Every nonprofit result in the pipeline (Boys' Club of New York,
  * Goddard Riverside, University Settlement, Chinese-American Planning Council,
  * Prospect Schools) came from here. The ATS list produced breadth nowhere
@@ -11,12 +11,12 @@
  *
  * READ PATH: plain HTTPS. No browser, no API key, zero LLM cost.
  *
- * EXTRACTION — use the JSON-LD, not the card HTML:
+ * EXTRACTION ΓÇö use the JSON-LD, not the card HTML:
  *   The listing embeds `<script type="application/ld&#x2B;json">`. Two traps:
  *   1. the type attribute is ENTITY-ESCAPED (`ld&#x2B;json`, not `ld+json`), so
  *      the obvious regex matches nothing and looks like "no structured data";
  *   2. the ItemList sits under `@graph`, not at the top level.
- *   Each item gives exact `name`, `url` and the FULL `description` — better
+ *   Each item gives exact `name`, `url` and the FULL `description` ΓÇö better
  *   than card scraping, which yields slug-mangled titles and no description.
  *   Employer is NOT in the listing JSON-LD; it comes from the card anchor.
  *
@@ -27,25 +27,25 @@
  *   ZERO items for three consecutive pages and that is the real end.
  *
  *   An earlier walk of this board stopped at page 40, saw 397 jobs, and
- *   concluded the corpus ended there. It did not — it had grown ~2.4x by the
+ *   concluded the corpus ended there. It did not ΓÇö it had grown ~2.4x by the
  *   next day. So the corpus size is NOT a constant to hardcode anywhere,
  *   including in this comment and in the scan summary, and a page cap low
  *   enough to truncate it fails SILENTLY: it reports fewer postings and still
  *   prints a clean summary. Raise --max-pages rather than trusting a bound.
  *
- * AGGREGATOR STALENESS — the standing risk:
+ * AGGREGATOR STALENESS ΓÇö the standing risk:
  *   `AGENTS.md` says "employer boards only, no aggregators" because an
  *   aggregator keeps a filled role looking live. Measured mitigation: the
  *   listing JSON-LD carries NO posted date, but the DETAIL page publishes a
  *   full JobPosting schema with `datePosted`. So the freshness window IS
- *   available — it just costs one detail fetch per surviving candidate, which
+ *   available ΓÇö it just costs one detail fetch per surviving candidate, which
  *   is why enrichment happens after the title filter rather than before it.
  *
  *   Liveness is still NOT decided here. `datePosted` says when it was posted,
  *   not whether it is still open. That is `check-liveness.mjs`'s job. For small
  *   nonprofits the builtinnyc page IS the posting, because they have no ATS.
  *
- * SIBLING: scan-cityjobs.mjs · scan-mta.mjs · scan-interamt.mjs · scan-bandana.mjs
+ * SIBLING: scan-cityjobs.mjs ┬╖ scan-mta.mjs ┬╖ scan-interamt.mjs ┬╖ scan-bandana.mjs
  *
  * Usage:
  *   node scan-builtinnyc.mjs                # scan, using portals.yml filters
@@ -76,7 +76,7 @@ const BASE = 'https://www.builtinnyc.com';
 const LISTING = BASE + '/jobs/';
 const FRESHNESS_DAYS = 21;
 
-// ── Args ─────────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Args ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(n);
 const val = (n, d) => { const i = argv.indexOf(n); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };
@@ -89,13 +89,13 @@ const MAX_PAGES = Number(val('--max-pages', '60'));
 const DRY = flag('--dry-run');
 if (!Number.isInteger(LIMIT) || LIMIT < 1) { console.error('Error: --limit takes a whole number'); process.exit(1); }
 
-// ── Config ───────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Config ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 let config = {};
 if (existsSync(PORTALS_PATH)) config = yaml.load(readFileSync(PORTALS_PATH, 'utf-8')) || {};
 const matchesTitle = buildTitleFilterBySource(config.title_filter || {}, config.source_title_filters);
 const HOSTS = ['www.builtinnyc.com'];
 
-// ── Respect `enabled: false` in portals.yml ─────────────────────────────────
+// ΓöÇΓöÇ Respect `enabled: false` in portals.yml ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 // scan.mjs's aggregator honours this flag (resolveEntries skips entry.enabled
 // === false), but a standalone `node scan-builtinnyc.mjs` did NOT: it read
 // portals.yml for title/location filters and never looked at the flag. That
@@ -142,7 +142,7 @@ function matchesLocation(loc) {
   return locAllow.some((k) => lower.includes(k));
 }
 
-// ── HTTP ─────────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ HTTP ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 const get = (u, depth = 0) => new Promise((res, rej) => {
   const req = https.get(u, { headers: { 'user-agent': 'Mozilla/5.0 (compatible; career-ops)' } }, (r) => {
     if (r.statusCode >= 300 && r.statusCode < 400 && r.headers.location && depth < 3) {
@@ -160,7 +160,7 @@ const get = (u, depth = 0) => new Promise((res, rej) => {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// ── Parsing ──────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Parsing ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 const unescapeHtml = (s) => String(s)
   .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
   .replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&nbsp;/g, ' ')
@@ -250,17 +250,17 @@ async function enumerate(log) {
     let res;
     try { res = await readPage(p); }
     catch (e) { log(`  page ${p} unreadable: ${(e.message || '').slice(0, 60)}`); continue; }
-    if (!res.found) { log(`  page ${p}: no structured data — treating as empty`); }
+    if (!res.found) { log(`  page ${p}: no structured data ΓÇö treating as empty`); }
     let fresh = 0;
     for (const j of res.items || []) if (j.id && !found.has(j.id)) { found.set(j.id, j); fresh++; }
     zeroRun = fresh === 0 ? zeroRun + 1 : 0;
     if (p <= 5 || p % 10 === 0 || fresh === 0) log(`  page ${p}: ${(res.items || []).length} items, ${fresh} new, total ${found.size}`);
-    if (zeroRun >= 3) { log(`  page ${p}: 3 consecutive empty pages — end of corpus`); break; }
+    if (zeroRun >= 3) { log(`  page ${p}: 3 consecutive empty pages ΓÇö end of corpus`); break; }
   }
   return [...found.values()];
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Main ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 async function main() {
   assertBoardEnabled();
   const date = localToday();
@@ -324,7 +324,7 @@ async function main() {
 
   if (DRY) {
     console.log('\n  --dry-run: nothing written\n');
-    for (const j of accepted) console.log(`  • ${j.title}\n    ${j.employer} | ${j.location || 'loc?'} | posted ${j.datePosted || '?'}\n    ${j.url}`);
+    for (const j of accepted) console.log(`  ΓÇó ${j.title}\n    ${j.employer} | ${j.location || 'loc?'} | posted ${j.datePosted || '?'}\n    ${j.url}`);
   } else {
     if (accepted.length) await appendToPipeline(accepted);
     if (accepted.length) await appendToScanHistory(accepted, date, 'added');
@@ -335,9 +335,9 @@ async function main() {
   }
 
   printScanSummaryHeader('Built In NYC (aggregator)', date);
-  console.log('─'.repeat(56));
+  console.log('ΓöÇ'.repeat(56));
   console.log(`Postings enumerated: ${all.length}   (the advertised last page 1000 is false; corpus ends on consecutive zero-yield)`);
-  console.log(`Enriched (detail):  ${enriched}/${ENRICH ? undupe.length : 0} — supplies datePosted + real location`);
+  console.log(`Enriched (detail):  ${enriched}/${ENRICH ? undupe.length : 0} ΓÇö supplies datePosted + real location`);
   console.log(`Filtered by title:  ${titleSkipped.length}`);
   console.log(`Filtered location:  ${locationSkipped.length}`);
   console.log(`Filtered stale:     ${staleSkipped.length}   (freshness ${useFreshness ? FRESHNESS_DAYS + 'd via detail datePosted' : 'disabled'})`);
@@ -345,8 +345,8 @@ async function main() {
   console.log(`Deferred (over cap):${deferred.length}`);
   console.log(`NEW OFFERS:         ${accepted.length}`);
   console.log('');
-  for (const j of accepted) console.log(`  • ${j.title} — ${j.employer}${j.location ? ' (' + j.location + ')' : ''}`);
-  console.log('\n→ AGGREGATOR. datePosted says when it was posted, not whether it is open.');
+  for (const j of accepted) console.log(`  ΓÇó ${j.title} ΓÇö ${j.employer}${j.location ? ' (' + j.location + ')' : ''}`);
+  console.log('\nΓåÆ AGGREGATOR. datePosted says when it was posted, not whether it is open.');
   console.log('  Confirm with check-liveness.mjs before treating any of these as live.');
 }
 

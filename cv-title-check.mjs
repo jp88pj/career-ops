@@ -1,21 +1,21 @@
 #!/usr/bin/env node
 
 /**
- * cv-title-check.mjs — Zero-LLM job-title consistency checker (#2677).
+ * cv-title-check.mjs ΓÇö Zero-LLM job-title consistency checker (#2677).
  *
  * `pdf.md`'s tailoring pipeline legitimately reformulates bullets, the summary,
- * and framing per JD (Steps 10-15) — "keywords get reformulated, never
+ * and framing per JD (Steps 10-15) ΓÇö "keywords get reformulated, never
  * fabricated" per the Data Contract. But nothing checked whether a job TITLE
  * survives that reformulation unchanged from cv.md's own canonical title for
  * the same job. A tailored CV stating a more senior-sounding title than
  * cv.md's for the exact same {company, dates} is a narrower, checkable failure
- * mode, distinct from legitimate duty/keyword reformulation — and a real risk
+ * mode, distinct from legitimate duty/keyword reformulation ΓÇö and a real risk
  * if ever cross-checked (LinkedIn, a prior CV, a background check, or an
  * interviewer asking directly).
  *
- * Input format (IMPORTANT — why this and not HTML or the rendered PDF):
+ * Input format (IMPORTANT ΓÇö why this and not HTML or the rendered PDF):
  * `modes/pdf.md` Step 17 already builds a compact JSON payload before any HTML
- * or PDF exists — `{ experience: [{ company, role, dates, ... }] }` — and
+ * or PDF exists ΓÇö `{ experience: [{ company, role, dates, ... }] }` ΓÇö and
  * writes it to `/tmp/cv-{candidate}-{company}.json`. That payload is the
  * earliest point in the pipeline with company/title/dates as clean structured
  * fields, straight from the tailoring step, before `build-cv-html.mjs` ever
@@ -25,7 +25,7 @@
  * (checks before drafting, not after rendering). See modes/pdf.md Step 17a.
  *
  * Matching rule (deliberately NOT fuzzy, per the issue): pair a tailored-CV
- * entry with a cv.md entry by {company, dates} — normalized on case/whitespace
+ * entry with a cv.md entry by {company, dates} ΓÇö normalized on case/whitespace
  * only, via the same normalizeCompany() the rest of the tracker ecosystem uses
  * for company-name grouping (tracker-utils.mjs). Title is the field being
  * checked, so it can never also be the matching key. An exact string match
@@ -34,7 +34,7 @@
  * the user can judge intentional framing vs. unintended drift. Entries that
  * cannot be paired (a JD-only role, a cv.md entry never carried into this
  * particular tailored CV, or a date phrasing that doesn't literally line up)
- * are reported separately as unmatched — never a mismatch. A {company, dates}
+ * are reported separately as unmatched ΓÇö never a mismatch. A {company, dates}
  * key that resolves to more than one entry on either side is reported as
  * ambiguous instead of comparing anything: silently keeping "the first" entry
  * would hide the rest of the group and risk pairing the wrong role.
@@ -42,10 +42,10 @@
  * Warn-only, matching this project's human-in-the-loop philosophy, for
  * COMPLETED comparisons: never blocks, never edits cv.md or the tailored CV,
  * never exits non-zero for a title mismatch or an ambiguous group. Exit 1 is
- * reserved for the check not actually running to completion — a missing or
+ * reserved for the check not actually running to completion ΓÇö a missing or
  * unreadable cv.md/payload, unparseable JSON, or an experience entry missing
  * company/role/dates (which would otherwise silently narrow the comparison
- * to only the complete entries and report a false clean bill of health) —
+ * to only the complete entries and report a false clean bill of health) ΓÇö
  * plus --self-test failures.
  *
  * Usage:
@@ -65,77 +65,47 @@ import { getCareerOpsRoot } from './path-resolver.mjs';
 import {
   boldLineText, findExperienceSections, headingText, toPlainText, EXPERIENCE_HEADING_NAMES,
 } from './lib/cv-markdown.mjs';
+import { parseExperienceEntries } from './lib/cv-experience-entries.mjs';
 
 const CV_PATH = join(getCareerOpsRoot(), 'cv.md');
 
-// ── cv.md experience parsing ────────────────────────────────────────
+// ΓöÇΓöÇ cv.md experience parsing ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 //
-// cv.md's canonical shape (see examples/cv-example.md):
+// The entries of cv.md's Experience section, read by the SHARED reader
+// (lib/cv-experience-entries.mjs), which is also what the tense gate and the
+// structure check use. One reader, one definition of what a job entry is.
 //
-//   ### Company Name -- Location
+// WHY IT MOVED
+// ------------
+// This file used to parse cv.md itself, and its copy returned ZERO entries for
+// cv.md: the master writes an entry's title, location and dates on one line
+// (`**Urban Park Service Security** | New York, NY | Dec 2025 - Present`),
+// while lib/cv-markdown.mjs's `boldLineText()` accepts only a line that is
+// bold from end to end. So the title check had never run on any tailored CV -
+// every one of them reported "cv.md entries could not be parsed - title check
+// did not run", with 11 to 13 entries unchecked. A gate that cannot read its
+// input reports nothing, and nothing reads as a pass.
 //
-//   **Job Title**
-//   2020-2024
-//
-//   - bullet
-//
-// Company/location are split on the first " -- " (or " – " / " — ", the
-// dashes some editors and Pandoc substitute); location is optional. The title
-// is the next bolded line; dates are the next non-empty line after that. Any
-// entry missing a bolded title or a dates line is skipped rather than
-// guessed at — a checker that invents a comparison side is worse than one
-// that reports nothing for that entry.
-//
-// Lines go through lib/cv-markdown.mjs first, so the same entry written as
-// Pandoc Markdown (`### **Acme** --- City`, `**Title**\`, `**2020 -- 2024**`,
-// `## **[Professional Experience]{.smallcaps}**`) parses identically (#4879).
+// The shared reader also models the two shapes the master uses and the
+// documented shape does not: a SECOND role under the same heading (the Data
+// Science Teacher line under Newark Public Schools) and a NESTED entry
+// (Major League Baseball, indented, because the two roles overlap). The master
+// has 14 roles; the old parser saw 12, and the title check could not have
+// checked the Replay Operator entry even if it had run.
 
 export function parseCvExperience(cvText) {
-  const entries = [];
-
-  // Only scan inside a recognized Experience section (lib/cv-markdown.mjs's
-  // EXPERIENCE_HEADING_NAMES), so an unrelated "### " heading elsewhere in
-  // the CV (e.g. under Projects) never gets misread as a job.
-  for (const lines of findExperienceSections(cvText)) {
-    for (let i = 0; i < lines.length; i++) {
-      const heading = headingText(lines[i], 3);
-      if (heading === null) continue;
-
-      const [companyPart] = heading.split(/\s+[-–—]{1,2}\s+/);
-      const company = companyPart.trim();
-      if (!company) continue;
-
-      // Walk forward for the bolded title line, then the dates line, skipping
-      // blank lines. Stop at the next heading so a malformed entry never eats
-      // the following one.
-      let title = null;
-      let dates = null;
-      for (let j = i + 1; j < lines.length; j++) {
-        const next = lines[j];
-        if (/^#{2,3}\s+/.test(next)) break;
-        if (next.trim() === '') continue;
-        if (title === null) {
-          const bold = boldLineText(next);
-          if (bold) {
-            title = bold;
-            continue;
-          }
-          break; // first non-blank line after the heading must be the title
-        }
-        if (dates === null) {
-          dates = toPlainText(next);
-        }
-        break;
-      }
-
-      if (title && dates) entries.push({ company, title, dates });
-    }
-  }
-
-  return entries;
+  return parseExperienceEntries(cvText).map((e) => ({
+    company: e.company,
+    // The full heading, as a fallback key: the master's "### TEFL ΓÇö Practicum
+    // ... and Freelance Tutoring" has a dash inside the employer's name, and
+    // the canonical split reads it as a company/location pair.
+    heading: e.heading ?? null,
+    title: e.title,
+    dates: e.dates,
+  }));
 }
 
-// ── Tailored-CV payload parsing (modes/pdf.md Step 17 JSON schema) ──
+// ΓöÇΓöÇ Tailored-CV payload parsing (modes/pdf.md Step 17 JSON schema) ΓöÇΓöÇ
 
 /**
  * Parse `experience[]` out of the tailored-CV render payload.
@@ -144,7 +114,7 @@ export function parseCvExperience(cvText) {
  * a job the check can skip: silently dropping it would compare only the
  * complete entries, exit 0, and report a clean bill of health for a CV that
  * was never fully checked. Same failure category as a payload that fails to
- * parse at all — throws so the CLI can exit non-zero and name exactly which
+ * parse at all ΓÇö throws so the CLI can exit non-zero and name exactly which
  * entry/field needs fixing, instead of quietly narrowing the comparison set.
  *
  * @throws {Error} if `experience` is absent/non-array, or if any entry is
@@ -176,7 +146,7 @@ export function parseTailoredExperience(payload) {
 
   if (incomplete.length > 0) {
     throw new Error(
-      `tailored CV payload has ${incomplete.length} incomplete experience entr${incomplete.length === 1 ? 'y' : 'ies'} — ` +
+      `tailored CV payload has ${incomplete.length} incomplete experience entr${incomplete.length === 1 ? 'y' : 'ies'} ΓÇö ` +
       `title check cannot run on a partial comparison set: ${incomplete.join('; ')}`
     );
   }
@@ -184,9 +154,9 @@ export function parseTailoredExperience(payload) {
   return parsed;
 }
 
-// ── Normalization / matching ────────────────────────────────────────
+// ΓöÇΓöÇ Normalization / matching ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
-// Case/whitespace/dash normalization only — no fuzzy similarity. Any run of
+// Case/whitespace/dash normalization only ΓÇö no fuzzy similarity. Any run of
 // hyphens, en dashes and em dashes is one separator, so Pandoc's
 // "09/2021 -- Present" pairs with a payload's "09/2021 - Present". A date
 // phrasing that differs in more than punctuation/spacing (e.g. "2020-2024"
@@ -195,7 +165,7 @@ export function parseTailoredExperience(payload) {
 export function normalizeDates(s) {
   return String(s ?? '')
     .toLowerCase()
-    .replace(/[–—]/g, '-')
+    .replace(/[ΓÇôΓÇö]/g, '-')
     .replace(/\s*-+\s*/g, '-')
     .replace(/\s+/g, ' ')
     .trim();
@@ -220,15 +190,39 @@ function groupByKey(entries) {
 }
 
 /**
+ * The same grouping, with the master's FULL heading registered as a second
+ * key.
+ *
+ * The canonical shape splits a heading on its first dash - "### Acme Corp --
+ * Remote" - but the master also has a heading whose dash is part of the
+ * employer's NAME: "### TEFL ΓÇö Practicum (My Culture Connect) and Freelance
+ * Tutoring". The split reads that as company "TEFL", while every tailored CV
+ * carries the whole string, so the entry matched nothing and went unchecked.
+ *
+ * The alternative key is a FALLBACK, tried only when the canonical key
+ * matched nothing, so it can never turn a real comparison into a missed one.
+ */
+function groupByKeyWithHeading(entries) {
+  const groups = groupByKey(entries);
+  for (const entry of entries) {
+    if (!entry.heading || entry.heading === entry.company) continue;
+    const key = matchKey(entry.heading, entry.dates);
+    if (groups.has(key)) continue; // the canonical key already covers it
+    groups.set(key, [entry]);
+  }
+  return groups;
+}
+
+/**
  * Compare a tailored-CV payload's experience entries against cv.md's.
  *
  * A {company, dates} key is only ever compared when it is unique on BOTH
- * sides — cv.md never legitimately carries two different jobs at the same
+ * sides ΓÇö cv.md never legitimately carries two different jobs at the same
  * company over the exact same date range, but a malformed cv.md or a
  * tailored CV that merged two roles could produce that shape, and silently
  * picking one entry (first-entry-wins) would hide the rest of the group and
  * risk comparing the wrong role. A key with more than one entry on either
- * side is reported as `ambiguous` instead — never silently resolved into a
+ * side is reported as `ambiguous` instead ΓÇö never silently resolved into a
  * clean match/mismatch, and never dropped.
  *
  * @param {Array<{company,title,dates}>} cvEntries
@@ -236,7 +230,7 @@ function groupByKey(entries) {
  * @returns {{matched: Array, mismatches: Array, ambiguous: Array, unmatchedTailored: Array, unmatchedCv: Array}}
  */
 export function checkTitles(cvEntries, tailoredEntries) {
-  const cvGroups = groupByKey(cvEntries);
+  const cvGroups = groupByKeyWithHeading(cvEntries);
   const tailoredGroups = groupByKey(tailoredEntries);
 
   const matched = [];
@@ -292,7 +286,7 @@ export function checkTitles(cvEntries, tailoredEntries) {
  *
  * "No mismatches" is only a clean result when something was compared. A
  * cv.md the parser cannot read yields zero entries, every tailored entry
- * lands in unmatchedTailored, and the summary used to print ✅ anyway — a
+ * lands in unmatchedTailored, and the summary used to print Γ£à anyway ΓÇö a
  * planted title inflation went out under a green check. Mirrors
  * verify-cv-structure.mjs's UNVERIFIED and jd-skill-gap.mjs's LOW CONFIDENCE:
  * still warn-only (exit 0), but impossible to read as a pass.
@@ -309,21 +303,21 @@ export function diagnoseUnverified(cvEntries, tailoredEntries, result) {
     return {
       reason: 'cv-unparsed',
       message:
-        'cv.md entries could not be parsed — title check did not run. ' +
+        'cv.md entries could not be parsed ΓÇö title check did not run. ' +
         `Expected a "## ${EXPERIENCE_HEADING_NAMES.join('" / "## ')}" section whose entries are ` +
-        '"### Company — Location", then a bold **Title** line, then a dates line (see examples/cv-example.md).',
+        '"### Company ΓÇö Location", then a bold **Title** line, then a dates line (see examples/cv-example.md).',
     };
   }
   return {
     reason: 'no-pairs',
     message:
       `cv.md has ${cvEntries.length} parsed entr${cvEntries.length === 1 ? 'y' : 'ies'}, but no tailored entry ` +
-      'matched one by {company, dates} — title check did not run. Compare the company names and date ' +
+      'matched one by {company, dates} ΓÇö title check did not run. Compare the company names and date ' +
       'phrasing in the payload against cv.md.',
   };
 }
 
-// ── Self-test ────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Self-test ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 function runSelfTest() {
   let passed = 0, failed = 0;
@@ -400,7 +394,7 @@ function runSelfTest() {
   eq('case/whitespace-only title differences are not a mismatch', caseOnlyResult.mismatches.length, 0);
 
   // An incomplete experience entry (missing a required field) must fail
-  // loudly, not be silently filtered out of the comparison set — a payload
+  // loudly, not be silently filtered out of the comparison set ΓÇö a payload
   // mixing one valid entry with one incomplete entry must NOT quietly
   // compare only the valid one and report a clean result.
   const throwsFor = (label, payload) => {
@@ -439,7 +433,7 @@ function runSelfTest() {
   }
 
   // A missing or non-array `experience` must throw, not silently become an
-  // empty comparison set — {"experience": {}} must not exit 0 having checked
+  // empty comparison set ΓÇö {"experience": {}} must not exit 0 having checked
   // nothing.
   throwsFor('a payload with no experience key throws instead of defaulting to []', {});
   throwsFor('a non-array experience value (object) throws', { experience: {} });
@@ -447,7 +441,7 @@ function runSelfTest() {
   eq('an explicit empty experience array is still valid (no experience entries)',
     parseTailoredExperience({ experience: [] }).length, 0);
 
-  // Duplicate {company, dates} key IN cv.md (two different jobs, same range —
+  // Duplicate {company, dates} key IN cv.md (two different jobs, same range ΓÇö
   // malformed but possible): must be reported as ambiguous, never resolved by
   // silently picking one cv.md entry and hiding the other.
   const dupCvText = `
@@ -494,7 +488,7 @@ function runSelfTest() {
   eq('the ambiguous group carries both tailored titles', dupTailoredResult.ambiguous[0]?.tailoredTitles.sort(), ['Engineering Lead', 'Senior Software Engineer']);
 
   // Pandoc-flavored cv.md (#4879): the same content as a plain cv.md, in the
-  // shape a .docx → Markdown conversion produces. Must parse to the same
+  // shape a .docx ΓåÆ Markdown conversion produces. Must parse to the same
   // entries, so a planted title inflation is caught here exactly as it is on
   // the plain file.
   const pandocCv = [
@@ -522,8 +516,8 @@ function runSelfTest() {
   ].join('\n');
   const pandocEntries = parseCvExperience(pandocCv);
   eq('Pandoc cv.md: parses both experience entries', pandocEntries, [
-    { company: 'Acme Health, Inc.', title: 'Senior Director, Platform Engineering', dates: '09/2021 – Present' },
-    { company: 'Globex Corp.', title: 'Principal Infrastructure Engineer', dates: '03/2015 – 08/2021' },
+    { company: 'Acme Health, Inc.', heading: 'Acme Health, Inc. ΓÇö New York, NY (Remote)', title: 'Senior Director, Platform Engineering', dates: '09/2021 ΓÇô Present' },
+    { company: 'Globex Corp.', heading: 'Globex Corp. ΓÇö Stamford, CT', title: 'Principal Infrastructure Engineer', dates: '03/2015 ΓÇô 08/2021' },
   ]);
   const inflatedPayload = { experience: [
     { company: 'Acme Health, Inc.', role: 'VP, Platform Engineering', dates: '09/2021 - Present' },
@@ -535,16 +529,16 @@ function runSelfTest() {
   eq('Pandoc cv.md: a conclusive run is not flagged unverified',
     diagnoseUnverified(pandocEntries, parseTailoredExperience(inflatedPayload), pandocResult), null);
 
-  // One Pandoc feature at a time, each on an otherwise-plain entry — the
+  // One Pandoc feature at a time, each on an otherwise-plain entry ΓÇö the
   // issue's table, row by row.
   const oneEntry = (h2, h3, title, dates) => parseCvExperience(`${h2}\n\n${h3}\n\n${title}\n${dates}\n`);
-  const plainEntry = [{ company: 'Co', title: 'Engineer', dates: '2020-2024' }];
+  const plainEntry = [{ company: 'Co', heading: 'Co ΓÇô City', title: 'Engineer', dates: '2020-2024' }];
   for (const heading of ['Experience', 'Work Experience', 'Professional Experience', 'Employment History', 'Work History']) {
     eq(`"## ${heading}" is a recognized Experience section`, oneEntry(`## ${heading}`, '### Co -- City', '**Engineer**', '2020-2024'), plainEntry);
   }
   eq('a bold + span h2 is recognized', oneEntry('## **[Experience]{.smallcaps}**', '### Co -- City', '**Engineer**', '2020-2024'), plainEntry);
   eq('a Pandoc {#id} attribute on the h2 is ignored', oneEntry('## Experience {#experience}', '### Co -- City', '**Engineer**', '2020-2024'), plainEntry);
-  eq('"---" between company and location splits like "--"', oneEntry('## Experience', '### Co --- City', '**Engineer**', '2020-2024'), plainEntry);
+  eq('"---" between company and location splits like "--"', oneEntry('## Experience', '### Co --- City', '**Engineer**', '2020-2024'), [{ company: 'Co', heading: 'Co ΓÇö City', title: 'Engineer', dates: '2020-2024' }]);
   eq('a bold company heading is unwrapped', oneEntry('## Experience', '### **Co** -- City', '**Engineer**', '2020-2024'), plainEntry);
   eq('a trailing hard-break backslash on the title line is dropped', oneEntry('## Experience', '### Co -- City', '**Engineer**\\', '2020-2024'), plainEntry);
   eq('escaped characters in a title are unescaped', oneEntry('## Experience', '### Co -- City', '**C\\# \\| Engineer**', '2020-2024')[0]?.title, 'C# | Engineer');
@@ -552,8 +546,8 @@ function runSelfTest() {
 
   // Dates: any run of hyphens / en dashes / em dashes is one separator.
   eq('"--" dates equal "-" dates', normalizeDates('09/2021 -- Present'), normalizeDates('09/2021 - Present'));
-  eq('"–" dates equal "-" dates', normalizeDates('09/2021 – Present'), normalizeDates('09/2021 - Present'));
-  eq('"—" dates equal "-" dates', normalizeDates('09/2021 — Present'), normalizeDates('09/2021-Present'));
+  eq('"ΓÇô" dates equal "-" dates', normalizeDates('09/2021 ΓÇô Present'), normalizeDates('09/2021 - Present'));
+  eq('"ΓÇö" dates equal "-" dates', normalizeDates('09/2021 ΓÇö Present'), normalizeDates('09/2021-Present'));
 
   // Nothing compared is never a pass (#4879).
   const someTailored = parseTailoredExperience(inflatedPayload);
@@ -571,7 +565,7 @@ function runSelfTest() {
   // CLI exit-code contract (modes/pdf.md Step 17a relies on this distinction):
   // a genuine input failure (missing/malformed cv.md or payload) must exit
   // non-zero so the pipeline stops and repairs the input, while a completed
-  // comparison — even one that FOUND mismatches or ambiguous groups — is
+  // comparison ΓÇö even one that FOUND mismatches or ambiguous groups ΓÇö is
   // warn-only and always exits 0. Drives the real CLI as a subprocess against
   // fixture files, the only honest way to test process.exit() codes.
   const scriptPath = fileURLToPath(import.meta.url);
@@ -618,7 +612,7 @@ function runSelfTest() {
     eq('CLI exits 1 on a malformed JSON payload', runCli(['malformed.json']).status, 1);
 
     // A payload mixing one valid entry with one incomplete entry (missing
-    // dates) must fail loudly — never silently compare only the valid entry
+    // dates) must fail loudly ΓÇö never silently compare only the valid entry
     // and report success as though the whole CV had been checked.
     writeFileSync(join(cliTmp, 'partial.json'), JSON.stringify({
       experience: [
@@ -649,7 +643,7 @@ function runSelfTest() {
       }));
       const unparsedRun = runCli(['p.json', '--summary'], unparsedDir);
       eq('CLI exits 0 when cv.md cannot be parsed (warn-only)', unparsedRun.status, 0);
-      eq('an unparsed cv.md never prints the green check', /✅/.test(unparsedRun.stdout), false);
+      eq('an unparsed cv.md never prints the green check', /Γ£à/.test(unparsedRun.stdout), false);
       eq('an unparsed cv.md says the title check did not run', /title check did not run/.test(unparsedRun.stdout), true);
       const unparsedJson = JSON.parse(runCli(['p.json'], unparsedDir).stdout);
       eq('JSON output carries the unverified reason', unparsedJson.unverified?.reason, 'cv-unparsed');
@@ -704,7 +698,7 @@ function runSelfTest() {
   if (failed > 0) process.exit(1);
 }
 
-// ── CLI ──────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ CLI ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 const args = process.argv.slice(2);
 const USAGE = `Usage:
@@ -739,7 +733,7 @@ if (isMainModule(import.meta.url)) {
       process.exit(1);
     }
     if (!existsSync(CV_PATH)) {
-      console.error(`Error: ${CV_PATH} not found — this is a user-layer file, create it first.`);
+      console.error(`Error: ${CV_PATH} not found ΓÇö this is a user-layer file, create it first.`);
       process.exit(1);
     }
 
@@ -765,12 +759,12 @@ if (isMainModule(import.meta.url)) {
 
     if (summaryMode) {
       console.log('\nCV Title Consistency Check');
-      console.log('─'.repeat(40));
+      console.log('ΓöÇ'.repeat(40));
       console.log(`Entries compared: ${compared}`);
       if (unverified) {
-        console.log(`⚠️  ${unverified.message}`);
+        console.log(`ΓÜá∩╕Å  ${unverified.message}`);
       } else if (result.mismatches.length > 0) {
-        console.log(`⚠️  ${result.mismatches.length} title mismatch(es) found:`);
+        console.log(`ΓÜá∩╕Å  ${result.mismatches.length} title mismatch(es) found:`);
         for (const m of result.mismatches) {
           console.log(`\n  ${m.company} (${m.dates})`);
           console.log(`    cv.md:        "${m.cvTitle}"`);
@@ -779,10 +773,10 @@ if (isMainModule(import.meta.url)) {
       } else if (compared > 0 || tailoredEntries.length === 0) {
         // compared === 0 with only ambiguous groups is not a pass either:
         // the ambiguous block below is the whole result.
-        console.log('✅ No title drift found — every matched entry uses cv.md\'s canonical title.');
+        console.log('Γ£à No title drift found ΓÇö every matched entry uses cv.md\'s canonical title.');
       }
       if (result.ambiguous.length > 0) {
-        console.log(`\n⚠️  ${result.ambiguous.length} ambiguous {company, dates} key(s) — multiple entries on one or both sides, not auto-resolved:`);
+        console.log(`\nΓÜá∩╕Å  ${result.ambiguous.length} ambiguous {company, dates} key(s) ΓÇö multiple entries on one or both sides, not auto-resolved:`);
         for (const a of result.ambiguous) {
           console.log(`\n  ${a.company} (${a.dates})`);
           console.log(`    cv.md titles:        ${a.cvTitles.map(t => `"${t}"`).join(', ')}`);
@@ -790,7 +784,7 @@ if (isMainModule(import.meta.url)) {
         }
       }
       if (result.unmatchedTailored.length > 0) {
-        console.log(`\n  (${result.unmatchedTailored.length} tailored entr${result.unmatchedTailored.length === 1 ? 'y has' : 'ies have'} no matching {company, dates} in cv.md — not checked)`);
+        console.log(`\n  (${result.unmatchedTailored.length} tailored entr${result.unmatchedTailored.length === 1 ? 'y has' : 'ies have'} no matching {company, dates} in cv.md ΓÇö not checked)`);
       }
     } else {
       // Additive key: null when the run was conclusive, {reason, message}

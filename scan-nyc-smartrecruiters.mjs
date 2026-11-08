@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * scan-nyc-smartrecruiters.mjs — the citywide NYC SmartRecruiters tenant.
+ * scan-nyc-smartrecruiters.mjs ΓÇö the citywide NYC SmartRecruiters tenant.
  *
  * WHY A SEPARATE SCANNER: `jobs.smartrecruiters.com/CityOfNewYork` is ONE
  * tenant carrying every NYC agency that posts through SmartRecruiters. It is
@@ -10,13 +10,13 @@
  * Health, Early Intervention, Childcare, Alcohol, Controller, Revenue, HR and
  * Budget. Found via `scan-ats-full --history-seeds`, where the seed inherited
  * a tracker row's company label and so first surfaced as "City of New York
- * (Parks)" — a wrong-entity board.
+ * (Parks)" ΓÇö a wrong-entity board.
  *
  * WHY NOT scan.mjs: scan.mjs does not consult `source_title_filters`, and the
  * global title list carries bare "Manager", "Director", "Project", "Analyst",
  * "Specialist", "Coordinator" and "Operations". On a citywide municipal board
- * that admits 1,194 of 1,689 postings — Deputy Director of Budget, capital
- * Project Manager, and every "Program Manager, Bureau of ..." — all senior
+ * that admits 1,194 of 1,689 postings ΓÇö Deputy Director of Budget, capital
+ * Project Manager, and every "Program Manager, Bureau of ..." ΓÇö all senior
  * civil-service posts the record cannot reach. That is the flood the
  * builtinnyc archive measured: 40% of the tracker, 6.1% of the applications.
  * The lane rule for this host in portals.yml names the lane explicitly
@@ -26,8 +26,8 @@
  * in a single JSON response, so this scanner costs one request per run and
  * needs no browser.
  *
- * THE BOARD CARRIES DATES. This scanner used to say the opposite — "this
- * board exposes NO posting date ... there is no age signal here at all" —
+ * THE BOARD CARRIES DATES. This scanner used to say the opposite ΓÇö "this
+ * board exposes NO posting date ... there is no age signal here at all" ΓÇö
  * and the claim was false. The SmartRecruiters list payload carries them as
  * custom fields, "Posted On Date" and "Expire Date"; the provider reads both
  * (providers/smartrecruiters.mjs) and the scanner passes the posted date into
@@ -35,7 +35,7 @@
  *
  * MEASURED 2026-10-22 against the whole tenant: 1,653 of 1,654 postings
  * carry a Posted On Date and 1,643 carry an Expire Date (an earlier count on
- * the 1,626-posting tenant read 1,625 and 1,615 — the same shape, one
+ * the 1,626-posting tenant read 1,625 and 1,615 ΓÇö the same shape, one
  * posting short at each end).
  *
  * WHAT A DATE DOES NOT DO: it is the BOARD's own account of the posting, not
@@ -44,7 +44,7 @@
  * filled anyway. Verify liveness at the employer before treating a match as
  * live; the scanner does not claim otherwise.
  *
- * SIBLING: scan-cityjobs.mjs — scan-nystate.mjs — scan-mta.mjs — scan-usajobs.mjs
+ * SIBLING: scan-cityjobs.mjs ΓÇö scan-nystate.mjs ΓÇö scan-mta.mjs ΓÇö scan-usajobs.mjs
  *
  * Usage:
  *   node scan-nyc-smartrecruiters.mjs                 # scan the tenant
@@ -84,14 +84,14 @@ const postedAtOf = (iso) => {
   return Number.isFinite(ms) ? ms : undefined;
 };
 
-// ── Args ────────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Args ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(n);
 const DUMP = flag('--dump');
 const DRY = flag('--dry-run');
 const ALL = flag('--all-postings');
 
-// ── Config ──────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Config ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 let config = {};
 if (existsSync(PORTALS_PATH)) config = yaml.load(readFileSync(PORTALS_PATH, 'utf-8')) || {};
 
@@ -179,7 +179,7 @@ function titleVetoFires() {
   return laneAccepts && vetoRejects;
 }
 
-// ── Main ────────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Main ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 async function main() {
   const ctx = makeHttpCtx();
   let jobs;
@@ -321,7 +321,7 @@ async function main() {
   }
 
   printScanSummaryHeader(COMPANY, localToday());
-  console.log('─'.repeat(56));
+  console.log('ΓöÇ'.repeat(56));
   console.log(`Board postings:     ${jobs.length}`);
   console.log(`Filtered off-lane:  ${offLane.length}`);
   console.log(`Filtered off-region:${String(offRegion.length).padStart(4)}`);
@@ -338,9 +338,9 @@ async function main() {
   accepted
     .slice()
     .sort((a, b) => a.title.localeCompare(b.title))
-    .forEach((j) => console.log(`  • ${j.title}  [${j.location}]`));
+    .forEach((j) => console.log(`  ΓÇó ${j.title}  [${j.location}]`));
   console.log('');
-  console.log(`→ This board DOES carry dates: ${boardPosted} of its ${jobs.length} postings publish`);
+  console.log(`ΓåÆ This board DOES carry dates: ${boardPosted} of its ${jobs.length} postings publish`);
   console.log(`  a Posted On Date (all ${offerPosted} new offers above reach the pipeline row as`);
   console.log(`  \`posted:\`), and ${boardExpire} publish an Expire Date. A posting past its`);
   console.log('  Expire Date is closed by the employer\'s own record; one still inside it can');

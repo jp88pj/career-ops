@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   extractDomain,
   checkCompanyMatch,
@@ -14,7 +15,7 @@ import {
 // exact whole-string comparison. Assert it through `===` rather than
 // Array.prototype.includes: CodeQL's js/incomplete-url-substring-sanitization
 // reads any `.includes('<host>.<tld>')` as a substring test against a URL and
-// cannot see that the receiver is an array. The literal alone trips it — the
+// cannot see that the receiver is an array. The literal alone trips it ΓÇö the
 // rule fired on the four `.com` fixtures below and ignored the structurally
 // identical `.example` ones on adjacent lines.
 const hasDomain = (domains, domain) => domains.some(d => d === domain);
@@ -32,9 +33,9 @@ test('checkCompanyMatch', () => {
   assert.ok(checkCompanyMatch('Interview with AcmeCorp', 'Acme Corp'));
   
   // Chinese matches
-  assert.ok(checkCompanyMatch('恭喜简历通过，杭州赢云贸易有限公司邀您面试', '杭州赢云贸易有限公司'));
-  // Partial Chinese (omitting '有限公司')
-  assert.ok(checkCompanyMatch('恭喜简历通过，杭州赢云贸易邀您面试', '杭州赢云贸易有限公司'));
+  assert.ok(checkCompanyMatch('µü¡σû£τ«ÇσÄåΘÇÜΦ┐ç∩╝îµ¥¡σ╖₧Φ╡óΣ║æΦ┤╕µÿôµ£ëΘÖÉσà¼σÅ╕ΘéÇµé¿Θ¥óΦ»ò', 'µ¥¡σ╖₧Φ╡óΣ║æΦ┤╕µÿôµ£ëΘÖÉσà¼σÅ╕'));
+  // Partial Chinese (omitting 'µ£ëΘÖÉσà¼σÅ╕')
+  assert.ok(checkCompanyMatch('µü¡σû£τ«ÇσÄåΘÇÜΦ┐ç∩╝îµ¥¡σ╖₧Φ╡óΣ║æΦ┤╕µÿôΘéÇµé¿Θ¥óΦ»ò', 'µ¥¡σ╖₧Φ╡óΣ║æΦ┤╕µÿôµ£ëΘÖÉσà¼σÅ╕'));
   // Fails
   assert.equal(checkCompanyMatch('Interview with Random', 'Acme Corp'), false);
 });
@@ -42,8 +43,8 @@ test('checkCompanyMatch', () => {
 test('checkRoleMatch', () => {
   assert.ok(checkRoleMatch('Update for Software Engineer role', 'Software Engineer'));
   // Chinese role matches
-  assert.ok(checkRoleMatch('邀请您参加PY01_python开发工程师的面试', 'python开发工程师'));
-  assert.ok(checkRoleMatch('邀请您参加python开发工程师的面试', 'PY01_python开发工程师'));
+  assert.ok(checkRoleMatch('ΘéÇΦ»╖µé¿σÅéσèáPY01_pythonσ╝ÇσÅæσ╖Ñτ¿ïσ╕êτÜäΘ¥óΦ»ò', 'pythonσ╝ÇσÅæσ╖Ñτ¿ïσ╕ê'));
+  assert.ok(checkRoleMatch('ΘéÇΦ»╖µé¿σÅéσèápythonσ╝ÇσÅæσ╖Ñτ¿ïσ╕êτÜäΘ¥óΦ»ò', 'PY01_pythonσ╝ÇσÅæσ╖Ñτ¿ïσ╕ê'));
 });
 
 test('checkRoleMatch - a role word inside a longer word is not a match (#3455)', () => {
@@ -52,7 +53,7 @@ test('checkRoleMatch - a role word inside a longer word is not a match (#3455)',
   // corroborate one. Before this fix `tNorm.includes()` matched it, and because
   // matchCandidates() only counts a partial match on a row already carrying a
   // company or domain signal, the effect was to inflate whichever row was
-  // already ahead — see #3455.
+  // already ahead ΓÇö see #3455.
   const boilerplate = 'Unfortunately we will not be moving forward. We will retain your '
     + 'data on file. Please watch our Analytics openings for future roles.';
   assert.equal(checkRoleMatch(boilerplate, 'Managing VP, Analytic & AI Product'), false);
@@ -71,7 +72,7 @@ test('checkRoleMatch - a role word inside a longer word is not a match (#3455)',
 test('checkRoleMatch - a common noun in a role title still matches as a whole word (#3455 limit)', () => {
   // Documents the boundary of the #3455 fix rather than asserting desired
   // behaviour. "data" occurs as a real word in ordinary rejection prose, so a
-  // word-boundary rule cannot exclude it — only the GENERIC_ROLE_WORDS
+  // word-boundary rule cannot exclude it ΓÇö only the GENERIC_ROLE_WORDS
   // enumeration could, and enumerating every domain noun does not scale.
   // Half of darkpandawarrior's two-row example is therefore still reachable;
   // the ownership rule in #3455, not this fix, is what closes that.
@@ -81,24 +82,24 @@ test('checkRoleMatch - a common noun in a role title still matches as a whole wo
 });
 
 test('checkRoleMatch - stripping punctuation must not push a non-Latin part under the length gate', () => {
-  // "工程师。" is four characters, three once the ideographic period is stripped.
+  // "σ╖Ñτ¿ïσ╕êπÇé" is four characters, three once the ideographic period is stripped.
   // The stripped form belongs to the Latin branch only; gating every script on
-  // it silently dropped three-character Chinese titles — 工程师 (engineer),
-  // 设计师 (designer) — that the substring path had always matched. This is why
+  // it silently dropped three-character Chinese titles ΓÇö σ╖Ñτ¿ïσ╕ê (engineer),
+  // Φ«╛Φ«íσ╕ê (designer) ΓÇö that the substring path had always matched. This is why
   // the script routing runs before the length and generic-word gates rather
   // than after them.
-  assert.ok(checkRoleMatch('我们招聘工程师。欢迎申请。', 'PY_工程师。'));
-  assert.ok(checkRoleMatch('我们招聘工程师，欢迎申请。', 'PY_工程师，'));
-  assert.ok(checkRoleMatch('私たちはエンジ。を募集。', 'JP_エンジ。'));
+  assert.ok(checkRoleMatch('µêæΣ╗¼µï¢Φüÿσ╖Ñτ¿ïσ╕êπÇéµ¼óΦ┐Äτö│Φ»╖πÇé', 'PY_σ╖Ñτ¿ïσ╕êπÇé'));
+  assert.ok(checkRoleMatch('µêæΣ╗¼µï¢Φüÿσ╖Ñτ¿ïσ╕ê∩╝îµ¼óΦ┐Äτö│Φ»╖πÇé', 'PY_σ╖Ñτ¿ïσ╕ê∩╝î'));
+  assert.ok(checkRoleMatch('τºüπüƒπüíπü»πé¿πâ│πé╕πÇéπéÆσïƒΘ¢åπÇé', 'JP_πé¿πâ│πé╕πÇé'));
 });
 
 test('checkRoleMatch - a mixed Latin+Han part is not Latin, so it keeps substring matching', () => {
-  // "python开发工程师" is one semantic phrase, not a Latin word followed by a
+  // "pythonσ╝ÇσÅæσ╖Ñτ¿ïσ╕ê" is one semantic phrase, not a Latin word followed by a
   // Chinese one, so the Latin-only gate correctly declines to apply a boundary
   // rule to it. These two are the pre-existing cases from the suite above,
   // repeated here as the regression guard for the mixed-script path.
-  assert.ok(checkRoleMatch('邀请您参加PY01_python开发工程师的面试', 'python开发工程师'));
-  assert.ok(checkRoleMatch('邀请您参加python开发工程师的面试', 'PY01_python开发工程师'));
+  assert.ok(checkRoleMatch('ΘéÇΦ»╖µé¿σÅéσèáPY01_pythonσ╝ÇσÅæσ╖Ñτ¿ïσ╕êτÜäΘ¥óΦ»ò', 'pythonσ╝ÇσÅæσ╖Ñτ¿ïσ╕ê'));
+  assert.ok(checkRoleMatch('ΘéÇΦ»╖µé¿σÅéσèápythonσ╝ÇσÅæσ╖Ñτ¿ïσ╕êτÜäΘ¥óΦ»ò', 'PY01_pythonσ╝ÇσÅæσ╖Ñτ¿ïσ╕ê'));
 });
 
 test('checkRoleMatch - non-Latin role words keep the substring test unchanged', () => {
@@ -110,27 +111,27 @@ test('checkRoleMatch - non-Latin role words keep the substring test unchanged', 
   //             on Han ideographs alone sent a pure-Katakana title down the
   //             boundary path, where the surrounding Hiragana is \p{L}.
   //   Korean    DOES separate words with spaces, but glues grammatical
-  //             particles straight onto the noun — 개발자 + 를 -> 개발자를 — so
+  //             particles straight onto the noun ΓÇö Ω░£δ░£∞₧É + δÑ╝ -> Ω░£δ░£∞₧ÉδÑ╝ ΓÇö so
   //             the boundary never holds even though the title is right there.
   //
   // Every case below is a role genuinely mentioned in the text, and every one
   // must behave exactly as it did before this change.
-  assert.ok(checkRoleMatch('私たちはエンジニアを募集しています。', 'PY02_エンジニア'));
-  assert.ok(checkRoleMatch('私たちは上級エンジニアを募集しています。', '上級エンジニア'));
-  assert.ok(checkRoleMatch('우리는 소프트웨어개발자를 찾고 있습니다.', 'KR_소프트웨어개발자'));
-  assert.ok(checkRoleMatch('프로젝트매니저의 면접 일정을 안내드립니다.', 'KR_프로젝트매니저'));
-  assert.ok(checkRoleMatch('Мы ищем Разработчика в команду.', 'RU_Разработчик'));
-  assert.ok(checkRoleMatch('نبحث عن مهندس برمجيات للانضمام.', 'AR_مهندس_برمجيات'));
+  assert.ok(checkRoleMatch('τºüπüƒπüíπü»πé¿πâ│πé╕πâïπéóπéÆσïƒΘ¢åπüùπüªπüäπü╛πüÖπÇé', 'PY02_πé¿πâ│πé╕πâïπéó'));
+  assert.ok(checkRoleMatch('τºüπüƒπüíπü»Σ╕èτ┤Üπé¿πâ│πé╕πâïπéóπéÆσïƒΘ¢åπüùπüªπüäπü╛πüÖπÇé', 'Σ╕èτ┤Üπé¿πâ│πé╕πâïπéó'));
+  assert.ok(checkRoleMatch('∞Ü░δª¼δèö ∞åîφöäφè╕∞¢¿∞û┤Ω░£δ░£∞₧ÉδÑ╝ ∞░╛Ω│á ∞₧ê∞è╡δïêδïñ.', 'KR_∞åîφöäφè╕∞¢¿∞û┤Ω░£δ░£∞₧É'));
+  assert.ok(checkRoleMatch('φöäδí£∞á¥φè╕δºñδïê∞áÇ∞¥ÿ δ⌐┤∞áæ ∞¥╝∞áò∞¥ä ∞òêδé┤δô£δª╜δïêδïñ.', 'KR_φöäδí£∞á¥φè╕δºñδïê∞áÇ'));
+  assert.ok(checkRoleMatch('╨£╤ï ╨╕╤ë╨╡╨╝ ╨á╨░╨╖╤Ç╨░╨▒╨╛╤é╤ç╨╕╨║╨░ ╨▓ ╨║╨╛╨╝╨░╨╜╨┤╤â.', 'RU_╨á╨░╨╖╤Ç╨░╨▒╨╛╤é╤ç╨╕╨║'));
+  assert.ok(checkRoleMatch('┘å╪¿╪¡╪½ ╪╣┘å ┘à┘ç┘å╪»╪│ ╪¿╪▒┘à╪¼┘è╪º╪¬ ┘ä┘ä╪º┘å╪╢┘à╪º┘à.', 'AR_┘à┘ç┘å╪»╪│_╪¿╪▒┘à╪¼┘è╪º╪¬'));
 });
 
 test('checkRoleMatch - a pathologically long role part does not crash the matcher', () => {
   // matchesOnWordBoundary builds new RegExp(..., 'iu'), and V8 stack-overflows
   // constructing a case-insensitive Unicode pattern around a long enough
-  // literal — it THROWS at construction. checkCompanyMatch, the helper's only
+  // literal ΓÇö it THROWS at construction. checkCompanyMatch, the helper's only
   // other caller, is gated by isShortName and can never reach that; a role part
   // has no such ceiling, so without MAX_BOUNDARY_NEEDLE this throw escapes
   // matchCandidates() uncaught and takes reply-watch down for every candidate
-  // in the run — not a graceful non-match on one row.
+  // in the run ΓÇö not a graceful non-match on one row.
   //
   // Reachable from a single malformed tracker row: a JD pasted into the role
   // field, or a merged CSV column.
@@ -147,8 +148,8 @@ test('checkRoleMatch - a pathologically long role part does not crash the matche
   // Pin the threshold itself, not just "well past it". A part of exactly
   // MAX_BOUNDARY_NEEDLE characters is still ON the whole-word path, so it must
   // refuse a substring-inside-a-longer-word; flipping the comparison to >=
-  // would push it to the substring fallback and match. Inert in practice — 128
-  // has enormous headroom over any real role word — but the boundary of a
+  // would push it to the substring fallback and match. Inert in practice ΓÇö 128
+  // has enormous headroom over any real role word ΓÇö but the boundary of a
   // guard is the part worth pinning.
   const atCeiling = 'a'.repeat(128);
   assert.equal(checkRoleMatch(`about the ${atCeiling}x team`, atCeiling), false);
@@ -160,34 +161,34 @@ test('checkRoleMatch - the generic-word gate runs on the stripped form, not the 
   // part lets any attached punctuation walk a generic word straight past the
   // #2671 protection, which is the bug that rule exists to stop.
   assert.equal(checkRoleMatch('Please contact our Recruiter, team lead, for more info.', 'Recruiter,'), false);
-  // Text carries only the punctuated generic word, never the whole role — so
+  // Text carries only the punctuated generic word, never the whole role ΓÇö so
   // this exercises the partial path rather than checkRoleMatchExact.
   assert.equal(checkRoleMatch('Our Operations. team will be in touch.', 'People Operations.'), false);
 });
 
 test('checkRoleMatch - a combining mark keeps a Latin word on the whole-word path (#3535)', () => {
-  // toLowerCase() can INTRODUCE a character that is not Script=Latin: "İ"
+  // toLowerCase() can INTRODUCE a character that is not Script=Latin: "─░"
   // (U+0130) becomes "i" + U+0307, and U+0307 is \p{M}/Script=Inherited. A Latin
   // gate without \p{M} therefore drops these words to the substring path and the
   // bug survives for them.
   //
   // Turkish dotted-I, the case that exposed it:
-  assert.equal(checkRoleMatch('Bizim İstatistikler ekibi yanıt verecek.', 'İstatistik Uzmanı'), false);
-  assert.ok(checkRoleMatch('Bizim İstatistik ekibi yanıt verecek.', 'İstatistik Uzmanı'));
+  assert.equal(checkRoleMatch('Bizim ─░statistikler ekibi yan─▒t verecek.', '─░statistik Uzman─▒'), false);
+  assert.ok(checkRoleMatch('Bizim ─░statistik ekibi yan─▒t verecek.', '─░statistik Uzman─▒'));
 
-  // ...and NFD-decomposed accented text, which is the broader half — it needs no
+  // ...and NFD-decomposed accented text, which is the broader half ΓÇö it needs no
   // Turkish at all and reaches French, Spanish, Portuguese and Vietnamese.
-  const nfd = 'Ingénieur';           // e + combining acute, not U+00E9
-  assert.equal(checkRoleMatch(`Notre équipe ${nfd}ie recrute.`, `${nfd} Logiciel`), false);
-  assert.ok(checkRoleMatch(`Notre équipe ${nfd} recrute.`, `${nfd} Logiciel`));
+  const nfd = 'Inge╠ünieur';           // e + combining acute, not U+00E9
+  assert.equal(checkRoleMatch(`Notre e╠üquipe ${nfd}ie recrute.`, `${nfd} Logiciel`), false);
+  assert.ok(checkRoleMatch(`Notre e╠üquipe ${nfd} recrute.`, `${nfd} Logiciel`));
 
   // A mark belongs to the base letter before it, so a needle sitting next to one
   // is mid-word, not at a boundary. Both lookarounds need \p{M}, and they fail
-  // independently — hence a case on each side.
+  // independently ΓÇö hence a case on each side.
   //
   // mark AFTER the needle:
-  assert.equal(checkRoleMatch('Our datá pipeline is unrelated.', 'Data Engineer'), false);
-  // mark BEFORE the needle — a decomposed accented word running straight into
+  assert.equal(checkRoleMatch('Our data╠ü pipeline is unrelated.', 'Data Engineer'), false);
+  // mark BEFORE the needle ΓÇö a decomposed accented word running straight into
   // it, as happens in slugs, filenames and run-together compounds:
   assert.equal(checkRoleMatch('Attached: re\u0301sume\u0301data.pdf for review.', 'Data Engineer'), false);
 });
@@ -199,15 +200,15 @@ test('checkRoleMatch - an NFD word ending in a combining mark keeps it (#3535)',
   //
   // \\p{M} has to be in the stripping class as well as in LATIN_WORD_RE and the
   // lookarounds. Without it the terminal mark is peeled off as though it were
-  // punctuation — "Charge\u0301" strips to "Charge" — and the boundary test then
+  // punctuation ΓÇö "Charge\u0301" strips to "Charge" ΓÇö and the boundary test then
   // correctly refuses that, because the mark still present in the text makes
   // the position mid-grapheme. The word stops matching itself.
-  const charge = 'Charge\u0301';   // Chargé, mark terminal
-  const cafe   = 'Cafe\u0301';     // Café, mark terminal
-  const disena = 'Disen\u0303ador'; // Diseñador, mark interior
+  const charge = 'Charge\u0301';   // Charg├⌐, mark terminal
+  const cafe   = 'Cafe\u0301';     // Caf├⌐, mark terminal
+  const disena = 'Disen\u0303ador'; // Dise├▒ador, mark interior
 
   // Text carries the PART but not the whole role, so checkRoleMatchExact cannot
-  // short-circuit and mask the partial path — which is what hid this at first.
+  // short-circuit and mask the partial path ΓÇö which is what hid this at first.
   assert.ok(checkRoleMatch(`Le poste de ${charge} est ouvert.`, `${charge} de Mission`));
   assert.ok(checkRoleMatch(`Notre ${cafe} recrute.`, `${cafe} Manager`));
   assert.ok(checkRoleMatch(`Buscamos un ${disena} para el equipo.`, `${disena} Senior`));
@@ -217,7 +218,7 @@ test('checkRoleMatch - an NFD word ending in a combining mark keeps it (#3535)',
 });
 test('checkRoleMatch - a Latin role word containing digits still gets the whole-word rule', () => {
   // The \p{N} in LATIN_WORD_RE is load-bearing. Without it a part carrying a
-  // digit — "Web3", "K8s", "Tier2" are all ordinary in job titles — fails the
+  // digit ΓÇö "Web3", "K8s", "Tier2" are all ordinary in job titles ΓÇö fails the
   // Latin allowlist, falls through to the substring path, and the #3455 bug is
   // back for exactly those titles.
   assert.equal(checkRoleMatch('Our Web3D research group published a paper.', 'Web3 Platform Lead'), false);
@@ -246,11 +247,11 @@ test('checkRoleMatch - the word boundary is defined on letters in any script, no
   // These two cases are the whole reason the rule uses \p{L}/\p{N} lookarounds
   // rather than \b. \b is defined on [A-Za-z0-9_], which is wrong twice over:
   //
-  //   "data工程师"     a CJK ideograph is not \w, so \b sees a boundary and
-  //                    matches "data" INSIDE a single Chinese compound word —
+  //   "dataσ╖Ñτ¿ïσ╕ê"     a CJK ideograph is not \w, so \b sees a boundary and
+  //                    matches "data" INSIDE a single Chinese compound word ΓÇö
   //                    exactly the substring-inside-a-word bug this fix exists
   //                    to remove, reintroduced for every non-Latin script.
-  assert.equal(checkRoleMatch('我们正在招聘data工程师。', 'Data Analyst'), false);
+  assert.equal(checkRoleMatch('µêæΣ╗¼µ¡úσ£¿µï¢Φüÿdataσ╖Ñτ¿ïσ╕êπÇé', 'Data Analyst'), false);
 
   //   "data_engineer"  "_" IS \w, so \b sees NO boundary and misses a genuine
   //                    mention. "_" is one of the separators role titles are
@@ -284,17 +285,17 @@ test('checkRoleMatchExact - only a full contiguous role-title match counts', () 
     checkRoleMatchExact('Jane Doe, Talent Acquisition & Diversity, Contoso Inc.', 'Talent Acquisition Specialist'),
     false
   );
-  // A genuinely specific, non-generic partial word is not "exact" either —
+  // A genuinely specific, non-generic partial word is not "exact" either ΓÇö
   // checkRoleMatchExact only credits the whole role string.
-  assert.equal(checkRoleMatchExact('邀请您参加python开发工程师的面试', 'PY01_python开发工程师'), false);
+  assert.equal(checkRoleMatchExact('ΘéÇΦ»╖µé¿σÅéσèápythonσ╝ÇσÅæσ╖Ñτ¿ïσ╕êτÜäΘ¥óΦ»ò', 'PY01_pythonσ╝ÇσÅæσ╖Ñτ¿ïσ╕ê'), false);
   // Chinese compound titles have no separators to split on, so a "single part"
   // Chinese role is still a whole-role match, not a bare single word.
-  assert.ok(checkRoleMatchExact('邀请您参加python开发工程师的面试', 'python开发工程师'));
+  assert.ok(checkRoleMatchExact('ΘéÇΦ»╖µé¿σÅéσèápythonσ╝ÇσÅæσ╖Ñτ¿ïσ╕êτÜäΘ¥óΦ»ò', 'pythonσ╝ÇσÅæσ╖Ñτ¿ïσ╕ê'));
 });
 
 test('checkRoleMatchExact - a single-word role, even a specific one, never counts standalone (CodeRabbit #2672)', () => {
   // "Engineer" is not generic-recruiting vocabulary, but a single word gives a
-  // "whole role" check no more specificity than a bare-word check — it must
+  // "whole role" check no more specificity than a bare-word check ΓÇö it must
   // fall through to the partial-match path and require corroboration, same as
   // any other single significant word.
   assert.equal(checkRoleMatchExact('We are excited to have you interview as an Engineer.', 'Engineer'), false);
@@ -305,7 +306,7 @@ test('checkRoleMatchExact - a single-word role, even a specific one, never count
 
 test('checkRoleMatchExact - a whitespace-only role never matches (CodeRabbit #2672)', () => {
   // normalizeStr(' ') === '', and ''.includes('') === true for any text, so a
-  // blank role must be explicitly rejected — otherwise it would "exactly"
+  // blank role must be explicitly rejected ΓÇö otherwise it would "exactly"
   // match arbitrary text and bypass corroboration entirely. isSingleWordRole
   // doesn't catch this: splitting a whitespace-only string on separators
   // yields zero parts, not one.
@@ -410,7 +411,7 @@ test('getAppDomains - drops shared ATS, job-board and webmail domains', () => {
 test('matchCandidates - high confidence with company + role', () => {
   const apps = [
     { num: 1, company: 'Acme Corp', role: 'Software Engineer', notes: '' },
-    { num: 2, company: '杭州赢云贸易有限公司', role: 'PY01_python开发工程师', notes: '' }
+    { num: 2, company: 'µ¥¡σ╖₧Φ╡óΣ║æΦ┤╕µÿôµ£ëΘÖÉσà¼σÅ╕', role: 'PY01_pythonσ╝ÇσÅæσ╖Ñτ¿ïσ╕ê', notes: '' }
   ];
   
   const candidates = [
@@ -424,8 +425,8 @@ test('matchCandidates - high confidence with company + role', () => {
     {
       message_id: 'msg2',
       from: 'Notice@fundeliver.com',
-      subject: '恭喜简历通过，杭州赢云贸易有限公司邀您面试',
-      body_snippet: '邀请您参加PY01_python开发工程师的面试... AI微信小程序面试',
+      subject: 'µü¡σû£τ«ÇσÄåΘÇÜΦ┐ç∩╝îµ¥¡σ╖₧Φ╡óΣ║æΦ┤╕µÿôµ£ëΘÖÉσà¼σÅ╕ΘéÇµé¿Θ¥óΦ»ò',
+      body_snippet: 'ΘéÇΦ»╖µé¿σÅéσèáPY01_pythonσ╝ÇσÅæσ╖Ñτ¿ïσ╕êτÜäΘ¥óΦ»ò... AIσ╛«Σ┐íσ░Åτ¿ïσ║ÅΘ¥óΦ»ò',
       signal: 'interview_invite'
     }
   ];
@@ -441,7 +442,7 @@ test('matchCandidates - high confidence with company + role', () => {
   
   assert.equal(results[1].application_num, 2);
   assert.equal(results[1].confidence, 'high');
-  assert.equal(results[1].company_hint, '杭州赢云贸易有限公司');
+  assert.equal(results[1].company_hint, 'µ¥¡σ╖₧Φ╡óΣ║æΦ┤╕µÿôµ£ëΘÖÉσà¼σÅ╕');
 });
 
 test('matchCandidates - medium confidence domain match', () => {
@@ -530,7 +531,7 @@ test('matchCandidates - a named tracked role preserves the existing single-row m
   ];
   const [result] = matchCandidates([{
     message_id: 'company-wide-3', received_at: '2026-08-20', from: 'careers@acmeair.com',
-    subject: 'Acme Air — Backend Engineer', body_snippet: 'We will not be moving forward.', signal: 'rejection',
+    subject: 'Acme Air ΓÇö Backend Engineer', body_snippet: 'We will not be moving forward.', signal: 'rejection',
   }], apps, []);
 
   assert.equal(result.application_num, 47);
@@ -694,7 +695,7 @@ test('matchCandidates - a partial role-word match corroborated by company name s
     {
       message_id: 'msg8',
       from: 'careers@northwindtraders.example',
-      subject: 'Interview with Northwind Traders — Backend Engineer role',
+      subject: 'Interview with Northwind Traders ΓÇö Backend Engineer role',
       body_snippet: 'We would like to invite you to interview.',
       signal: 'interview_invite'
     }
@@ -723,10 +724,10 @@ test('matchCandidates - a partial role-word match corroborated by sender domain 
       message_id: 'msg10',
       // Sender domain matches the recruiter contact domain in notes via
       // getAppDomains. Neither "Fabrikam" nor "Fabrikam Systems" appears
-      // anywhere in the message text, so company-name matching cannot fire —
+      // anywhere in the message text, so company-name matching cannot fire ΓÇö
       // the only corroboration available is the sender domain.
       from: 'jane@fabrikam-careers.example',
-      subject: 'Backend Engineer — next steps',
+      subject: 'Backend Engineer ΓÇö next steps',
       body_snippet: 'We would like to invite you to interview.',
       signal: 'interview_invite'
     }
@@ -765,10 +766,10 @@ test('matchCandidates - a genuinely specific role match still works standalone',
 
 test('classifyReply - high confidence interview fixtures', () => {
   const fixtures = [
-    '恭喜简历通过，杭州赢云贸易有限公司邀您面试',
-    '我司首轮面试是AI微信小程序面试',
-    '面试形式：AI微信小程序面试',
-    '面试时长：约15~30分钟',
+    'µü¡σû£τ«ÇσÄåΘÇÜΦ┐ç∩╝îµ¥¡σ╖₧Φ╡óΣ║æΦ┤╕µÿôµ£ëΘÖÉσà¼σÅ╕ΘéÇµé¿Θ¥óΦ»ò',
+    'µêæσÅ╕ΘªûΦ╜«Θ¥óΦ»òµÿ»AIσ╛«Σ┐íσ░Åτ¿ïσ║ÅΘ¥óΦ»ò',
+    'Θ¥óΦ»òσ╜óσ╝Å∩╝ÜAIσ╛«Σ┐íσ░Åτ¿ïσ║ÅΘ¥óΦ»ò',
+    'Θ¥óΦ»òµù╢Θò┐∩╝Üτ║ª15~30σêåΘÆƒ',
     'Interview invitation: Senior Frontend Developer'
   ];
   for (const text of fixtures) {
@@ -781,10 +782,10 @@ test('classifyReply - high confidence interview fixtures', () => {
 
 test('classifyReply - noise / job lead fixtures', () => {
   const fixtures = [
-    '邀请投递测试工程师岗位',
-    '现在沟通，抢面试先机',
-    '近期热招职位',
-    '立即投递',
+    'ΘéÇΦ»╖µèòΘÇÆµ╡ïΦ»òσ╖Ñτ¿ïσ╕êσ▓ùΣ╜ì',
+    'τÄ░σ£¿µ▓ƒΘÇÜ∩╝îµèóΘ¥óΦ»òσàêµ£║',
+    'Φ┐æµ£ƒτâ¡µï¢ΦüîΣ╜ì',
+    'τ½ïσì│µèòΘÇÆ',
     'Zhaopin job alert'
   ];
   for (const text of fixtures) {
@@ -797,7 +798,7 @@ test('classifyReply - noise / job lead fixtures', () => {
 
 test('classifyReply - needs review / process activity', () => {
   const fixtures = [
-    '邀请您在面试/入职之前更新或补充最新的应聘信息'
+    'ΘéÇΦ»╖µé¿σ£¿Θ¥óΦ»ò/σàÑΦüîΣ╣ïσëìµ¢┤µû░µêûΦíÑσààµ£Çµû░τÜäσ║öΦüÿΣ┐íµü»'
   ];
   for (const text of fixtures) {
     const res = classifyReply({ subject: text, body_snippet: '' });
@@ -809,10 +810,10 @@ test('classifyReply - needs review / process activity', () => {
 
 test('classifyReply - rejection fixtures', () => {
   const fixtures = [
-    '很遗憾',
-    '暂不匹配',
-    '不合适',
-    '未能进入下一轮',
+    'σ╛êΘüùµå╛',
+    'µÜéΣ╕ìσî╣Θàì',
+    'Σ╕ìσÉêΘÇé',
+    'µ£¬Φâ╜Φ┐¢σàÑΣ╕ïΣ╕ÇΦ╜«',
     'Unfortunately we decided not to proceed'
   ];
   for (const text of fixtures) {
@@ -846,7 +847,7 @@ test('classifyReply - rejection wins over offer substring (regression)', () => {
   assert.equal(b.type, 'Rejected');
   assert.equal(b.suggestedTrackerUpdate, 'Rejected');
 
-  // (e) a rejection that still contains the specific 'offer letter' phrase — proves the
+  // (e) a rejection that still contains the specific 'offer letter' phrase ΓÇö proves the
   //     reorder matters, not just removing the bare 'offer' keyword
   const e = classifyReply({ subject: '', body_snippet: 'Unfortunately, we will not be sending you an offer letter.' });
   assert.equal(e.type, 'Rejected');
@@ -876,4 +877,116 @@ test('classifyReply - need action vs scheduling', () => {
   assert.equal(scheduleRes.type, 'Need Action');
   assert.equal(scheduleRes.suggestedTrackerUpdate, 'Interview');
 });
+// ---------------------------------------------------------------------------
+// LOCAL PATCH -- English ATS rejection phrasings. Re-apply after every system
+// update; see modes/_custom.md > "Local Patches to System-Layer Files".
+//
+// A real Ashby rejection (#86) reading "we have decided not to move forward with
+// your application" matched zero keywords and typed as Unknown instead of
+// Rejected. Matching is plain substring, so inflected forms are listed
+// separately. Bare 'other candidates' and bare 'not selected' are deliberately
+// absent: both also occur in scheduling and keep-in-touch mail.
+//
+// The rejection fixtures below are the REAL captured emails in
+// data/reply-candidates.json, not invented strings -- four of these phrasings
+// ("chosen to proceed with other", "elected to pursue other", "unable to move
+// you forward", "has now been filled") were added only after that file showed
+// the matcher missing them.
+//
+// There is NO decisive/weak tiering here. An earlier version of this patch had
+// one and it contradicted three upstream regression tests; see the array
+// declaration in reply-matcher.mjs for the full reasoning.
+// ---------------------------------------------------------------------------
 
+const REJECTION_FIXTURES = [
+  ['Ashby "decided not to move forward" (#86)',
+    { subject: 'Your application to Acme', body_snippet: 'We have decided not to move forward with your application.' }],
+  ['Verse Medical "chosen to proceed with other"',
+    { subject: 'Verse Medical | Thanks for your interest, Jonathan!', body_snippet: "After much consideration, we have chosen to proceed with other candidates at this time." }],
+  ['Cohere Health "chosen to proceed with other"',
+    { subject: 'Your application to Cohere Health', body_snippet: 'we have chosen to proceed with other candidates' }],
+  ['Pfizer "elected to pursue other"',
+    { subject: 'Pfizer Recruitment Update', body_snippet: 'we have elected to pursue other qualified candidates whose combination of education, skills and experience more closely fit the needs of this position.' }],
+  ['DREAM "unable to move you forward"',
+    { subject: 'DREAM: Application Follow Up- Jonathan Presser', body_snippet: 'At this time, we are unable to move you forward in our selection process.' }],
+  ['Junction "we have filled our ... role"',
+    { subject: 'Update from Junction', body_snippet: "We've filled our Operations Associate (Test Kit) role, but encourage you to keep an eye out for future openings" }],
+  ['Brilla "has now been filled"',
+    { subject: 'Update on Your Application', body_snippet: 'This position has now been filled.' }],
+  ['Topline Pro "not to move forward with your application"',
+    { subject: 'Your application', body_snippet: 'We have decided not to move forward with your application.' }],
+  ['"moving forward with other candidates"',
+    { subject: 'Update on your application', body_snippet: 'we are moving forward with other candidates' }],
+  ['"not selected for this"',
+    { subject: 'Your application', body_snippet: 'You were not selected for this role.' }],
+  ['"will not be proceeding"',
+    { subject: 'Your application', body_snippet: 'We will not be proceeding with your application.' }],
+  ['"pursuing other candidates"',
+    { subject: 'Your application', body_snippet: 'We are pursuing other candidates at this time.' }],
+  ['Talkspace "did not match our needs" (2026-10-18)',
+    { subject: 'Network Strategic Operations Coordinator - Talkspace',
+      body_snippet: 'We had an overwhelming number of applicants, and although your qualifications did not match our needs for this position, we encourage you to apply for future openings we post.' }],
+];
+
+test('classifyReply - captured rejection emails classify as Rejected (#86 regression)', () => {
+  for (const [label, cand] of REJECTION_FIXTURES) {
+    const r = classifyReply(cand);
+    assert.equal(r.type, 'Rejected', `expected Rejected for: ${label}`);
+    assert.equal(r.suggestedTrackerUpdate, 'Rejected', `wrong tracker update for: ${label}`);
+    assert.ok(r.evidence.length > 0, `no evidence recorded for: ${label}`);
+  }
+});
+
+// The cohort that must NOT type as Rejected, from the same real inbox: these are
+// volume acknowledgements and confirmations, not decisions.
+const NON_REJECTION_FIXTURES = [
+  ['IXL volume acknowledgement',
+    { subject: 'Thank you for applying to IXL Learning!', body_snippet: 'due to the high volume of applications we receive, we are only able to contact candidates whose qualifications best match our current needs.' }],
+  ['Cohere auto-confirmation',
+    { subject: 'Thanks for applying to Cohere!', body_snippet: 'Thank you for applying for the Executive Assistant (comms & marketing) role at Cohere!' }],
+  ['Instructure auto-confirmation',
+    { subject: 'Thanks for applying to Instructure!', body_snippet: "We've received your application for the Assessment Editor (Mathematics) position." }],
+  ['Verse Medical application received',
+    { subject: 'Verse Medical | Your Application Has Been Received!', body_snippet: "We've received your application and will be reviewing it shortly." }],
+  ['interview invite',
+    { subject: 'Interview invitation', body_snippet: 'Please schedule a time to speak with our hiring team.' }],
+  // Junction (2026-10-18): "Thank you SO MUCH for applying" broke the
+  // 'thank you for applying' substring match and typed Unknown.
+  ['Junction acknowledgement with adverbs',
+    { subject: "You've submitted your application to Junction!",
+      body_snippet: 'Thank you so much for applying for the Operations Associate (Test Kit) position at Junction! We personally review every application that comes in and will be in touch with an update as soon as we are able.' }],
+];
+
+test('classifyReply - captured non-decisions do not type as Rejected (#86 regression)', () => {
+  for (const [label, cand] of NON_REJECTION_FIXTURES) {
+    assert.notEqual(
+      classifyReply(cand).type,
+      'Rejected',
+      `a non-decision must not type as Rejected: ${label}`
+    );
+  }
+});
+
+test('classifyReply - the whole captured inbox types without Unknown (#86 regression)', () => {
+  // The end state that matters: nothing in the real inbox is left unclassified.
+  // Asserted against data/reply-candidates.json rather than a fixture list, so
+  // a newly captured email is covered automatically.
+  const inbox = JSON.parse(
+    readFileSync(new URL('../data/reply-candidates.json', import.meta.url), 'utf8')
+  );
+  const arr = Array.isArray(inbox) ? inbox : (inbox.entries || inbox.candidates || []);
+  assert.ok(arr.length > 0, 'inbox fixture is empty - the test proves nothing');
+
+  const unknown = arr
+    .filter((c) => classifyReply({ subject: c.subject, body_snippet: c.body_snippet }).type === 'Unknown')
+    .map((c) => c.subject);
+  assert.deepEqual(unknown, [], `left Unknown: ${unknown.join(' | ')}`);
+});
+
+test('classifyReply - the #86 phrasing names its keyword as evidence (#86 regression)', () => {
+  const r = classifyReply(REJECTION_FIXTURES[0][1]);
+  assert.ok(
+    r.evidence.includes('decided not to move forward'),
+    'the decisive phrase should appear in evidence'
+  );
+});

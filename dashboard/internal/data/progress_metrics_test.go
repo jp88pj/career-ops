@@ -25,7 +25,7 @@ func stageCount(pm model.ProgressMetrics, label string) int {
 }
 
 // A hire is terminal success and proves every earlier stage. It must count into
-// Applied, Responded, Interview and Offer — the same cumulative math stats.mjs's
+// Applied, Responded, Interview and Offer ΓÇö the same cumulative math stats.mjs's
 // computeFunnel() documents as mirroring this function. Before the fix "hired"
 // appeared in no tier, so a landed job rendered as an entirely empty funnel.
 func TestComputeProgressMetricsCountsHiredInEveryStage(t *testing.T) {
@@ -88,7 +88,7 @@ func TestComputeProgressMetricsTreatsAssessmentAsRespondedBeforeInterview(t *tes
 // The cumulative tiers must stay ordered: each stage is a superset of the next.
 func TestComputeProgressMetricsFunnelIsMonotonic(t *testing.T) {
 	pm := ComputeProgressMetrics(appsWithStatuses(
-		"Evaluated", "Applied", "Responded", "Interview", "Offer", "Hired", "Rejected", "Discarded", "SKIP",
+		"Evaluated", "Applied", "Responded", "Interview", "Offer", "Hired", "Rejected", "Lapsed", "Discarded", "SKIP",
 	))
 
 	applied := stageCount(pm, "Applied")
@@ -100,11 +100,17 @@ func TestComputeProgressMetricsFunnelIsMonotonic(t *testing.T) {
 		t.Errorf("funnel not monotonic: applied=%d responded=%d interview=%d offer=%d",
 			applied, responded, interview, offer)
 	}
-	// applied = applied+responded+interview+offer+hired+rejected = 6
-	if applied != 6 {
-		t.Errorf("Applied = %d, want 6", applied)
+	// applied = applied+responded+interview+offer+hired+rejected+lapsed = 7
+	// Lapsed counts into the DENOMINATOR only: an application was sent for it,
+	// but the state means no employer ever replied, so it never reaches the
+	// responded tier. See funnelRank() and ComputeProgressMetrics. This is the
+	// regression guard for the whole patch: if Lapsed is ever dropped from
+	// `applied`, applied falls to 6; if it leaks into `responded`, responded
+	// rises to 6 and the response rate is silently inflated.
+	if applied != 7 {
+		t.Errorf("Applied = %d, want 7", applied)
 	}
-	// responded = responded+interview+offer+hired+rejected = 5
+	// responded = responded+interview+offer+hired+rejected = 5 (lapsed excluded)
 	if responded != 5 {
 		t.Errorf("Responded = %d, want 5", responded)
 	}
@@ -118,7 +124,7 @@ func TestComputeProgressMetricsFunnelIsMonotonic(t *testing.T) {
 	}
 }
 
-// The top funnel stage counts every tracked row, scored or not — a row
+// The top funnel stage counts every tracked row, scored or not ΓÇö a row
 // backfilled without an evaluation (#1799) sits there with no score. So it must
 // not borrow the word the Stats header uses for the scored count, nor the
 // canonical "Evaluated" status: computeFunnel() in stats.mjs already warns that
@@ -136,10 +142,10 @@ func TestFunnelTopStageCountsUnscoredRowsAndIsNotNamedEvaluated(t *testing.T) {
 	pm := ComputeProgressMetrics(apps)
 
 	if got := stageCount(pm, "Tracked"); got != 2 {
-		t.Errorf("Tracked stage = %d, want 2 — both rows are tracked even though only one carries a score", got)
+		t.Errorf("Tracked stage = %d, want 2 ΓÇö both rows are tracked even though only one carries a score", got)
 	}
 	if pm.AvgScore != 4.2 {
-		t.Errorf("AvgScore = %v, want 4.2 — the average covers scored rows only, which is why the count beside it cannot be called 'evaluated'", pm.AvgScore)
+		t.Errorf("AvgScore = %v, want 4.2 ΓÇö the average covers scored rows only, which is why the count beside it cannot be called 'evaluated'", pm.AvgScore)
 	}
 }
 
