@@ -46,6 +46,36 @@ export function parseExperienceStart(period) {
 }
 
 /**
+ * Parse the END of a rendered job-period string.
+ *
+ * Reverse-chronological ordering by end date: when each role ended. Returns
+ * null when no year is present, and a null month when the period has none or
+ * names it in a language MONTHS does not know. A trailing "Present" (or an
+ * unreadable equivalent like "Presente", "heute") is treated as ongoing, so
+ * its end year is 9999 — later than any concrete year, which places ongoing
+ * roles first in a newest-first ordering.
+ *
+ * @param {string} period - e.g. "Jan 2021 - Apr 2022", "2005 - 2008", "2025 - Present".
+ * @returns {{ year: number, month: number|null }|null} null when no year is found.
+ */
+export function parseExperienceEnd(period) {
+  if (typeof period !== 'string') return null;
+  const text = period.replace(/&(?:[a-z]+|#\d+|#x[0-9a-f]+);/gi, ' ').trim();
+  const years = [...text.matchAll(/\b(19|20)\d{2}\b/g)];
+  if (years.length === 0) return null;
+  const lastYear = years[years.length - 1];
+  const year = Number(lastYear[0]);
+  const before = text.slice(0, lastYear.index);
+  const month = before.match(/\b([a-z]{3})[a-z]*\.?\s*$/i);
+  const after = text.slice(lastYear.index + lastYear[0].length);
+  const isPresent = /present/i.test(after);
+  return {
+    year: isPresent ? 9999 : year,
+    month: isPresent ? null : (month ? (MONTHS.get(month[1].toLowerCase()) ?? null) : null),
+  };
+}
+
+/**
  * A period made safe to quote back in an error or warning. It comes out of the
  * CV and the message goes to a terminal or a log, so C0/C1 controls and bidi
  * overrides are stripped (either can repaint a terminal line) and the length
@@ -74,6 +104,15 @@ function displayPeriod(text) {
  * same year with both months known. An unknown month never decides.
  */
 function startsLater(a, b) {
+  if (a.year !== b.year) return a.year > b.year;
+  return a.month !== null && b.month !== null && a.month > b.month;
+}
+
+/**
+ * Whether role `a` provably ends later than role `b`: a later year, or the
+ * same year with both months known. An unknown month never decides.
+ */
+function endsLater(a, b) {
   if (a.year !== b.year) return a.year > b.year;
   return a.month !== null && b.month !== null && a.month > b.month;
 }
@@ -119,7 +158,8 @@ function jobPeriodContents(html) {
 }
 
 /**
- * Enforce reverse-chronological ordering of Work Experience entries.
+ * Enforce reverse-chronological ordering of Work Experience entries by end
+ * date.
  *
  * Agents tailoring a CV toward a JD are tempted to promote "the most relevant
  * role" to the top. That is a functional-resume technique and it backfires:
@@ -145,24 +185,24 @@ export function validateCvExperienceOrder(html, { allowNonChronological = false 
     let prev;
     do { prev = text; text = text.replace(/<[^>]*>/g, ''); } while (text !== prev);
     const raw = text.trim();
-    const start = parseExperienceStart(raw);
-    if (start !== null) entries.push({ shown: displayPeriod(raw), start });
+    const end = parseExperienceEnd(raw);
+    if (end !== null) entries.push({ shown: displayPeriod(raw), end });
   }
   if (entries.length < 2) return;
 
   for (let i = 1; i < entries.length; i++) {
-    if (startsLater(entries[i].start, entries[i - 1].start)) {
+    if (endsLater(entries[i].end, entries[i - 1].end)) {
       const order = entries.map(e => e.shown).join(' -> ');
       const message =
         `CV work experience is not in reverse-chronological order: "${entries[i].shown}" ` +
-        `appears after "${entries[i - 1].shown}" but starts later. Rendered order: ${order}. ` +
+        `appears after "${entries[i - 1].shown}" but ends later. Rendered order: ${order}. ` +
         `Tailor via the summary, competencies, and bullet selection — not by reordering roles.`;
       if (allowNonChronological) {
         console.warn(`⚠️  ${message} (proceeding — --allow-nonchronological set)`);
         return;
       }
       throw new Error(
-        `${message} List the roles newest-first and regenerate, or pass ` +
+        `${message} List the roles newest-first by end date and regenerate, or pass ` +
         `--allow-nonchronological if the candidate asked for this order.`);
     }
   }

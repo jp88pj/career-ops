@@ -5,11 +5,12 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import * as yaml from 'js-yaml';
+import { loadYaml } from '../lib/yaml-document.mjs';
 import { isMainModule } from '../lib/is-main-module.mjs';
+import { getCareerOpsRoot, getProfilePath, hasProfileOverride } from '../path-resolver.mjs';
 import { validateFlags } from '../lib/cli-flags.mjs';
 
 /**
@@ -215,7 +216,7 @@ export function normalizeProfile(raw = {}, cvData = {}) {
  */
 export function loadProfile(customProfilePath = null, customCvPath = null) {
   let profileRaw = null;
-  const profileSource = customProfilePath || process.env.CAREER_OPS_PROFILE || 'config/profile.yml';
+  const profileSource = customProfilePath || getProfilePath();
 
   if (customProfilePath) {
     if (!existsSync(customProfilePath)) {
@@ -223,7 +224,7 @@ export function loadProfile(customProfilePath = null, customCvPath = null) {
     }
     try {
       const content = readFileSync(customProfilePath, 'utf8');
-      profileRaw = yaml.load(content);
+      profileRaw = loadYaml(content);
       if (!profileRaw || typeof profileRaw !== 'object') {
         throw new Error(`Invalid YAML in profile file: ${customProfilePath}`);
       }
@@ -232,11 +233,12 @@ export function loadProfile(customProfilePath = null, customCvPath = null) {
     }
   } else {
     if (!existsSync(profileSource)) {
-      throw new Error('config/profile.yml not found: fill it in first');
+      const via = hasProfileOverride() ? ' (named by CAREER_OPS_PROFILE)' : '';
+      throw new Error(`Profile not found at ${profileSource}${via}: fill it in first`);
     }
     try {
       const content = readFileSync(profileSource, 'utf8');
-      profileRaw = yaml.load(content);
+      profileRaw = loadYaml(content);
       if (!profileRaw || typeof profileRaw !== 'object') {
         throw new Error('config/profile.yml is empty or invalid YAML: fill it in first');
       }
@@ -246,7 +248,7 @@ export function loadProfile(customProfilePath = null, customCvPath = null) {
   }
 
   let cvData = {};
-  const cvSource = customCvPath || process.env.CAREER_OPS_CV || 'cv.md';
+  const cvSource = customCvPath || process.env.CAREER_OPS_CV || join(getCareerOpsRoot(), 'cv.md');
   if (customCvPath) {
     if (!existsSync(customCvPath)) {
       throw new Error(`CV file not found at: ${customCvPath}`);
@@ -318,15 +320,7 @@ export function formatAtsText(profile = {}, options = {}) {
         }
         const header = headerParts.join(' ');
         const bullets = Array.isArray(e.bullets)
-          // A bullet may be a plain string or an object carrying a citation
-          // (`source_anchor` / `source_line` / `source_text`). The `typeof b ===
-          // 'string'` filter used to DROP an object bullet entirely, so an ATS
-          // text export silently lost every cited sentence - the exported CV
-          // was shorter than the one the applicant read. Unwrap instead.
-          ? e.bullets
-              .map(b => (b && typeof b === 'object' && !Array.isArray(b)) ? (b.text ?? '') : b)
-              .filter(b => typeof b === 'string' && b.trim())
-              .map(b => `- ${sanitizeAtsText(b)}`).join('\n')
+          ? e.bullets.filter(b => typeof b === 'string' && b.trim()).map(b => `- ${sanitizeAtsText(b)}`).join('\n')
           : '';
         return bullets ? (header ? `${header}\n${bullets}` : bullets) : header;
       })
@@ -385,8 +379,8 @@ Export profile and CV sections as plain text for ATS forms.
 Options:
   --section <name>  Export personal, summary, skills, experience or education only
   --out <path>      Write to a file instead of stdout
-  --profile <path>  Profile YAML (default: CAREER_OPS_PROFILE or config/profile.yml)
-  --cv <path>       CV Markdown (default: CAREER_OPS_CV or cv.md, when present)
+  --profile <path>  Profile YAML (default: CAREER_OPS_PROFILE, else config/profile.yml in the data root)
+  --cv <path>       CV Markdown (default: CAREER_OPS_CV, else cv.md in the data root, when present)
   --help, -h        Show help without reading the profile/CV or writing output
 `, { valueFlags: ['--section', '--out', '--profile', '--cv'], requireOperand: true });
 

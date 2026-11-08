@@ -37,20 +37,25 @@ import { existsSync, readFileSync, realpathSync } from 'fs';
 import { resolve, dirname, basename, join, extname, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
 import { tmpdir } from 'os';
-import * as yaml from 'js-yaml';
+import { loadYaml } from './lib/yaml-document.mjs';
 import { stripEmptySections } from './cv-sections-core.mjs';
-import { getCareerOpsRoot } from './path-resolver.mjs';
+import { getCareerOpsRoot, getProfilePath } from './path-resolver.mjs';
+import { validateLockedSections, sectionKey } from './generate-pdf.mjs';
+import { readLockedSections } from './theme-style.mjs';
 import { hasRequiredFields, validatePayload } from './lib/cv-payload-schema.mjs';
+import { resolveTrackerPath, resolveWorkspaceRoot } from './tracker-utils.mjs';
 import { PAGE_WIDTHS, resolvePageFormat } from './lib/page-format.mjs';
 import { PARTIAL_SECTIONS, declaredSections, parseMeta } from './lib/template-manifest.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_ROOT = getCareerOpsRoot();
+const trackerPath = resolveTrackerPath(DATA_ROOT);
+const workspaceRoot = resolveWorkspaceRoot(trackerPath);
 const TEMPLATE_PATH = resolve(__dirname, 'templates', 'cv-template.html');
 const PLACEHOLDER_RE = /\{\{[A-Z_]+\}\}/g;
 const CONTACT_ROW_RE = /<div class="contact-row">[\s\S]*?<\/div>/;
 
-const PROFILE_PATH = resolve(DATA_ROOT, 'config', 'profile.yml');
+const PROFILE_PATH = getProfilePath();
 const PHOTO_MIME_BY_EXT = new Map([
   ['.png', 'image/png'],
   ['.jpg', 'image/jpeg'],
@@ -72,18 +77,6 @@ const DEFAULT_SECTION_TITLES = {
   interests: 'Interests',
   skills: 'Skills',
 };
-
-// A bullet may be a plain string or an object carrying a citation
-// (`source_anchor` / `source_line` / `source_text`), which is the shape
-// verify-bullet-sources.mjs reads and the shape build-cv-docx.mjs already
-// accepts. escapeHtml() deliberately blanks any object, so an object bullet
-// rendered here came out as an EMPTY <li> - the text silently vanished, and the
-// only way to produce a CV was to drop the citations and use plain strings.
-// Unwrap first, exactly as the DOCX builder does, so both builders accept one
-// payload contract and the source-citation gate can run against an HTML CV.
-function unwrapBullet(b) {
-  return (b && typeof b === 'object' && !Array.isArray(b)) ? (b.text ?? '') : b;
-}
 
 // Escape user text for HTML text/attribute context. Covers the five characters
 // that change meaning in markup so tailored bullets containing &, <, >, quotes
@@ -145,7 +138,7 @@ function sanitizeImageSrc(src) {
 // config/profile.yml (#5094). data: and http(s) URLs carry no local read.
 function profilePhotoValue() {
   try {
-    const doc = yaml.load(readFileSync(PROFILE_PATH, 'utf-8'));
+    const doc = loadYaml(readFileSync(PROFILE_PATH, 'utf-8'));
     const value = doc?.candidate?.photo;
     return typeof value === 'string' ? value.trim() : '';
   } catch {
@@ -431,7 +424,7 @@ function buildExperience(entries, partial) {
   if (!partial) {
     return entries.filter(e => hasRequiredFields(e, 'experience', 'html')).map(e => {
       const bullets = Array.isArray(e.bullets)
-        ? e.bullets.filter(Boolean).map(unwrapBullet).map(b => `        <li>${escapeHtml(b)}</li>`).join('\n')
+        ? e.bullets.filter(Boolean).map(b => `        <li>${escapeHtml(b)}</li>`).join('\n')
         : '';
       const location = e.location
         ? `\n    <div class="job-location">${escapeHtml(e.location)}</div>`
@@ -455,7 +448,7 @@ ${bullets}
   const { entryTemplate, blocks } = partial;
   return entries.filter(e => hasRequiredFields(e, 'experience', 'html')).map(e => {
     const bullets = Array.isArray(e.bullets)
-      ? e.bullets.filter(Boolean).map(unwrapBullet).map(b => `<li>${escapeHtml(b)}</li>`).join('\n    ')
+      ? e.bullets.filter(Boolean).map(b => `<li>${escapeHtml(b)}</li>`).join('\n    ')
       : '';
     const blockValues = new Map([
       ['LOCATION_BLOCK', { value: escapeHtml(e.location || ''), present: Boolean(e.location) }],
@@ -487,7 +480,7 @@ function buildProjects(entries, partial) {
       // Prefer a single description; fall back to joining bullets into one line so
       // a bullets-shaped payload still renders inside the .project-desc block.
       const descText = e.description
-        || (Array.isArray(e.bullets) ? e.bullets.filter(Boolean).map(unwrapBullet).join(' ') : '');
+        || (Array.isArray(e.bullets) ? e.bullets.filter(Boolean).join(' ') : '');
       const desc = descText
         ? `\n    <div class="project-desc">${escapeHtml(descText)}</div>`
         : '';
@@ -503,7 +496,7 @@ function buildProjects(entries, partial) {
   const { entryTemplate, blocks } = partial;
   return entries.filter(e => hasRequiredFields(e, 'projects', 'html')).map(e => {
     const descText = e.description
-      || (Array.isArray(e.bullets) ? e.bullets.filter(Boolean).map(unwrapBullet).join(' ') : '');
+      || (Array.isArray(e.bullets) ? e.bullets.filter(Boolean).join(' ') : '');
     const blockValues = new Map([
       ['BADGE_BLOCK', { value: escapeHtml(e.badge || ''), present: Boolean(e.badge) }],
       ['DESC_BLOCK',  { value: escapeHtml(descText),      present: Boolean(descText) }],
@@ -519,7 +512,7 @@ function buildProjects(entries, partial) {
     // of joining them into a single block.
     let entryBlocks = blocks;
     const multi = !e.description && Array.isArray(e.bullets)
-      ? e.bullets.filter(Boolean).map(unwrapBullet) : [];
+      ? e.bullets.filter(Boolean) : [];
     const descBlock = blocks.get('DESC_BLOCK');
     if (multi.length > 1 && descBlock) {
       // The expanded block is scanned again by fillEntry, so encode braces in
@@ -747,7 +740,7 @@ function renderReport(payload, partials) {
   const candidate = payload.candidate || {};
   // The sheet this body has to fit is chosen by generate-pdf.mjs, so both read
   // the same resolver rather than each keeping a fallback of their own.
-  const pageWidth = PAGE_WIDTHS[resolvePageFormat(payload.page_format, { profilePath: PROFILE_PATH })];
+  const pageWidth = PAGE_WIDTHS[resolvePageFormat(payload.page_format, { profilePath: PROFILE_PATH, country: payload.country })];
 
   const substitutions = {
     LANG: escapeHtml(payload.lang || 'en'),
@@ -830,6 +823,12 @@ async function writeAndReport(html, absOutput, payload, extra = {}) {
   const { warnings = [], ...rest } = extra;
   const outDir = dirname(absOutput);
   if (!existsSync(outDir)) await mkdir(outDir, { recursive: true });
+
+  const lockedKeys = readLockedSections(PROFILE_PATH, sectionKey);
+  const cvPath = resolve(workspaceRoot, 'cv.md');
+  const cvMarkdown = existsSync(cvPath) ? readFileSync(cvPath, 'utf-8') : '';
+  validateLockedSections(html, cvMarkdown, lockedKeys);
+
   await writeFile(absOutput, html, 'utf-8');
 
   const fileInfo = await stat(absOutput);
@@ -920,7 +919,7 @@ function renderMarkdown(payload, template) {
     const meta = mdJoin([e.location, e.dates || e.period], ' · ');
     if (meta) exp.push(`*${meta}*`, '');
     if (mdLine(e.context)) exp.push(mdLine(e.context), '');
-    const bullets = list(e.bullets).filter(Boolean).map(unwrapBullet);
+    const bullets = list(e.bullets).filter(Boolean);
     for (const b of bullets) exp.push(`- ${mdLine(b)}`);
     if (bullets.length) exp.push('');
   }
@@ -932,7 +931,7 @@ function renderMarkdown(payload, template) {
     // Escape the label's own delimiters so a name cannot close the link early.
     const name = url ? `[${mdLine(e.name).replace(/[\\[\]]/g, '\\$&')}](${url})` : mdLine(e.name);
     proj.push(`### ${mdJoin([name, e.badge], ' · ')}`, '');
-    const desc = e.description || list(e.bullets).filter(Boolean).map(unwrapBullet).join(' ');
+    const desc = e.description || list(e.bullets).filter(Boolean).join(' ');
     if (mdLine(desc)) proj.push(mdLine(desc), '');
     if (mdLine(e.tech)) proj.push(`*${mdLine(e.tech)}*`, '');
   }

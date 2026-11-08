@@ -57,9 +57,9 @@ only nav/footer), return immediately:
 TRIAGE: SKIP | {Company} | {Role or "Unknown"} | 0/5 | Posting inaccessible or expired
 ```
 
-### 2. Hard DQ check (takes 30 seconds)
-Scan JD text for the Hard DQ Criteria listed in `_brief.md`. If any hit, you
-already know the score is ≤ 2.5. Note the DQ reason and skip step 3.
+### 2. Quick score (no hard disqualifiers)
+
+There are no Hard DQ Criteria — every posting is evaluated on its own merits. Comp, location, credentials, and classroom-instructor preference are informational inputs or soft flags, not automatic exclusions.
 
 ### 3. Quick score
 Assess five dimensions. 1–2 sentences per dimension — no prose, no headers.
@@ -80,7 +80,7 @@ Flag high-travel or relocation risk explicitly.
 directly to JD requirements? Strong overlap = 4–5. Partial = 3. No match = 1–2.
 
 **Red flags (adjustment):** Apply the Soft Red Flags from `_brief.md` at −0.5 each.
-Hard DQs override to ≤2.5.
+There are no Hard DQs — nothing overrides automatically.
 
 **Global score** = (archetype × 0.35) + (comp × 0.25) + (location × 0.25) +
 (cv_match × 0.15) + red_flag_adjustment. Round to nearest 0.1 — matching the
@@ -92,7 +92,8 @@ MARGINAL band below depends on.
 |-------|---------|
 | ≥ triage_threshold | **PASS** — proceed to full A-G evaluation |
 | 3.0–(threshold − 0.1) | **MARGINAL** — one-liner shown to user; skip full eval unless user overrides |
-| < 3.0 | **FAIL** — clear no-go; return the line and stop |
+| 2.5–2.99 | **LOW** — below the bar; flagged, not filtered; user decides whether to proceed |
+| < 2.5 | **FAIL** — recommend against applying; return the line and stop |
 | N/A | **SKIP** — inaccessible posting |
 
 (`triage_threshold` is `config/profile.yml → pipeline.triage_threshold`, default `3.5`.)
@@ -118,7 +119,7 @@ resolved value; triage never reads `config/profile.yml` itself.
 **Examples** (English output; only the reason field changes with `language.output`):
 ```text
 TRIAGE: PASS | Acme Corp | Senior Program Manager | 4.3/5 | Remote, comp clears floor, archetype direct match, 3+ proof points map
-TRIAGE: FAIL | Globex | Staff Engineer | 2.0/5 | Hard DQ: primary hands-on coding required — outside target archetypes
+TRIAGE: FAIL | Globex | Staff Engineer | 2.0/5 | Below 2.5 fail point — recommend against applying
 TRIAGE: MARGINAL | Initech | Sr PM | 3.4/5 | Required cert is a gap, travel risk, comp barely clears floor
 TRIAGE: SKIP | Umbrella | Program Manager | 0/5 | Posting redirected to generic careers page — expired
 ```

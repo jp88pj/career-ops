@@ -22,7 +22,7 @@ import { validateFlags } from './lib/cli-flags.mjs';
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import * as yaml from 'js-yaml';
+import { loadYaml } from './lib/yaml-document.mjs';
 import { localToday } from './lib/local-today.mjs';
 import { resolveColumns, parseTrackerRow } from './tracker-parse.mjs';
 import { normalizeStatus, analyzeFromContent } from './followup-cadence.mjs';
@@ -41,7 +41,7 @@ const SCAN_RUNS_FILE = join(DATA_ROOT, 'data', 'scan-runs.tsv');
 const PORTALS_FILE = join(DATA_ROOT, 'portals.yml');
 const PORTAL_HEALTH_FILE = join(DATA_ROOT, 'data', 'portal-health.tsv');
 
-const CANONICAL_STATUSES = ['Evaluated', 'Applied', 'Responded', 'Assessment', 'Interview', 'Offer', 'Hired', 'Rejected', 'Lapsed', 'Discarded', 'SKIP'];
+const CANONICAL_STATUSES = ['Evaluated', 'Applied', 'Responded', 'Assessment', 'Interview', 'Offer', 'Hired', 'Rejected', 'Discarded', 'SKIP'];
 
 // In-flight applications, shared with the web Analytics and Go dashboard
 // ActiveApps: an evaluated-but-never-sent row is a candidate, not an
@@ -52,12 +52,7 @@ const ACTIVE_STATUSES = new Set(['Applied', 'Responded', 'Assessment', 'Intervie
 // Rows that count toward avgScoreApplied — jobs the user actually pursued.
 // Plain avgScore mixes in SKIP/Discarded and understates real fit. Hired is
 // the fullest pursuit of all, so it belongs here.
-// Rows that count toward avgScoreApplied — jobs the user actually pursued.
-// Plain avgScore mixes in SKIP/Discarded and understates real fit. Hired is
-// the fullest pursuit of all, so it belongs here. Lapsed belongs here too:
-// an application WAS sent for it, it simply drew no response, so excluding it
-// would quietly shrink the denominator and flatter avg fit.
-const PURSUED_STATUSES = new Set(['Applied', 'Responded', 'Assessment', 'Interview', 'Offer', 'Hired', 'Rejected', 'Lapsed']);
+const PURSUED_STATUSES = new Set(['Applied', 'Responded', 'Assessment', 'Interview', 'Offer', 'Hired', 'Rejected']);
 
 const round1 = (n) => Math.round(n * 10) / 10;
 const pct = (part, total) => (total > 0 ? round1((part / total) * 100) : 0);
@@ -172,14 +167,7 @@ export function computeColdAppNums(trackerContent, followupsContent) {
  */
 export function computeFunnel(byStatus) {
   const n = (k) => byStatus[k] || 0;
-  // Lapsed counts into everApplied ONLY, never everResponded. An application
-  // was definitely sent for it, so it belongs in the denominator; but by
-  // definition no employer ever replied, so it must not inflate the numerator.
-  // Leaving it out of everApplied is not neutral -- it shrinks the denominator
-  // by exactly the rows that went quiet, which RAISES the reported response
-  // rate. A reclassification would have flattered the funnel it was meant to
-  // measure.
-  const everApplied = n('Applied') + n('Responded') + n('Assessment') + n('Interview') + n('Offer') + n('Hired') + n('Rejected') + n('Lapsed');
+  const everApplied = n('Applied') + n('Responded') + n('Assessment') + n('Interview') + n('Offer') + n('Hired') + n('Rejected');
   const everResponded = n('Responded') + n('Assessment') + n('Interview') + n('Offer') + n('Hired') + n('Rejected');
   const everInterview = n('Interview') + n('Offer') + n('Hired');
   const everOffer = n('Offer') + n('Hired');
@@ -318,7 +306,7 @@ export function scanCompanyNames(content) {
 export function computePortalStats(portalsYmlContent, scanStats, producingCompanyNames = [], portalHealthContent = null) {
   let cfg;
   try {
-    cfg = yaml.load(String(portalsYmlContent ?? '')) || {};
+    cfg = loadYaml(String(portalsYmlContent ?? '')) || {};
   } catch {
     return null; // malformed YAML → no portal section rather than a crash
   }
@@ -400,7 +388,7 @@ export function computePortalStats(portalsYmlContent, scanStats, producingCompan
  */
 export function computePortalRecommendations(portalsContent, scanContent, healthContent, now = Date.now()) {
   let cfg;
-  try { cfg = yaml.load(String(portalsContent ?? '')) || {}; } catch { return null; }
+  try { cfg = loadYaml(String(portalsContent ?? '')) || {}; } catch { return null; }
   const positive = (n, fallback) => Number.isInteger(n) && n > 0 ? n : fallback;
   const days = positive(cfg.portal_prune_quiet_days, 30);
   const threshold = positive(cfg.portal_health_threshold, 3);

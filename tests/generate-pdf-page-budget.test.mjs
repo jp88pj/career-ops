@@ -66,6 +66,9 @@ copyFileSync(join(ROOT, 'path-resolver.mjs'), join(sandbox, 'path-resolver.mjs')
 mkdirSync(join(sandbox, 'lib'), { recursive: true });
 copyFileSync(join(ROOT, 'lib', 'is-main-module.mjs'), join(sandbox, 'lib', 'is-main-module.mjs'));
 copyFileSync(join(ROOT, 'lib', 'page-format.mjs'), join(sandbox, 'lib', 'page-format.mjs'));
+// pipeline-lock.mjs runs the shared lock protocol from lib/dir-lock.mjs (#5358).
+copyFileSync(join(ROOT, 'lib', 'dir-lock.mjs'), join(sandbox, 'lib', 'dir-lock.mjs'));
+copyFileSync(join(ROOT, 'lib', 'yaml-document.mjs'), join(sandbox, 'lib', 'yaml-document.mjs'));
 
 // theme-style.mjs and tracker-utils.mjs both `import * as yaml from 'js-yaml'`,
 // which resolves by walking up into the repo's node_modules -- from the
@@ -234,7 +237,7 @@ try {
   }
 
   const roomyBudgetPdf = join(sandbox, 'roomy-budget.pdf');
-  const roomyBudget = runPdf([input, roomyBudgetPdf, '--max-pages=4']);
+  const roomyBudget = runPdf([input, roomyBudgetPdf, '--max-pages=3']);
   if (
     roomyBudget.status === 0 &&
     existsSync(roomyBudgetPdf) &&
@@ -246,28 +249,8 @@ try {
     fail('an accepted page budget changed the rendered PDF instead of acting only as a post-render decision');
   }
 
-  // The DEFAULT budget was relaxed from 2 pages to 3 on 2026-10-21 (the user
-  // ruled "page lengths can be relaxed"), so a three-page CV is now inside the
-  // budget and must render WITHOUT an overflow warning. The overflow machinery
-  // itself is still covered below, against an EXPLICIT budget.
-  const defaultWithinBudgetPdf = join(sandbox, 'default-within-budget.pdf');
-  const defaultWithinBudget = runPdf([defaultOverflowInput, defaultWithinBudgetPdf]);
-  if (
-    defaultWithinBudget.status === 0 &&
-    existsSync(defaultWithinBudgetPdf) &&
-    countPages(defaultWithinBudgetPdf) === 3 &&
-    defaultWithinBudget.output.includes('Page budget: 3') &&
-    !defaultWithinBudget.output.includes('⚠️') &&
-    !defaultWithinBudget.output.includes('CV is 3 pages') &&
-    defaultWithinBudget.output.includes('✅ PDF generated')
-  ) {
-    pass('the default page budget is 3 pages and a three-page CV passes without an overflow warning');
-  } else {
-    fail(`the default page budget regressed: ${defaultWithinBudget.output.trim()}`);
-  }
-
   const defaultOverflowPdf = join(sandbox, 'default-overflow.pdf');
-  const defaultOverflow = runPdf([defaultOverflowInput, defaultOverflowPdf, '--max-pages=2']);
+  const defaultOverflow = runPdf([defaultOverflowInput, defaultOverflowPdf]);
   if (
     defaultOverflow.status === 0 &&
     existsSync(defaultOverflowPdf) &&

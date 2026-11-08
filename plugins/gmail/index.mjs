@@ -117,7 +117,7 @@ export default {
     do {
       let url = `${GMAIL_API}/messages?q=${encodeURIComponent(query)}`;
       if (pageToken) url += `&pageToken=${pageToken}`;
-      const data = await (await ctx.fetch(url, { headers: auth })).json();
+      const data = await (await ctx.fetch(url, { headers: auth, timeoutMs: 60000 })).json();
       if (data.messages) messages.push(...data.messages);
       pageToken = data.nextPageToken;
     } while (pageToken);
@@ -131,7 +131,7 @@ export default {
       // Per-message resilience: a single bad detail fetch is skipped, not fatal.
       let msg;
       try {
-        msg = await (await ctx.fetch(`${GMAIL_API}/messages/${m.id}?format=full`, { headers: auth })).json();
+        msg = await (await ctx.fetch(`${GMAIL_API}/messages/${m.id}?format=full`, { headers: auth, timeoutMs: 60000 })).json();
       } catch (err) {
         console.warn(`gmail: failed to fetch message ${m.id} — ${err.message}`);
         continue;

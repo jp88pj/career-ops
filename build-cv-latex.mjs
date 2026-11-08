@@ -50,20 +50,6 @@ function escapeLatexBullet(text) {
 }
 
 /**
- * A bullet may be a plain string or an object carrying a citation
- * (`source_anchor` / `source_line` / `source_text`). Unwrap it before
- * escaping, exactly as build-cv-html.mjs and build-cv-docx.mjs do, so all three
- * builders accept one payload contract. Without this, an object bullet renders
- * as its empty string form and the LaTeX CV loses the sentence.
- *
- * @param {string|{text?: string}} bullet
- * @returns {string} the bullet's text
- */
-function unwrapBullet(b) {
-  return (b && typeof b === 'object' && !Array.isArray(b)) ? (b.text ?? '') : b;
-}
-
-/**
  * Render the Education section as \resumeSubheading blocks.
  *
  * An entry's optional `coursework` becomes a single \resumeItem line, which is
@@ -98,7 +84,7 @@ function buildExperience(entries) {
   const blocks = [];
   for (const e of entries) {
     if (!hasRequiredFields(e, 'experience', 'tex')) continue;
-    const bullets = Array.isArray(e.bullets) ? e.bullets.map(b => `            \\resumeItem{${escapeLatexBullet(unwrapBullet(b))}}`).join('\n') : '';
+    const bullets = Array.isArray(e.bullets) ? e.bullets.map(b => `            \\resumeItem{${escapeLatexBullet(b)}}`).join('\n') : '';
     blocks.push(`    \\resumeSubheading\n      {${escapeLatex(e.company)}}{${escapeLatex(e.dates)}}\n      {${escapeLatex(e.role)}}{${escapeLatex(e.location)}}\n      \\resumeItemListStart\n${bullets}\n      \\resumeItemListEnd`);
   }
   return blocks.join('\n\n');
@@ -123,7 +109,7 @@ function buildProjects(entries) {
     const nameFormatted = url
       ? `\\href{${escapeLatex(url, 'url')}}{\\textbf{${escapeLatex(e.name)}}}`
       : `\\textbf{${escapeLatex(e.name)}}`;
-    const bullets = Array.isArray(e.bullets) ? e.bullets.map(b => `            \\resumeItem{${escapeLatexBullet(unwrapBullet(b))}}`).join('\n') : '';
+    const bullets = Array.isArray(e.bullets) ? e.bullets.map(b => `            \\resumeItem{${escapeLatexBullet(b)}}`).join('\n') : '';
     blocks.push(`    \\resumeProjectHeading\n      {${nameFormatted}${context}}{${escapeLatex(e.dates || '')}}\n      \\resumeItemListStart\n${bullets}\n      \\resumeItemListEnd`);
   }
   return blocks.join('\n\n');

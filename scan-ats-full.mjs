@@ -52,11 +52,11 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, unlinkSyn
 import { createHash } from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import * as yaml from 'js-yaml';
+import { loadYaml } from './lib/yaml-document.mjs';
 import { renameSyncWithRetry } from './tracker-utils.mjs';
 
-import { makeHttpCtx, fetchJson } from './providers/_http.mjs';
-import { withConnectionScope } from './providers/_connection-scope.mjs';
+import { makeHttpCtx, fetchJson, fetchTextHead } from './providers/_http.mjs';
+import { withConnectionScope, withAbortScope } from './providers/_connection-scope.mjs';
 import { isResolverFailure, dnsPacingStats } from './providers/_dns-cache.mjs';
 import greenhouse from './providers/greenhouse.mjs';
 import lever from './providers/lever.mjs';
@@ -75,6 +75,7 @@ import { getCareerOpsRoot } from './path-resolver.mjs';
 import { barePrefixDomainKeywords, buildDomainFilter } from './title-keywords.mjs';
 import { KNOWN_ATS_VENDORS } from './ats-vendor.mjs';
 import { loadHistoryAtsSeeds } from './history-ats-seeds.mjs';
+import { classifyUnknownHostSeeds, makeHeadProbe } from './branded-successfactors.mjs';
 import { loadProviders } from './providers/_registry.mjs';
 
 // ── Config ──────────────────────────────────────────────────────────
@@ -174,12 +175,11 @@ export function checkpointCompatible(cp, opts) {
 // mapping changes nothing the sweep does.
 export function filterFingerprints(config) {
   const titleKey = config?.title_filter_full ? 'title_filter_full' : 'title_filter';
-  const locationKey = config?.location_filter_full ? 'location_filter_full' : 'location_filter';
   const fp = (v) => datasetFingerprint(sortKeys(v ?? null));
   return {
     [titleKey]: fp(resolveTitleFilterConfig(config)),
     title_filter_overrides: fp(config?.title_filter_overrides),
-    [locationKey]: fp(resolveLocationFilterConfig(config)),
+    location_filter: fp(config?.location_filter),
     content_filter: fp(config?.content_filter),
     domain_filter: fp(config?.domain_filter),
   };
@@ -364,7 +364,7 @@ export const SOURCES = {
 // ── CLI args ────────────────────────────────────────────────────────
 
 const KNOWN_FLAGS = [
-  '--since', '--limit', '--ats', '--seeds', '--history-seeds', '--dry-run', '--liveness',
+  '--since', '--limit', '--ats', '--seeds', '--history-seeds', '--probe-unknown-hosts', '--dry-run', '--liveness',
   '--verbose', '--md-out', '--json', '--include-undated', '--include-blacklisted',
   '--shuffle', '--resume', '--help', '-h',
 ];
@@ -379,6 +379,7 @@ const USAGE = `Usage:
   node scan-ats-full.mjs --ats greenhouse,workday  # subset of sources
   node scan-ats-full.mjs --history-seeds       # also scan boards from local application history
   node scan-ats-full.mjs --history-seeds --ats successfactors # history-derived boards for this ATS
+  node scan-ats-full.mjs --history-seeds --probe-unknown-hosts # also detect branded SuccessFactors hosts (one GET per unknown host)
   node scan-ats-full.mjs --limit 200          # max companies per ATS (default: all)
   node scan-ats-full.mjs --dry-run            # preview without writing files
   node scan-ats-full.mjs --liveness           # Playwright-verify matches before writing
@@ -458,6 +459,7 @@ export function parseArgs(argv) {
     ats,
     atsExplicit: Boolean(atsArg),
     historySeeds,
+    probeUnknownHosts: args.includes('--probe-unknown-hosts') && historySeeds,
     seeds,
     dryRun: args.includes('--dry-run'),
     liveness: args.includes('--liveness'),
@@ -589,33 +591,6 @@ export function filterBlacklistedOffers(offers, blacklist, { includeBlacklisted 
 // returns `title_filter` and behaviour is byte-identical to before.
 export function resolveTitleFilterConfig(config) {
   return config?.title_filter_full ?? config?.title_filter;
-}
-
-// Optional `location_filter_full` — the location sibling of `title_filter_full`,
-// for the same reason.
-//
-// The global `location_filter` is tuned for scan.mjs's CURATED board list, where
-// admitting the whole United States is correct: a national employer posting
-// "Austin, TX" is worth seeing for a remote role. A reverse sweep over 50,170
-// public boards is a different question, and the global filter answers it
-// wrongly.
-//
-// The mechanism, measured 2026-10-19: `always_allow` is checked BEFORE `block`
-// (see buildLocationFilter), so an `always_allow` that names the United States
-// admits every US state, and a plain `block` never gets consulted. That is
-// deliberate — `always_allow` exists so a multi-location posting survives one
-// blocked city. But it means the only tier that can override it is
-// `block_hard`.
-//
-// So a sweep-specific filter puts the out-of-region US states in
-// `block_hard` (checked first), and keeps "United States" in `allow` so a
-// posting whose location cannot be resolved still passes rather than being
-// dropped on missing data.
-//
-// Absent -> the default -> this returns `location_filter` and behaviour is
-// byte-identical to before.
-export function resolveLocationFilterConfig(config) {
-  return config?.location_filter_full ?? config?.location_filter;
 }
 
 // The company-level gate (#3105). `title_filter` runs on the wrong axis for a
@@ -943,7 +918,9 @@ export async function runHistorySeedScan(seeds, providers, opts, ctx, processJob
     if (!provider) continue;
     const entry = { name: seed.company, careers_url: seed.careersUrl, provider: seed.vendor };
     try {
-      if (provider.detect?.(entry)) scannable.push({ seed, provider, entry });
+      // probeConfirmed: the host was verified as SuccessFactors from its page,
+      // equivalent to an explicit `provider:` in portals.yml (bypasses URL detect).
+      if (seed.probeConfirmed || provider.detect?.(entry)) scannable.push({ seed, provider, entry });
     } catch { /* unroutable history is a skipped seed, not a failed network request */ }
   }
   let errors = 0;
@@ -960,7 +937,12 @@ export async function runHistorySeedScan(seeds, providers, opts, ctx, processJob
     const hostKey = (() => {
       try { return new URL(entry.careers_url).hostname.toLowerCase(); } catch { return seed.vendor; }
     })();
-    await withHostSlot(hostKey, () => withConnectionScope(async () => {
+    await withHostSlot(hostKey, () => {
+      // Give the history board its own abort signal so a timed-out board's
+      // in-flight requests stop (#5570). The operation.active flag below only
+      // gates work BETWEEN fetches; it can't stop the fetch already in flight.
+      const controller = new AbortController();
+      return withConnectionScope(async () => {
       if (quarantinedHosts.has(hostKey)) {
         errors++;
         if (opts.verbose) console.error(`  ✗ ${seed.vendor}-history/${entry.name}: host skipped after an earlier timeout`);
@@ -977,6 +959,7 @@ export async function runHistorySeedScan(seeds, providers, opts, ctx, processJob
         await withTimeout(operationPromise, timeoutMs, `${seed.vendor}-history/${entry.name}`, () => {
           timedOut = true;
           operation.active = false;
+          controller.abort();
         });
       } catch (err) {
         operation.active = false;
@@ -989,7 +972,8 @@ export async function runHistorySeedScan(seeds, providers, opts, ctx, processJob
         // quarantining prevents queued work from replacing it.
         operationPromise.catch(() => {});
       }
-    }));
+      }, { signal: controller.signal });
+    });
   });
 
   return {
@@ -1013,8 +997,23 @@ const COMPANY_TIMEOUT_MS = 5 * 60_000;
 // idle socket per tenant for the rest of the run, and a full sweep exhausts
 // local connection capacity partway through (see providers/_connection-scope.mjs).
 // Single-host sources share one pool already and run unscoped.
-function boardScope(source, fn) {
-  return source.singleHost ? fn() : withConnectionScope(fn);
+// The watchdog races the board's work against a timer, and on timeout it
+// aborts the board's AbortController. That signal rides in the connection/abort
+// scope, so every request the board issues folds it into its own timeout: a
+// timed-out board stops issuing requests and retries at once (#5570), instead
+// of paginating on in the background until it finishes on its own — which kept
+// the process alive minutes past its own summary and burned a 4-attempt retry
+// on every abandoned request.
+export function boardScope(source, label, timeoutMs, fn) {
+  const controller = new AbortController();
+  // The signal is handed to `fn` as well as carried in the scope, so a caller
+  // can tell a timed-out board from a failed one and skip any post-timeout
+  // fallback work (e.g. processing a deferred board's partial page outside the
+  // scope, where it would run uncancelled, #5570).
+  const run = () => withTimeout(fn(controller.signal), timeoutMs, label, () => controller.abort());
+  return source.singleHost
+    ? withAbortScope(controller.signal, run)
+    : withConnectionScope(run, { signal: controller.signal });
 }
 
 export function createKeyedLimiter(limit) {
@@ -1163,14 +1162,14 @@ async function main() {
     console.error('Error: portals.yml not found. Run onboarding first — the reverse scan reuses its title_filter/location_filter.');
     process.exit(1);
   }
-  const config = yaml.load(readFileSync(PORTALS_PATH, 'utf-8'));
+  const config = loadYaml(readFileSync(PORTALS_PATH, 'utf-8'));
   const fullTitleFilterConfig = resolveTitleFilterConfig(config);
   // title_filter_overrides is independent of title_filter_full: it broadens
   // the net for specific companies on top of whichever title filter config
   // (title_filter or title_filter_full) this run is already using.
   const titleFilterOverrides = buildTitleFilterOverrides(config?.title_filter_overrides);
   const titleFilter = buildTitleFilterWithOverrides(fullTitleFilterConfig, titleFilterOverrides);
-  const locationFilter = buildLocationFilter(resolveLocationFilterConfig(config));
+  const locationFilter = buildLocationFilter(config?.location_filter);
   // Same content_filter (incl. by_title_keyword scoping) scan.mjs applies —
   // see #1846. Built once here from the same portals.yml config.
   const contentFilter = buildContentFilter(config?.content_filter);
@@ -1209,9 +1208,16 @@ async function main() {
   // User-layer history is an opt-in additive board directory. It fills vendors
   // that have no public community dataset without changing the tracker schema,
   // but an ordinary reverse scan never reads the user's application history.
-  const historySeeds = opts.historySeeds
+  let historySeeds = opts.historySeeds
     ? loadHistoryAtsSeeds({ dataRoot: DATA_ROOT, scanHistoryPath: SCAN_HISTORY_PATH })
     : [];
+  // Opt-in (#5739): one plain GET per distinct unknown host, verdict cached;
+  // a failed probe leaves the hostname label as it was.
+  if (opts.probeUnknownHosts && historySeeds.length) {
+    historySeeds = await classifyUnknownHostSeeds(historySeeds, {
+      probe: makeHeadProbe(fetchTextHead),
+    });
+  }
 
   const atsSummary = opts.ats.length ? `ats: ${opts.ats.join(', ')}` : '';
   const seedsSummary = opts.seeds.length ? `seeds: ${opts.seeds.join(', ')}` : '';
@@ -1249,7 +1255,7 @@ async function main() {
     sinceMs: cutoff,
     includeUndated: opts.includeUndated,
     syntheticEntries: true,
-    locationHints: resolveLocationFilterConfig(config),
+    locationHints: config?.location_filter,
   };
   // The LOCAL calendar day, not the UTC one. This value lands in
   // scan-history.tsv's first_seen, which shouldDedupScanHistoryRow measures the
@@ -1497,7 +1503,7 @@ async function main() {
         // The whole per-company unit — fetch AND processJobs (which may issue
         // per-job detail-page requests via provider.enrichDate) — runs inside
         // one watchdog, so enrichment latency can't blow past COMPANY_TIMEOUT_MS.
-        await boardScope(source, () => withTimeout((async () => {
+        await boardScope(source, `${name}/${entry.name}`, COMPANY_TIMEOUT_MS, async () => {
           // Most boards in a public directory hold nothing the title filter
           // wants; where the provider can list a board cheaply, find that out
           // before downloading every posting body.
@@ -1547,7 +1553,7 @@ async function main() {
           }
           if (jobs.workdayNoDateSkip) { noDateSkipCompanies++; noDateSkipJobs += jobs.length; }
           await processJobs(jobs, name, source.provider, entry.name);
-        })(), COMPANY_TIMEOUT_MS, `${name}/${entry.name}`));
+        });
       } catch (err) {
         // Mostly defunct boards in the public dataset — expected noise, so the
         // default stays quiet; --verbose surfaces per-board failures.
@@ -1609,8 +1615,10 @@ async function main() {
     if (truncated.length && !resolverOutage) {
       log(`\n  ↻ retrying ${truncated.length} truncated board(s) sequentially...`);
       for (const entry of truncated) {
+        let retrySignal;
         try {
-          await boardScope(source, () => withTimeout((async () => {
+          await boardScope(source, `${name}/${entry.name} (retry)`, COMPANY_TIMEOUT_MS, async (signal) => {
+            retrySignal = signal;
             const jobs = await source.provider.fetch(entry, ctx);
             recordBoardResult(deadBoards, name, boardKey(entry), 200);
             // Where a board deferred by the parallel sweep is actually decided.
@@ -1635,7 +1643,7 @@ async function main() {
                 console.error(`  ✗ ${name}/${entry.name}: ${why} after sequential retry`);
               }
             }
-          })(), COMPANY_TIMEOUT_MS, `${name}/${entry.name} (retry)`));
+          });
         } catch (err) {
           errors++;
           recordBoardFailure(deadBoards, name, boardKey(entry), err);
@@ -1644,8 +1652,11 @@ async function main() {
           // admitted ungated, the fallback the retry takes for a board that
           // comes back truncated again. Without it, a title match already in
           // hand would be lost to the retry's failure.
+          // Skip the fallback when the retry timed out: processJobs() can issue
+          // enrichDate detail fetches, and here it would run outside boardScope,
+          // uncancelled — the post-timeout work this fix exists to stop (#5570).
           const partial = deferred.get(entry)?.jobs;
-          if (partial) await processJobs(partial, name, source.provider, entry.name);
+          if (partial && !retrySignal?.aborted) await processJobs(partial, name, source.provider, entry.name);
         }
       }
     }
@@ -1871,8 +1882,24 @@ async function main() {
 
 // Only run main() when invoked directly, not when imported by tests.
 if (isMainModule(import.meta.url)) {
-  main().catch(err => {
-    console.error('Fatal:', err.message);
-    process.exit(1);
-  });
+  // Exit explicitly once main() returns. The watchdog now cancels a timed-out
+  // board's work, but a keep-alive socket a single-host pool still holds (or a
+  // request aborting just as the summary prints) can otherwise keep the event
+  // loop open for minutes past the summary (#5570). Flush stdout first so a
+  // piped summary is never truncated.
+  const flushAndExit = (code) => {
+    // Exit from a write-completion callback, queued after whatever is already
+    // buffered, so a piped summary flushes first. `writableLength > 0` is not a
+    // reliable "wait for drain" signal — `drain` only fires for a write that
+    // returned false (past the high-water mark), so bytes queued below it would
+    // never drain and the process would hang (the opposite of the intent).
+    process.exitCode = code;
+    process.stdout.write('', () => process.exit(code));
+  };
+  main()
+    .then(() => flushAndExit(0))
+    .catch(err => {
+      console.error('Fatal:', err.message);
+      flushAndExit(1);
+    });
 }

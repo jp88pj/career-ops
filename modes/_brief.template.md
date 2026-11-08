@@ -13,8 +13,7 @@
 
      KEEP IT SHORT. Every line here is read once per role during a
      batch triage. Include only what changes a go/no-go decision:
-     archetypes, comp floor, location policy, hard disqualifiers,
-     and your strongest proof points. Leave the deep narrative,
+     archetypes, comp floor, location policy, and your strongest proof points. Leave the deep narrative,
      negotiation scripts, and STAR stories in _profile.md / cv.md.
      ============================================================ -->
 
@@ -48,7 +47,7 @@ Your strongest, quantified accomplishments. Triage checks how many map to a JD.
 | ~{$X}  | {conditions — e.g. fully remote, low intensity} |
 | {$Y}+  | {conditions — e.g. higher intensity acceptable} |
 
-**Hard floor: {$X}. Below that, FAIL regardless of other signals.**
+**Soft floor: {$X}.** Below that, flag as LOW — user decides whether to proceed.
 
 ## Location Scoring
 How to score the "location" dimension. Adjust to your own policy.
@@ -58,25 +57,18 @@ How to score the "location" dimension. Adjust to your own policy.
 - On-site requiring relocation → **{your score / comp condition}**
 - High travel (>25%) → **deduct 0.5–1.0**
 
-## Hard DQ Criteria — instant FAIL (< 3.0)
-Score ≤ 2.5 immediately and skip detailed analysis if ANY apply. These are the
-hard gaps you cannot bridge — be specific so triage can pattern-match them.
-- {e.g. Active license/clearance you do not hold}
-- {e.g. Primary hands-on skill outside your discipline}
-- {e.g. Stated comp ceiling below your floor}
-- {e.g. Travel above your limit for the role type}
-
 ## Quick Scoring Guide
 
 Bands are relative to `triage_threshold` (`config/profile.yml → pipeline.triage_threshold`,
-default **3.5**), matching the verdict table in `modes/triage.md` — so a score at or
-above the threshold is PASS, and only the band below it is MARGINAL.
+default **3.5**), matching the verdict table in `modes/triage.md` — a score at or above the
+threshold is PASS; below it, bands step down through MARGINAL, LOW, and FAIL.
 
 | Score | Verdict | What it means |
 |-------|---------|---------------|
 | ≥ threshold (default 3.5) | **PASS** | Clears the bar — strong archetype + comp + location, gaps bridgeable |
 | 3.0 – (threshold − 0.1) | **MARGINAL** | Borderline — shown to user as one line |
-| < 3.0 | **FAIL** | Does not clear the bar — filtered |
+| 2.5 – 2.99 | **LOW** | Below the bar — flagged, not filtered; user decides whether to proceed |
+| < 2.5 | **FAIL** | Does not clear the bar — recommend against applying |
 
 ## Soft Red Flags (−0.5 each, additive)
 Not disqualifiers, but they lower the score.
