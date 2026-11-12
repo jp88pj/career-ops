@@ -180,7 +180,6 @@ export const MANIFEST_USER_PATH_OVERLAPS = Object.freeze([
   'data/.gitkeep',
   'data/offers/.gitkeep',
   'data/parser-output/.gitkeep',
-  'data/parser-output/cityjobs/.gitkeep',
   'jds/.gitkeep',
   'output/.gitkeep',
   'reports/.gitkeep',

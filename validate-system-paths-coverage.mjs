@@ -67,6 +67,11 @@ const EXCLUDES = [
   'renovate.json',
   'flake.lock',
   'flake.nix',
+  // Fork-local scaffold: the cityjobs artifact directory is a local tool's output;
+  // upstream v1.40.0 deliberately dropped it from SYSTEM_PATHS. Tracked in this
+  // fork, kept out of installs, because committing local artifacts upstream is
+  // exactly the problem the EXCLUDES mechanism exists for.
+  'data/parser-output/cityjobs/.gitkeep',
   'batch/logs/.gitkeep',
   'batch/tracker-additions/.gitkeep',
   'interview-prep/.gitkeep',
