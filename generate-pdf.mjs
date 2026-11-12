@@ -2471,4 +2471,11 @@ export function validateLockedSections(html, cvMarkdown, lockedKeys) {
   }
 }
 
-export { normalizeTextForATS, sectionKey };
+function reportAtsReplacements(replacements, print = console.log) {
+  const total = Object.values(replacements).reduce((a, b) => a + b, 0);
+  if (total === 0) return;
+  const breakdown = Object.entries(replacements).map(([k, v]) => `${k}=${v}`).join(', ');
+  print(`🧹 ATS normalization: ${total} replacements (${breakdown})`);
+}
+
+export { normalizeTextForATS, reportAtsReplacements, sectionKey };
