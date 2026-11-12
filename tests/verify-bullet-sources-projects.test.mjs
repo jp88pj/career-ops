@@ -11,9 +11,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { getCareerOpsRoot } from '../path-resolver.mjs';
 import { verifyBulletSources } from '../verify-bullet-sources.mjs';
 
-const CV = readFileSync(new URL('../cv.md', import.meta.url), 'utf8');
+const ROOT = getCareerOpsRoot() ?? new URL('..', import.meta.url).pathname;
+const CV = readFileSync(join(ROOT, 'cv.md'), 'utf8');
 
 const FABRICATED = 'Personally rebuilt the Kubernetes orchestration layer and the Splunk telemetry stack in-house.';
 const GOOD = 'Designed and authored CCSS-aligned curriculum independently as a freelancer.';

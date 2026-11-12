@@ -1532,6 +1532,7 @@ const RECHECKABLE_SCAN_HISTORY_STATUSES = new Set(['added', 'skipped_expired']);
  */
 const OBSERVATIONAL_SCAN_HISTORY_STATUSES = new Set([
   'skipped_title',
+  'skipped_title_code',
   'skipped_location',
   'skipped_age',
   'skipped_no_apply_control',

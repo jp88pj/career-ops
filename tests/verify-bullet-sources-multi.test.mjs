@@ -16,9 +16,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { getCareerOpsRoot } from '../path-resolver.mjs';
 import { verifyBulletSources } from '../verify-bullet-sources.mjs';
 
-const CV = readFileSync(new URL('../cv.md', import.meta.url), 'utf8');
+const ROOT = getCareerOpsRoot() ?? new URL('..', import.meta.url).pathname;
+const CV = readFileSync(join(ROOT, 'cv.md'), 'utf8');
 
 const B1 = "Operated the replay operations process from MLB's New York City-based Replay Operations Center, through seven seasons of regular season baseball games, as well as postseason games including the World Series, All-Star games, and the 2017 World Baseball Classic";
 const B2 = "Began each game's build about five hours before first pitch, syncing all camera angles to a blinking beacon light with frame-by-frame offset adjustments so multiple angles shared the exact same timestamp.";
