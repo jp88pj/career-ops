@@ -1403,9 +1403,13 @@ Keyword coverage (--keywords / --role) is advisory and never changes the score.`
     let html;
     try {
       if (!statSync(targetPath).isFile()) throw new Error('not a regular file');
-      html = readFileSync(targetPath, 'utf-8');
+      const raw = readFileSync(targetPath);
+      const head = raw.subarray(0, 8).toString('ascii');
+      if (head.startsWith('%PDF')) throw new Error('not an HTML file');
+      html = raw.toString('utf-8');
     } catch (err) {
-      console.error(`ERROR: cannot read target file: ${targetArg} (${err.code || err.message})`);
+      const msg = err.code === 'ENOENT' ? 'not an HTML file' : (err.message || 'cannot read target file');
+      console.error(`ERROR: ${msg}: ${targetArg}`);
       process.exit(1);
     }
     const result = auditAts(html, { keywords, role });
