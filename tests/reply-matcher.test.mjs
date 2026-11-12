@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { getCareerOpsRoot } from '../path-resolver.mjs';
 import {
   extractDomain,
   checkCompanyMatch,
@@ -971,8 +973,11 @@ test('classifyReply - the whole captured inbox types without Unknown (#86 regres
   // The end state that matters: nothing in the real inbox is left unclassified.
   // Asserted against data/reply-candidates.json rather than a fixture list, so
   // a newly captured email is covered automatically.
+  // Resolve through the data root: on installs with an external data root
+  // (CAREER_OPS_ROOT / a .career-ops-data marker) the capture lives there,
+  // not in the code checkout.
   const inbox = JSON.parse(
-    readFileSync(new URL('../data/reply-candidates.json', import.meta.url), 'utf8')
+    readFileSync(join(getCareerOpsRoot() ?? '.', 'data', 'reply-candidates.json'), 'utf8')
   );
   const arr = Array.isArray(inbox) ? inbox : (inbox.entries || inbox.candidates || []);
   assert.ok(arr.length > 0, 'inbox fixture is empty - the test proves nothing');
