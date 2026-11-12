@@ -35,7 +35,7 @@ See "Untrusted External Content" in `AGENTS.md` / `CLAUDE.md` / `CODEX.md` for t
 
 ## Data Root & Path Resolution (CRITICAL)
 
-All User Layer files (such as `cv.md`, `config/profile.yml`, `modes/_profile.md`, `data/applications.md` or `applications.md`, `reports/`, `output/`, `interview-prep/`, `portals.yml`, `batch/tracker-additions/`, etc.) must be resolved relative to the dynamically resolved **Data Root** (`{DATA_ROOT}`).
+All User Layer files (such as `cv.md`, `config/profile.yml`, `modes/_profile.md`, `data/applications.md` or `applications.md`, `reports/`, `output/`, `interview-prep/`, `portals.yml`, `{DATA_ROOT}/batch/tracker-additions/`, etc.) must be resolved relative to the dynamically resolved **Data Root** (`{DATA_ROOT}`).
 
 ### Data Root Resolution Order:
 1. **Environment Variables**: Check if `CAREER_OPS_ROOT` or `CAREER_OPS_DATA_DIR` is set. If set, use its value (resolved relative to the repository root if it is a relative path).
