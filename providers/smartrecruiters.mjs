@@ -1,7 +1,7 @@
 // @ts-check
 /** @typedef {import('./_types.js').Provider} Provider */
 
-// SmartRecruiters provider ΓÇö hits the public postings API.
+// SmartRecruiters provider — hits the public postings API.
 // Auto-detects from careers_url pattern
 // `https://(careers|jobs).smartrecruiters.com/<slug>`. A tracked_companies
 // entry can also set `provider: smartrecruiters` explicitly to bypass
@@ -15,7 +15,7 @@
 //     detailLimit: 25      # max detail calls per sweep when fetchDetails=true
 //
 // Detail enrichment answers "what does this job say", not "is this endpoint
-// alive" ΓÇö it is skipped entirely while verify-portals is probing, and runs
+// alive" — it is skipped entirely while verify-portals is probing, and runs
 // in small batches so a 400-posting board cannot hammer the shared API host.
 
 import { intInRange } from './_config-utils.mjs';
@@ -46,8 +46,8 @@ function parseSmartRecruitersConfig(entry) {
  *
  * The detail payload nests HTML bodies under `jobAd.sections`, keyed by a
  * fixed section set (companyDescription, jobDescription, qualifications,
- * additionalInformation). Joined in that order ΓÇö company context first,
- * call-to-action last ΓÇö then stripped by the shared pipeline.
+ * additionalInformation). Joined in that order — company context first,
+ * call-to-action last — then stripped by the shared pipeline.
  *
  * @param {any} detail
  * @returns {string}
@@ -73,7 +73,7 @@ function assertSmartRecruitersUrl(url) {
   }
   if (parsed.protocol !== 'https:') throw new Error(`smartrecruiters: URL must use HTTPS: ${url}`);
   if (!ALLOWED_SMARTRECRUITERS_HOSTS.has(parsed.hostname)) {
-    throw new Error(`smartrecruiters: untrusted hostname "${parsed.hostname}" ΓÇö must be one of: ${[...ALLOWED_SMARTRECRUITERS_HOSTS].join(', ')}`);
+    throw new Error(`smartrecruiters: untrusted hostname "${parsed.hostname}" — must be one of: ${[...ALLOWED_SMARTRECRUITERS_HOSTS].join(', ')}`);
   }
   return url;
 }
@@ -144,7 +144,7 @@ export default {
     }
 
     // Detail enrichment answers "what does this job say", not "is this
-    // endpoint alive" ΓÇö skip it entirely while probing so it never spends
+    // endpoint alive" — skip it entirely while probing so it never spends
     // budget a liveness check has no use for (same rule as vdab).
     const { fetchDetails, detailLimit } = parseSmartRecruitersConfig(entry);
     const probing = Number.isInteger(ctx?.maxPages) && ctx.maxPages > 0;
@@ -191,7 +191,7 @@ export default {
  * - location: prefer `fullLocation`; else assemble from city/region/country
  *   parts (skipping empties); append "Remote" when `location.remote` is true.
  * - url: `j.ref` is an `api.smartrecruiters.com/v1/companies/<slug>/postings/<id>`
- *   URL ΓÇö rewrite to the public `jobs.smartrecruiters.com/<slug>/<id>-<title-slug>`.
+ *   URL — rewrite to the public `jobs.smartrecruiters.com/<slug>/<id>-<title-slug>`.
  *   The public site has no `/postings/` segment; carrying it over yields a 404,
  *   which the liveness checker then reports as an expired posting (#1612).
  *   SmartRecruiters resolves the page by id alone, so the trailing title slug is
@@ -223,7 +223,7 @@ export function parseSmartRecruitersResponse(json, companyName, companySlug) {
           && parsedRef.protocol === 'https:'
           && parsedRef.hostname === 'api.smartrecruiters.com'
           && parsedRef.pathname.startsWith('/v1/companies/')) {
-        // /v1/companies/<slug>/postings/<id> ΓåÆ <slug>, <id>
+        // /v1/companies/<slug>/postings/<id> → <slug>, <id>
         const [refSlug, postings, refId] = parsedRef.pathname
           .slice('/v1/companies/'.length)
           .split('/')

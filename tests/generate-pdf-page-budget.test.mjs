@@ -61,11 +61,13 @@ copyFileSync(join(ROOT, 'path-resolver.mjs'), join(sandbox, 'path-resolver.mjs')
 // generate-pdf.mjs's main-guard lives in lib/is-main-module.mjs (#3170). Without
 // it the copy dies with ERR_MODULE_NOT_FOUND before parsing an argument.
 // lib/page-format.mjs owns the paper size the @page rule is built from, and
-// generate-pdf.mjs imports it at module scope ΓÇö same ERR_MODULE_NOT_FOUND
+// generate-pdf.mjs imports it at module scope — same ERR_MODULE_NOT_FOUND
 // without it.
 mkdirSync(join(sandbox, 'lib'), { recursive: true });
 copyFileSync(join(ROOT, 'lib', 'is-main-module.mjs'), join(sandbox, 'lib', 'is-main-module.mjs'));
 copyFileSync(join(ROOT, 'lib', 'page-format.mjs'), join(sandbox, 'lib', 'page-format.mjs'));
+copyFileSync(join(ROOT, 'lib', 'yaml-document.mjs'), join(sandbox, 'lib', 'yaml-document.mjs'));
+copyFileSync(join(ROOT, 'lib', 'dir-lock.mjs'), join(sandbox, 'lib', 'dir-lock.mjs'));
 
 // theme-style.mjs and tracker-utils.mjs both `import * as yaml from 'js-yaml'`,
 // which resolves by walking up into the repo's node_modules -- from the
@@ -157,7 +159,7 @@ writeFileSync(defaultOverflowInput, `<!doctype html>
   <body>
     <main>First page</main>
     <main>Second page</main>
-    <main>Third page ΓÇö THREE_PAGE_FIXTURE</main>
+    <main>Third page — THREE_PAGE_FIXTURE</main>
   </body>
 </html>
 `, 'utf-8');
@@ -257,9 +259,9 @@ try {
     existsSync(defaultWithinBudgetPdf) &&
     countPages(defaultWithinBudgetPdf) === 3 &&
     defaultWithinBudget.output.includes('Page budget: 3') &&
-    !defaultWithinBudget.output.includes('ΓÜá∩╕Å') &&
+    !defaultWithinBudget.output.includes('⚠️') &&
     !defaultWithinBudget.output.includes('CV is 3 pages') &&
-    defaultWithinBudget.output.includes('Γ£à PDF generated')
+    defaultWithinBudget.output.includes('✅ PDF generated')
   ) {
     pass('the default page budget is 3 pages and a three-page CV passes without an overflow warning');
   } else {
@@ -272,12 +274,12 @@ try {
     defaultOverflow.status === 0 &&
     existsSync(defaultOverflowPdf) &&
     countPages(defaultOverflowPdf) === 3 &&
-    defaultOverflow.output.includes('≡ƒôÉ Page budget: 2 (warning only)') &&
-    defaultOverflow.output.includes('ΓÜá∩╕Å') &&
+    defaultOverflow.output.includes('📐 Page budget: 2 (warning only)') &&
+    defaultOverflow.output.includes('⚠️') &&
     defaultOverflow.output.includes('CV is 3 pages') &&
     defaultOverflow.output.includes('allowed maximum is 2 pages') &&
     defaultOverflow.output.includes('--strict-pages') &&
-    defaultOverflow.output.includes('Γ£à PDF generated') &&
+    defaultOverflow.output.includes('✅ PDF generated') &&
     defaultOverflow.output.includes('Manifest:') &&
     manifestHasPdf(defaultOverflowPdf)
   ) {
@@ -293,12 +295,12 @@ try {
     strictOverflow.status !== 0 &&
     existsSync(strictOverflowPdf) &&
     countPages(strictOverflowPdf) === 2 &&
-    strictOverflow.output.includes('≡ƒôÉ Page budget: 1 (strict)') &&
+    strictOverflow.output.includes('📐 Page budget: 1 (strict)') &&
     strictOverflow.output.includes('CV is 2 pages') &&
     strictOverflow.output.includes('allowed maximum is 1 page') &&
     strictOverflow.output.includes('Trim') &&
     strictOverflow.output.includes('--strict-pages') &&
-    !strictOverflow.output.includes('Γ£à PDF generated') &&
+    !strictOverflow.output.includes('✅ PDF generated') &&
     !strictOverflow.output.includes('Manifest:') &&
     readFileSync(manifest, 'utf-8') === manifestBeforeStrictOverflow
   ) {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * generate-pdf.mjs ΓÇö HTML ΓåÆ PDF via Playwright
+ * generate-pdf.mjs — HTML → PDF via Playwright
  *
  * Usage:
  *   node career-ops/generate-pdf.mjs <input.html> <output.pdf> [--format=letter|a4] [--report=NNN] [--kind=cv|cover] [--allow-reorder] [--allow-nonchronological] [--max-pages=N] [--strict-pages] [--skip-fact-check]
@@ -67,12 +67,12 @@ const PDF_PAGE_MARGIN = '0.6in';
 
 // Canonical tracker workspace: realpath so a symlinked ancestor (e.g. macOS
 // /var -> /private/var) is compared like-for-like by assertInsideWorkspace.
-// When CAREER_OPS_TRACKER points at another workspace, that workspaceΓÇönot the
-// installed script directoryΓÇöis the safe boundary for input and output.
+// When CAREER_OPS_TRACKER points at another workspace, that workspace—not the
+// installed script directory—is the safe boundary for input and output.
 //
 // Derived at USE time, not frozen at import (#3162, root-caused occurrence 6):
 // the root reads CAREER_OPS_TRACKER, and a sibling test that legitimately sets
-// that variable for its own fixture ΓÇö and correctly restores it afterwards ΓÇö
+// that variable for its own fixture — and correctly restores it afterwards —
 // still poisoned this module for the whole process if the import happened to
 // land inside that window. A `const` cannot un-read an env var, so the guard
 // then compared perfectly valid repo paths against another test's temp dir and
@@ -119,9 +119,9 @@ function canonicalWorkspaceRoot() { return refreshRootCache().canonical; }
  *
  * A lexical relative(workspaceRoot, p) check accepts a path that stays lexically
  * inside the repo but whose ancestor is a symlink escaping it. This canonicalizes
- * p through realpath ΓÇö the path itself when it exists, otherwise its nearest
+ * p through realpath — the path itself when it exists, otherwise its nearest
  * existing ancestor with the not-yet-created tail re-appended (the output PDF and
- * its directory may not exist yet) ΓÇö then checks containment against the
+ * its directory may not exist yet) — then checks containment against the
  * realpathed workspace root (mirrors canonicalizeTrackerPath in tracker-utils.mjs).
  *
  * @param {string} absPath - Already-resolved absolute candidate path.
@@ -146,7 +146,7 @@ function assertInsideWorkspace(absPath, label) {
     // is unprovable, so fail closed rather than fall back to a lexical form that a
     // symlinked ancestor could slip past. Named as its own failure, not as an
     // escape: an intermittent CI-only hit of this guard (#3162) was undiagnosable
-    // while both branches threw the same message ΓÇö "escapes" points a reader at
+    // while both branches threw the same message — "escapes" points a reader at
     // the path, when the actual event was realpath failing underneath it.
     throw new Error(
       `${label} could not be canonicalized against the tracker workspace`
@@ -178,7 +178,7 @@ mkdirSync(resolve(workspaceRoot, 'output'), { recursive: true });
  * zero-width characters, and non-breaking spaces. These cause mojibake,
  * parsing errors, or display issues. See issue #1.
  *
- * Only touches body text ΓÇö preserves CSS, JS, tag attributes, and URLs.
+ * Only touches body text — preserves CSS, JS, tag attributes, and URLs.
  * Returns { html, replacements } so the caller can log what was changed.
  *
  * In body text it also keeps each hyphenated word on one line (#4908).
@@ -268,7 +268,7 @@ function normalizeTextForATS(html) {
     t = t.replace(/\s*\u2190\s*/g, () => { bump('left-arrow', 1); return ' from '; });
     t = t.replace(/\s*[\u2191\u2193]\s*/g, () => { bump('vert-arrow', 1); return ' '; });
     // Middle dot and bullet glyphs garble in some extractors \u2014 replace with pipe.
-    // Catalan l┬╖l is a letter pair inside a word (intel┬╖lig├¿ncia), not a separator.
+    // Catalan l·l is a letter pair inside a word (intel·ligència), not a separator.
     t = t.replace(/\s*\u00B7\s*/g, (m, at, all) => {
       if (m === '\u00B7' && /[lL]/.test(all[at - 1] ?? '') && /[lL]/.test(all[at + 1] ?? '')) return m;
       bump('middot', 1);
@@ -281,7 +281,7 @@ function normalizeTextForATS(html) {
     // wrong for half of users \u2014 better to leave the glyph than emit bad data.
     t = t.replace(/\u20AC/g, () => { bump('euro', 1); return 'EUR '; });
     t = t.replace(/\u00A3/g, () => { bump('pound', 1); return 'GBP '; });
-    // Markdown bold from tailored CV builders (SUMMARY_TEXT uses **ΓÇª**).
+    // Markdown bold from tailored CV builders (SUMMARY_TEXT uses **…**).
     t = t.replace(/\*\*([^*]+?)\*\*/g, (_, inner) => {
       bump('markdown-bold', 1);
       return `<strong>${inner}</strong>`;
@@ -308,18 +308,18 @@ function normalizeTextForATS(html) {
 /**
  * Strip diacritics so a heading is recognized regardless of how it was typed.
  *
- * Rendered Polish headings are not always spelled with their diacritics ΓÇö
- * "Wykszta┼écenie" and "Wyksztalcenie" both occur in already-generated CVs.
+ * Rendered Polish headings are not always spelled with their diacritics —
+ * "Wykształcenie" and "Wyksztalcenie" both occur in already-generated CVs.
  * NFD splits most Polish letters into a base plus a combining mark we drop;
- * ┼é (U+0142) has no canonical decomposition, so it needs its own pass.
+ * ł (U+0142) has no canonical decomposition, so it needs its own pass.
  *
- * Only used for alias lookup ΓÇö display titles keep their diacritics.
+ * Only used for alias lookup — display titles keep their diacritics.
  */
 function foldDiacritics(text) {
   return text
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/┼é/g, 'l');
+    .replace(/ł/g, 'l');
 }
 
 /**
@@ -334,7 +334,7 @@ function foldDiacritics(text) {
  * Keys are folded on construction so authored diacritics match stripped input.
  */
 const SECTION_ALIASES = new Map([
-  // English ΓÇö cv.md is the source of truth and is written in English.
+  // English — cv.md is the source of truth and is written in English.
   ['summary', 'summary'],
   ['professional summary', 'summary'],
   ['competencies', 'competencies'],
@@ -358,7 +358,7 @@ const SECTION_ALIASES = new Map([
   ['skills', 'skills'],
   ['technical skills', 'skills'],
   ['interests', 'interests'],
-  // Polish ΓÇö the vocabulary documented in modes/pl/README.md, plus the word-order
+  // Polish — the vocabulary documented in modes/pl/README.md, plus the word-order
   // variants that turn up in practice (both "Kompetencje kluczowe" and
   // "Kluczowe kompetencje" are used for the same section).
   ['podsumowanie', 'summary'],
@@ -367,28 +367,28 @@ const SECTION_ALIASES = new Map([
   ['kompetencje', 'competencies'],
   ['kompetencje kluczowe', 'competencies'],
   ['kluczowe kompetencje', 'competencies'],
-  ['do┼¢wiadczenie', 'experience'],
-  ['do┼¢wiadczenie zawodowe', 'experience'],
+  ['doświadczenie', 'experience'],
+  ['doświadczenie zawodowe', 'experience'],
   ['przebieg kariery', 'experience'],
   ['projekty', 'projects'],
   ['kluczowe projekty', 'projects'],
   ['wybrane projekty', 'projects'],
-  ['wykszta┼écenie', 'education'],
+  ['wykształcenie', 'education'],
   ['edukacja', 'education'],
-  ['wykszta┼écenie i certyfikaty', 'education'],
+  ['wykształcenie i certyfikaty', 'education'],
   ['certyfikaty', 'certifications'],
   ['certyfikaty i szkolenia', 'certifications'],
   ['szkolenia i certyfikaty', 'certifications'],
   ['nagrody', 'awards'],
-  ['wyr├│┼╝nienia', 'awards'],
-  ['nagrody i wyr├│┼╝nienia', 'awards'],
-  ['umiej─Ötno┼¢ci', 'skills'],
-  ['umiej─Ötno┼¢ci techniczne', 'skills'],
-  // Spanish ΓÇö the same failure again: with no entries here, a Spanish CV
-  // rendered in the documented modes/pdf.md order (Experiencia before Formaci├│n)
-  // was rejected against a cv.md listing Formaci├│n first, and --allow-reorder was
+  ['wyróżnienia', 'awards'],
+  ['nagrody i wyróżnienia', 'awards'],
+  ['umiejętności', 'skills'],
+  ['umiejętności techniczne', 'skills'],
+  // Spanish — the same failure again: with no entries here, a Spanish CV
+  // rendered in the documented modes/pdf.md order (Experiencia before Formación)
+  // was rejected against a cv.md listing Formación first, and --allow-reorder was
   // the only way through. The vocabulary is what generated Spanish CVs render
-  // (Perfil Profesional, Competencias Clave, Experiencia Profesional, Formaci├│n,
+  // (Perfil Profesional, Competencias Clave, Experiencia Profesional, Formación,
   // Certificaciones, Habilidades) plus each section's everyday synonyms. Keys are
   // folded through foldDiacritics below, so accented and unaccented spellings
   // both resolve.
@@ -407,9 +407,9 @@ const SECTION_ALIASES = new Map([
   ['proyectos destacados', 'projects'],
   ['proyectos personales', 'projects'],
   ['proyectos y laboratorios', 'projects'],
-  ['formaci├│n', 'education'],
-  ['formaci├│n acad├⌐mica', 'education'],
-  ['educaci├│n', 'education'],
+  ['formación', 'education'],
+  ['formación académica', 'education'],
+  ['educación', 'education'],
   ['estudios', 'education'],
   ['certificaciones', 'certifications'],
   ['certificados', 'certifications'],
@@ -417,76 +417,76 @@ const SECTION_ALIASES = new Map([
   ['reconocimientos', 'awards'],
   ['premios y reconocimientos', 'awards'],
   ['habilidades', 'skills'],
-  ['habilidades t├⌐cnicas', 'skills'],
-  ['conocimientos t├⌐cnicos', 'skills'],
+  ['habilidades técnicas', 'skills'],
+  ['conocimientos técnicos', 'skills'],
   ['herramientas e idiomas', 'skills'],
   ['intereses', 'interests'],
-  // Chinese ΓÇö the same failure the Polish block above fixes, for the two Chinese
+  // Chinese — the same failure the Polish block above fixes, for the two Chinese
   // markets this repo ships modes for: Traditional (modes/zh-TW) and Simplified
   // (modes/zh), rendered through templates/cv-template.zh-minimal.html. Both
   // scripts are listed against every key because a CV written in either renders
   // through this one alias table. The vocabulary is the repo's own: the
-  // `sections` payload in tests/zh-minimal-template.test.mjs (Σ╕¬Σ║║τ«ÇΣ╗ï, µá╕σ┐âΦâ╜σè¢,
-  // σ╖ÑΣ╜£τ╗ÅσÄå, τ▓╛ΘÇëΘí╣τ¢«, µòÖΦé▓τ╗ÅσÄå, Φ«ñΦ»ü, µèÇµ£»µáê) and the modes' wording
-  // (e.g. "σ░êµÑ¡µæÿΦªü" in modes/zh-TW/oferta.md), plus the everyday synonyms of
-  // each ΓÇö the titles have no single canonical spelling because they come from
+  // `sections` payload in tests/zh-minimal-template.test.mjs (个人简介, 核心能力,
+  // 工作经历, 精选项目, 教育经历, 认证, 技术栈) and the modes' wording
+  // (e.g. "專業摘要" in modes/zh-TW/oferta.md), plus the everyday synonyms of
+  // each — the titles have no single canonical spelling because they come from
   // a user-supplied `sections` override, not from DEFAULT_SECTION_TITLES.
-  ['σ░êµÑ¡µæÿΦªü', 'summary'],
-  ['Σ╕ôΣ╕ÜµæÿΦªü', 'summary'],
-  ['µæÿΦªü', 'summary'],
-  ['σÇïΣ║║τ░íΣ╗ï', 'summary'],
-  ['Σ╕¬Σ║║τ«ÇΣ╗ï', 'summary'],
-  ['τ░íΣ╗ï', 'summary'],
-  ['τ«ÇΣ╗ï', 'summary'],
-  ['µá╕σ┐âΦâ╜σè¢', 'competencies'],
-  ['µá╕σ┐âτ½╢τê¡σè¢', 'competencies'],
-  ['µá╕σ┐âτ½₧Σ║ëσè¢', 'competencies'],
-  ['σ╖ÑΣ╜£τ╢ôµ¡╖', 'experience'],
-  ['σ╖ÑΣ╜£τ╗ÅσÄå', 'experience'],
-  ['σ╖ÑΣ╜£τ╢ôΘ⌐ù', 'experience'],
-  ['σ╖ÑΣ╜£τ╗ÅΘ¬î', 'experience'],
-  ['σ░êµÑ¡τ╢ôµ¡╖', 'experience'],
-  ['Σ╕ôΣ╕Üτ╗ÅσÄå', 'experience'],
-  ['σ░êµíê', 'projects'],
-  ['Θí╣τ¢«', 'projects'],
-  ['σ░êµíêτ╢ôΘ⌐ù', 'projects'],
-  ['Θí╣τ¢«τ╗ÅΘ¬î', 'projects'],
-  ['σ░êµíêτ╢ôµ¡╖', 'projects'],
-  ['Θí╣τ¢«τ╗ÅσÄå', 'projects'],
-  ['σ░êµíêµêÉσ░▒', 'projects'],
-  ['Θí╣τ¢«µêÉσ░▒', 'projects'],
-  ['τ▓╛Θü╕σ░êµíê', 'projects'],
-  ['τ▓╛ΘÇëΘí╣τ¢«', 'projects'],
-  ['σ¡╕µ¡╖', 'education'],
-  ['σ¡ªσÄå', 'education'],
-  ['µòÖΦé▓ΦâîµÖ»', 'education'],
-  ['µòÖΦé▓τ╢ôµ¡╖', 'education'],
-  ['µòÖΦé▓τ╗ÅσÄå', 'education'],
-  ['Φ¡ëτàº', 'certifications'],
-  ['Φ»üτàº', 'certifications'],
-  ['Φ¡ëµ¢╕', 'certifications'],
-  ['Φ»üΣ╣ª', 'certifications'],
-  ['σ░êµÑ¡Φ¡ëτàº', 'certifications'],
-  ['Σ╕ôΣ╕ÜΦ»üΣ╣ª', 'certifications'],
-  ['Φ¬ìΦ¡ë', 'certifications'],
-  ['Φ«ñΦ»ü', 'certifications'],
-  ['Φ│çµá╝Φ¬ìΦ¡ë', 'certifications'],
-  ['Φ╡äµá╝Φ«ñΦ»ü', 'certifications'],
-  ['τì▓τìÄ', 'awards'],
-  ['ΦÄ╖σÑû', 'awards'],
-  ['τìÄΘáà', 'awards'],
-  ['σÑûΘí╣', 'awards'],
-  ['µª«Φ¡╜', 'awards'],
-  ['ΦìúΦ¬ë', 'awards'],
-  ['µèÇΦâ╜', 'skills'],
-  ['σ░êΘò╖', 'skills'],
-  ['Σ╕ôΘò┐', 'skills'],
-  ['µèÇΦíôΦâ╜σè¢', 'skills'],
-  ['µèÇµ£»Φâ╜σè¢', 'skills'],
-  ['µèÇΦíôµúº', 'skills'],
-  ['µèÇµ£»µáê', 'skills'],
-  ['ΦêêΦ╢ú', 'interests'],
-  ['σà┤Φ╢ú', 'interests'],
+  ['專業摘要', 'summary'],
+  ['专业摘要', 'summary'],
+  ['摘要', 'summary'],
+  ['個人簡介', 'summary'],
+  ['个人简介', 'summary'],
+  ['簡介', 'summary'],
+  ['简介', 'summary'],
+  ['核心能力', 'competencies'],
+  ['核心競爭力', 'competencies'],
+  ['核心竞争力', 'competencies'],
+  ['工作經歷', 'experience'],
+  ['工作经历', 'experience'],
+  ['工作經驗', 'experience'],
+  ['工作经验', 'experience'],
+  ['專業經歷', 'experience'],
+  ['专业经历', 'experience'],
+  ['專案', 'projects'],
+  ['项目', 'projects'],
+  ['專案經驗', 'projects'],
+  ['项目经验', 'projects'],
+  ['專案經歷', 'projects'],
+  ['项目经历', 'projects'],
+  ['專案成就', 'projects'],
+  ['项目成就', 'projects'],
+  ['精選專案', 'projects'],
+  ['精选项目', 'projects'],
+  ['學歷', 'education'],
+  ['学历', 'education'],
+  ['教育背景', 'education'],
+  ['教育經歷', 'education'],
+  ['教育经历', 'education'],
+  ['證照', 'certifications'],
+  ['证照', 'certifications'],
+  ['證書', 'certifications'],
+  ['证书', 'certifications'],
+  ['專業證照', 'certifications'],
+  ['专业证书', 'certifications'],
+  ['認證', 'certifications'],
+  ['认证', 'certifications'],
+  ['資格認證', 'certifications'],
+  ['资格认证', 'certifications'],
+  ['獲獎', 'awards'],
+  ['获奖', 'awards'],
+  ['獎項', 'awards'],
+  ['奖项', 'awards'],
+  ['榮譽', 'awards'],
+  ['荣誉', 'awards'],
+  ['技能', 'skills'],
+  ['專長', 'skills'],
+  ['专长', 'skills'],
+  ['技術能力', 'skills'],
+  ['技术能力', 'skills'],
+  ['技術棧', 'skills'],
+  ['技术栈', 'skills'],
+  ['興趣', 'interests'],
+  ['兴趣', 'interests'],
 ].map(([alias, key]) => [foldDiacritics(alias), key]));
 
 function normalizeSectionTitle(text) {
@@ -534,16 +534,16 @@ function extractSourceSectionOrder(markdown) {
 
 /**
  * The section order `modes/pdf.md` documents under "Section order (optimized
- * '6-second recruiter scan')" ΓÇö Header, Professional Summary, Core
+ * '6-second recruiter scan')" — Header, Professional Summary, Core
  * Competencies, Work Experience, Projects, Education & Certifications,
- * Skills ΓÇö mapped through sectionKey()/SECTION_ALIASES the same way a
+ * Skills — mapped through sectionKey()/SECTION_ALIASES the same way a
  * rendered heading or a cv.md heading is. "Education & Certifications" is
  * that document's own heading text and already folds to 'education' via the
  * alias table (line above: `['education & certifications', 'education']`),
  * so no separate normalization is needed for it. `certifications`, `awards`
- * and `interests` are not named by modes/pdf.md's list ΓÇö they are optional
+ * and `interests` are not named by modes/pdf.md's list — they are optional
  * sections the shipped template (templates/cv-template.html) renders between
- * Education and Skills ΓÇö so they are included here in that template's own
+ * Education and Skills — so they are included here in that template's own
  * position to keep a real generated CV (which renders Education and
  * Certifications as separate section-title elements) fully comparable
  * against this order rather than only against the six pdf.md names it
@@ -559,7 +559,7 @@ const CANONICAL_TAILORED_POSITIONS = new Map(
 
 /**
  * First index in `comparableSections` whose key sits earlier in `positions`
- * than the section right before it ΓÇö i.e. the first place the rendered order
+ * than the section right before it — i.e. the first place the rendered order
  * violates the relative order `positions` encodes. -1 if no such index exists
  * (the rendered order is consistent with `positions`).
  */
@@ -583,7 +583,7 @@ function findOrderDivergence(comparableSections, positions) {
  *
  *   A rendered order is accepted whenever it preserves the relative order of
  *   EITHER cv.md's own headings OR the canonical modes/pdf.md tailoring order
- *   above ΓÇö the documented default workflow always moves Education after
+ *   above — the documented default workflow always moves Education after
  *   Experience/Projects, which diverges from a typical cv.md on every
  *   standard-compliant generation, so cv.md's order alone can't be the only
  *   accepted target without making `allowReorder` mandatory rather than an
@@ -600,7 +600,7 @@ export function validateCvSectionOrder(html, cvMarkdown, { allowReorder = false 
 
   if (findOrderDivergence(renderedComparable, sourcePositions) === -1) return;
 
-  // Diverges from cv.md ΓÇö but that alone isn't damning: it's also what every
+  // Diverges from cv.md — but that alone isn't damning: it's also what every
   // CV tailored per modes/pdf.md's documented order looks like. Only treat it
   // as a real problem if it ALSO fails to match that canonical order.
   const canonicalComparable = rendered.filter(section => CANONICAL_TAILORED_POSITIONS.has(section.key));
@@ -616,7 +616,7 @@ export function validateCvSectionOrder(html, cvMarkdown, { allowReorder = false 
     .join(' -> ');
   const message = `CV section order diverges from cv.md: rendered ${renderedOrder}; cv.md ${sourceOrder}`;
   if (allowReorder) {
-    console.warn(`ΓÜá∩╕Å  ${message} (proceeding ΓÇö --allow-reorder set)`);
+    console.warn(`⚠️  ${message} (proceeding — --allow-reorder set)`);
     return;
   }
   throw new Error(message);
@@ -653,7 +653,7 @@ function displayTitle(raw) {
     // C0/C1 controls, then the bidi overrides and isolates. Both let text
     // rewrite a terminal line rather than merely occupy it: an escape repaints
     // it, and U+202E reverses what follows, so a title can appear to be output
-    // the tool produced. Stripped rather than escaped ΓÇö a section heading has
+    // the tool produced. Stripped rather than escaped — a section heading has
     // no legitimate use for either.
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
     .replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
@@ -663,13 +663,13 @@ function displayTitle(raw) {
   // Truncate by code point, not UTF-16 unit, so the cap can't end on half a
   // surrogate pair; then step back off any trailing combining marks so it
   // can't end on a mark whose base character was just removed. Marks *within*
-  // the cap are left alone ΓÇö they are ordinary in many scripts, and the length
+  // the cap are left alone — they are ordinary in many scripts, and the length
   // bound is what keeps a stacked run from running away.
   const points = [...text];
   if (points.length <= DISPLAY_TITLE_MAX) return text;
   const kept = points.slice(0, DISPLAY_TITLE_MAX - 1);
   while (kept.length > 0 && /\p{M}/u.test(kept[kept.length - 1])) kept.pop();
-  return `${kept.join('')}ΓÇª`;
+  return `${kept.join('')}…`;
 }
 
 /**
@@ -717,7 +717,7 @@ const RAW_TEXT_ELEMENTS = new Set([
  *
  * Quote-aware, because `>` is legal inside an attribute value:
  * `<span data-x="> <div>">` is one tag, not a tag plus a stray `<div>`. Reading
- * it as the latter miscounts the depth ΓÇö and since a forged count can be made
+ * it as the latter miscounts the depth — and since a forged count can be made
  * to balance, it would let a section pass validation and then be moved into
  * markup it doesn't belong to.
  *
@@ -741,11 +741,11 @@ function tagEnd(html, from) {
 }
 
 /**
- * Ranges of html holding raw text rather than markup ΓÇö the contents of
+ * Ranges of html holding raw text rather than markup — the contents of
  * `<script>`, `<style>`, `<textarea>` and `<title>`.
  *
  * Needed from the start of the document, not from a section: a marker comment
- * quoted inside a script string (`const fixture = '<!-- SKILLS -->ΓÇª'`) is text,
+ * quoted inside a script string (`const fixture = '<!-- SKILLS -->…'`) is text,
  * but a search that begins at that marker has no way to know it. Treating it as
  * a section would move part of a script body around the document.
  *
@@ -860,7 +860,7 @@ function scanNesting(html, from, to) {
     }
 
     const name = /^([a-zA-Z][\w:-]*)/.exec(inner);
-    if (!name) continue; // <!DOCTYPE ΓÇª>, <?xml ΓÇª>, or a stray '<'
+    if (!name) continue; // <!DOCTYPE …>, <?xml …>, or a stray '<'
     const tag = name[1].toLowerCase();
 
     // Checked before the self-closing branch: trailing-slash syntax has no
@@ -869,7 +869,7 @@ function scanNesting(html, from, to) {
     // body as markup.
     if (RAW_TEXT_ELEMENTS.has(tag)) {
       // <plaintext> never ends, so a slice containing one can't be read as
-      // markup at all ΓÇö refuse rather than guess where it stops.
+      // markup at all — refuse rather than guess where it stops.
       if (tag === 'plaintext') return null;
       const closeTag = new RegExp(`</${tag}\\s*>`, 'gi');
       closeTag.lastIndex = index;
@@ -888,7 +888,7 @@ function scanNesting(html, from, to) {
 }
 
 /**
- * True when html[from, to) is only whitespace, comments and closing tags ΓÇö
+ * True when html[from, to) is only whitespace, comments and closing tags —
  * the shape of a document tail (`</div></body></html>`) and of nothing else.
  *
  * @param {string} html
@@ -922,7 +922,7 @@ function isStructuralTail(html, from) {
 /**
  * Locate each CV section in a rendered document as a [start, end) slice.
  *
- * A section runs from its marker comment to the next one ΓÇö the extent comes
+ * A section runs from its marker comment to the next one — the extent comes
  * from the markers, never from matching tags. That matters more than it looks:
  * when extent is derived by pairing tags, any markup the scanner reads wrongly
  * yields a *plausible but wrong* extent, and moving it truncates the CV. Here a
@@ -930,26 +930,26 @@ function isStructuralTail(html, from) {
  * that fails is left alone. Mistakes cost the feature, not the document.
  *
  * It also means a section is whatever sits between two markers, so a template
- * that marks sections with a bare heading ΓÇö
+ * that marks sections with a bare heading —
  *
  *   <!-- EDUCATION -->
  *   <h2 class="section-title">Education</h2>
  *   <div class="edu-item">BSc</div>
  *
- * ΓÇö moves its heading and body together, rather than being refused.
+ * — moves its heading and body together, rather than being refused.
  *
  * Each slice must be balanced: as many elements closed as opened, never rising
  * above the level it started at. That single check does double duty. It rejects
  * a slice that would leave markup unclosed, and it establishes that every
  * accepted section sits at the same nesting level as its neighbours, so filling
  * one section's place with another can't move it into a container of its own
- * (`<div class="education-layout"><!-- EDUCATION -->ΓÇª</div>` fails, because its
+ * (`<div class="education-layout"><!-- EDUCATION -->…</div>` fails, because its
  * slice closes a div it never opened).
  *
  * Identity comes from the rendered section title, resolved through the same
  * alias table validateCvSectionOrder() uses, so the reorder and the guard
  * cannot disagree about what a section is. A marker with no `.section-title`
- * under it (`<!-- HEADER -->`) is not a section ΓÇö which is also what leaves a
+ * under it (`<!-- HEADER -->`) is not a section — which is also what leaves a
  * cover letter untouched.
  *
  * @param {string} html
@@ -990,7 +990,7 @@ function extractSectionBlocks(html) {
     }
 
     // The last section has no following marker to bound it, so it ends where
-    // its content first tries to close an element it doesn't own ΓÇö the parent's
+    // its content first tries to close an element it doesn't own — the parent's
     // closing tag. Everything after that must be document tail: anything else
     // means the scan stopped in the wrong place (raw text it misread, say), and
     // trusting it would move a fragment.
@@ -1006,7 +1006,7 @@ function extractSectionBlocks(html) {
 
   // Titles the alias table doesn't cover. sectionKey() falls back to the
   // normalized title, so such a block is real and movable but can never match a
-  // configured name ΓÇö and without this, a CV rendered with titles outside
+  // configured name — and without this, a CV rendered with titles outside
   // SECTION_ALIASES makes cv.sections do nothing at all, silently.
   const unrecognized = new Map();
   for (const block of blocks) {
@@ -1023,16 +1023,16 @@ function extractSectionBlocks(html) {
  * The named sections are permuted among the slots they already occupy;
  * everything else stays exactly where the template put it. So a list is a local
  * statement ("these sections, in this order") rather than a full table of
- * contents the user has to keep in sync ΓÇö a section added by a later release
+ * contents the user has to keep in sync — a section added by a later release
  * lands where upstream put it instead of breaking the config. Moving a section
  * past its neighbours is therefore a rotation: name the sections it displaces
  * too, in the order they should end up in.
  *
  * Runs before validateCvSectionOrder(), so the guard still judges what will
- * actually be printed ΓÇö this satisfies the guard rather than bypassing it, which
+ * actually be printed — this satisfies the guard rather than bypassing it, which
  * is what separates it from --allow-reorder.
  *
- * No `cv.sections` ΓåÆ the input string is returned unchanged.
+ * No `cv.sections` → the input string is returned unchanged.
  *
  * @param {string} html
  * @param {string[]} order - Canonical section keys, e.g. ['skills', 'education'].
@@ -1044,7 +1044,7 @@ export function reorderCvSections(html, order) {
     // Not an error, but not a no-op worth staying quiet about either: one name
     // states no relationship, so there is nothing to apply and the user would
     // otherwise be left thinking the setting took effect.
-    console.warn(`ΓÜá∩╕Å  config/profile.yml cv.sections lists only "${displayTitle(order[0])}". An order needs at least two sections ΓÇö one name states no relationship, so nothing was changed.`);
+    console.warn(`⚠️  config/profile.yml cv.sections lists only "${displayTitle(order[0])}". An order needs at least two sections — one name states no relationship, so nothing was changed.`);
     return html;
   }
 
@@ -1069,24 +1069,24 @@ export function reorderCvSections(html, order) {
     // bounds the length so one long entry cannot bury the message.
     const shown = displayTitle(name);
     if (seen.has(name)) {
-      console.warn(`ΓÜá∩╕Å  config/profile.yml cv.sections lists "${shown}" more than once ΓÇö keeping its first position.`);
+      console.warn(`⚠️  config/profile.yml cv.sections lists "${shown}" more than once — keeping its first position.`);
       continue;
     }
     seen.add(name);
     if (!CV_SECTION_KEYS.includes(name)) {
-      console.warn(`ΓÜá∩╕Å  config/profile.yml cv.sections lists "${shown}", which is not a CV section ΓÇö ignoring it. Recognized: ${CV_SECTION_KEYS.join(', ')}.`);
+      console.warn(`⚠️  config/profile.yml cv.sections lists "${shown}", which is not a CV section — ignoring it. Recognized: ${CV_SECTION_KEYS.join(', ')}.`);
       continue;
     }
     const block = byKey.get(name);
     if (block) {
       chosen.push(block);
     } else if (ambiguous.has(name)) {
-      // Present, but its markup doesn't stand on its own ΓÇö it opens or closes
+      // Present, but its markup doesn't stand on its own — it opens or closes
       // elements outside itself, so moving it would leave tags unbalanced.
       // Reported rather than skipped quietly: the section stays where the
       // template put it, and the user would otherwise see a setting that
       // silently does nothing.
-      console.warn(`ΓÜá∩╕Å  config/profile.yml cv.sections lists "${shown}", but this CV's markup does not enclose that section on its own ΓÇö leaving it in place, because moving it would leave tags unbalanced.`);
+      console.warn(`⚠️  config/profile.yml cv.sections lists "${shown}", but this CV's markup does not enclose that section on its own — leaving it in place, because moving it would leave tags unbalanced.`);
     } else {
       // Recognized and unambiguous but with no block. Ordinarily that just means
       // the section isn't in this CV (an optional one with no entries is
@@ -1099,7 +1099,7 @@ export function reorderCvSections(html, order) {
   // because then "not in this CV" may be a misreading: the section could be
   // sitting right there under a heading nothing could identify.
   //
-  // Whether that is what happened is not knowable here ΓÇö an unresolved name may
+  // Whether that is what happened is not knowable here — an unresolved name may
   // equally be an optional section with no entries. So the report states only
   // what is checkable (this name matched nothing; these titles are unidentified)
   // and leaves the conclusion to the reader. Deliberately not conditioned on
@@ -1110,7 +1110,7 @@ export function reorderCvSections(html, order) {
     if (unresolved.length === 0 || unrecognized.size === 0) return;
     const names = unresolved.map(name => `"${displayTitle(name)}"`).join(', ');
     const titles = [...unrecognized.values()].map(title => `"${title}"`).join(', ');
-    console.warn(`ΓÜá∩╕Å  config/profile.yml cv.sections names ${names}, which matched no section in this CV. The CV also renders ${unrecognized.size} section title(s) the section-order alias table doesn't recognize (${titles}) ΓÇö if one of those is the section you meant, its title needs an entry in SECTION_ALIASES in generate-pdf.mjs. Otherwise the name has no effect and can be dropped.`);
+    console.warn(`⚠️  config/profile.yml cv.sections names ${names}, which matched no section in this CV. The CV also renders ${unrecognized.size} section title(s) the section-order alias table doesn't recognize (${titles}) — if one of those is the section you meant, its title needs an entry in SECTION_ALIASES in generate-pdf.mjs. Otherwise the name has no effect and can be dropped.`);
   };
   if (chosen.length < 2) {
     reportUnresolved();
@@ -1166,7 +1166,7 @@ export function enforcePageBudget(pageCount, { maxPages = 3, strictPages = false
     throw new Error(`${message} (--strict-pages requested)`);
   }
 
-  console.warn(`ΓÜá∩╕Å  ${message} Continuing because overflow is warning-only by default; use --strict-pages to reject it.`);
+  console.warn(`⚠️  ${message} Continuing because overflow is warning-only by default; use --strict-pages to reject it.`);
 }
 
 /**
@@ -1271,7 +1271,7 @@ export function injectPrintPageCss(html, format) {
   })];
   // Read --page-margin (set by the template's own :root default, and overridden
   // by injectThemeStyle's block when style.margin is configured) instead of
-  // hardcoding PDF_PAGE_MARGIN outright ΓÇö this @page rule is injected last, so a
+  // hardcoding PDF_PAGE_MARGIN outright — this @page rule is injected last, so a
   // hardcoded value would silently win the cascade and make style.margin
   // ineffective (#1837 review). PDF_PAGE_MARGIN is only the fallback for a
   // template that never declares --page-margin at all.
@@ -1280,7 +1280,7 @@ export function injectPrintPageCss(html, format) {
   if (/<\/head>/i.test(html)) {
     // Replacer function, matching the <html> branch just below. `pageStyle`
     // interpolates only internal constants today, so this is hardening rather
-    // than a live bug ΓÇö but the two branches sat in one function disagreeing
+    // than a live bug — but the two branches sat in one function disagreeing
     // about it, and the safe spelling is the one that stays correct if a
     // configurable value is ever interpolated here (#2596).
     return html.replace(/<\/head>/i, () => `${pageStyle}\n</head>`);
@@ -1436,7 +1436,7 @@ async function updatePDFManifest(reportNum, pdfPath, htmlPath, format, kind) {
  * Playwright, on the reasoning that a failed gate must not leave a misleading
  * artifact behind. A tailored CV is the same class of document and carries the
  * numbers a reader acts on, but the CV path enforced the gate only as an
- * instructed step in the mode prompts ΓÇö so a programmatic caller (a bridge, a
+ * instructed step in the mode prompts — so a programmatic caller (a bridge, a
  * script, a batch run) rendered inflated metrics in silence. One function for
  * both paths, because the batch run is exactly that caller and for a while it
  * was the path with no gate at all.
@@ -1452,7 +1452,7 @@ async function updatePDFManifest(reportNum, pdfPath, htmlPath, format, kind) {
 async function runFactGate(html, label) {
   // Imported lazily, by the callers' guard. A static import is resolved at module
   // load whether or not the gate runs, and the page-budget/batch suites copy
-  // generate-pdf.mjs alone into a temp workspace ΓÇö a static import of a sibling
+  // generate-pdf.mjs alone into a temp workspace — a static import of a sibling
   // that isn't copied made every one of those suites die with
   // ERR_MODULE_NOT_FOUND before reaching the behaviour under test. Those
   // fixtures also ship no cv.md, so the gate is never entered there. If the
@@ -1463,14 +1463,14 @@ async function runFactGate(html, label) {
   // Ahead of the verdict, because it qualifies it: with no config the phrase
   // lists are empty, so a "passed" below covers metrics and facts only.
   if (factCheck.configMissing) {
-    console.warn('ΓÜá∩╕Å  No config/cv-facts.json ΓÇö forbidden/advisory phrase checks did not run.');
+    console.warn('⚠️  No config/cv-facts.json — forbidden/advisory phrase checks did not run.');
   }
   if (factCheck.verdict === 'warn') {
-    console.warn(`ΓÜá∩╕Å  CV fact check warning: ${label}`);
+    console.warn(`⚠️  CV fact check warning: ${label}`);
     for (const phrase of factCheck.warnings) console.warn(`  - advisory phrase: ${phrase}`);
     printAdvisoryFacts(factCheck.advisoryFacts, console.warn);
   } else {
-    console.log(`Γ£à Fact check passed: ${label}`);
+    console.log(`✅ Fact check passed: ${label}`);
   }
 }
 
@@ -1485,7 +1485,7 @@ async function generatePDF() {
   let skipFactCheck = false;
 
   // Which platform this CV is FOR, which decides the ERN expectation. Defaults
-  // to 'other', i.e. the ERN must be ABSENT ΓÇö the safe direction, because
+  // to 'other', i.e. the ERN must be ABSENT — the safe direction, because
   // cv.md's scope rule allows the ERN on cityjobs.nyc.gov postings ONLY and
   // warns that an unexplained municipal employee ID "reads as irrelevant"
   // anywhere else. A cityjobs CV that legitimately carries the ERN therefore
@@ -1600,7 +1600,7 @@ async function generatePDF() {
   if (batchManifestPath) {
     // --report keys a single PDF to one tracker row; a batch renders N distinct
     // CVs, so one global --report would mislabel them all. Per-entry "reportNum"
-    // in the manifest is the correct channel ΓÇö reject the global flag here rather
+    // in the manifest is the correct channel — reject the global flag here rather
     // than silently ignore it (fails before the batch path returns).
     if (reportNum) {
       console.error('--report is not valid with --batch. Set "reportNum" per entry in the manifest instead.');
@@ -1630,7 +1630,7 @@ async function generatePDF() {
     console.error('');
     console.error('This script only converts an already-built HTML file to PDF.');
     console.error('The input HTML is produced by the pdf mode: the agent fills cv-template.html');
-    console.error('with content tailored to the specific job (see modes/pdf.md) ΓÇö there is no');
+    console.error('with content tailored to the specific job (see modes/pdf.md) — there is no');
     console.error('mechanical markdown-to-HTML step by design. Run `/career-ops pdf` in your AI');
     console.error('');
     console.error('After rendering, the built PDF is read back and the ERN scope rule is');
@@ -1655,7 +1655,7 @@ async function generatePDF() {
   // Path-traversal guard: keep the PDF write inside the tracker-owned workspace
   // so a crafted output argument cannot escape into another user's directory.
   // Anchored to the workspace root, not process.cwd(): running the script
-  // from outside the repo used to falsely refuse in-repo outputs ΓÇö and, worse,
+  // from outside the repo used to falsely refuse in-repo outputs — and, worse,
   // would have allowed writes anywhere under an arbitrary cwd.
   try {
     assertInsideWorkspace(inputPath, 'input');
@@ -1668,10 +1668,10 @@ async function generatePDF() {
     process.exit(1);
   }
 
-  console.log(`≡ƒôä Input:  ${inputPath}`);
-  console.log(`≡ƒôü Output: ${outputPath}`);
-  console.log(`≡ƒôÅ Format: ${format.toUpperCase()}`);
-  console.log(`≡ƒôÉ Page budget: ${maxPages}${strictPages ? ' (strict)' : ' (warning only)'}`);
+  console.log(`📄 Input:  ${inputPath}`);
+  console.log(`📁 Output: ${outputPath}`);
+  console.log(`📏 Format: ${format.toUpperCase()}`);
+  console.log(`📐 Page budget: ${maxPages}${strictPages ? ' (strict)' : ' (warning only)'}`);
 
   let html = await readFile(inputPath, 'utf-8');
   let cvMarkdown = '';
@@ -1680,7 +1680,7 @@ async function generatePDF() {
   } catch (err) {
     if (err?.code !== 'ENOENT') throw err;
   }
-  // Drop the optional sections that came in as a bare header ΓÇö a title with
+  // Drop the optional sections that came in as a bare header — a title with
   // nothing under it (#3986). The builders already strip these from the payload
   // side, but neither builder is on every path here: the web pdf flow has the
   // agent emit finished HTML, which reaches this script with the empty wrappers
@@ -1694,7 +1694,7 @@ async function generatePDF() {
   // printed. Anchored to workspaceRoot, NOT __dirname: readStyleTokens() reads
   // the same file from workspaceRoot, and cv.md is read from there too, so an
   // __dirname anchor made CAREER_OPS_TRACKER split one logical profile across
-  // two files ΓÇö style from the workspace, section order from the checkout ΓÇö
+  // two files — style from the workspace, section order from the checkout —
   // and validated the workspace's CV against the checkout's declared order.
   html = reorderCvSections(html, readCvSectionOrder(resolve(workspaceRoot, 'config', 'profile.yml')));
 
@@ -1707,7 +1707,7 @@ async function generatePDF() {
   const totalReplacements = Object.values(normalized.replacements).reduce((a, b) => a + b, 0);
   if (totalReplacements > 0) {
     const breakdown = Object.entries(normalized.replacements).map(([k, v]) => `${k}=${v}`).join(', ');
-    console.log(`≡ƒº╣ ATS normalization: ${totalReplacements} replacements (${breakdown})`);
+    console.log(`🧹 ATS normalization: ${totalReplacements} replacements (${breakdown})`);
   }
 
   // Fact gate, on the normalized HTML: the document that actually prints.
@@ -1741,7 +1741,7 @@ async function generatePDF() {
  * -----------------------------------------------
  * assertFacts() reads the HTML. The HTML is an intermediate: the employer
  * receives the PDF. So a rule the HTML cannot see was unenforceable, and one
- * such rule exists ΓÇö the ERN scope rule in modes/_custom.md, which allows the
+ * such rule exists — the ERN scope rule in modes/_custom.md, which allows the
  * ERN on cityjobs.nyc.gov postings ONLY and says an unexplained municipal
  * employee ID reads as irrelevant anywhere else. The ERN is never mentioned in
  * prose; it is only ever rendered into the document, so before this the rule
@@ -1752,7 +1752,7 @@ async function generatePDF() {
  * The fact gate warns because a phrase list is advisory and its config is
  * optional. This is different in kind: an ERN on the wrong platform is a
  * factual error in the submitted document, and the failure is invisible on
- * inspection ΓÇö the CV looks correct either way. Warning would have produced
+ * inspection — the CV looks correct either way. Warning would have produced
  * exactly the silent pass this gate exists to prevent. So a scope mismatch
  * throws, after the PDF has been written, so the artifact is inspectable.
  *
@@ -1775,7 +1775,7 @@ export async function verifyBuiltPdf({ pdfPath, cvMarkdown, ernScope, label }) {
   // hardcodes anyone's identifier: no ERN in cv.md means no ERN rule to enforce.
   const ernMatch = String(cvMarkdown).match(/\*\*ERN:\*\*\s*([0-9]{3,})/i);
   if (!ernMatch) {
-    console.warn('ΓÜá∩╕Å  No ERN in cv.md ΓÇö the ERN scope rule was not enforced on this PDF.');
+    console.warn('⚠️  No ERN in cv.md — the ERN scope rule was not enforced on this PDF.');
     return;
   }
   const ern = ernMatch[1];
@@ -1801,7 +1801,7 @@ export async function verifyBuiltPdf({ pdfPath, cvMarkdown, ernScope, label }) {
   if (ernScope === 'cityjobs') {
     // `must` failures land in `missing`, not `forbidden`. An earlier version of
     // this gate checked only `forbidden` and so logged "ERN present" for a CV
-    // that contained no ERN at all ΓÇö the precise silent pass this tool exists to
+    // that contained no ERN at all — the precise silent pass this tool exists to
     // prevent, introduced by the wiring rather than by the tool.
     if (result.missing.includes(ern)) {
       throw new Error(
@@ -1810,7 +1810,7 @@ export async function verifyBuiltPdf({ pdfPath, cvMarkdown, ernScope, label }) {
         "Add the ERN line from cv.md, or drop --ern-scope=cityjobs if this is not a cityjobs posting.",
       );
     }
-    console.log(`Γ£à PDF ERN check (cityjobs): ${ern} present in ${result.chars} decoded chars`);
+    console.log(`✅ PDF ERN check (cityjobs): ${ern} present in ${result.chars} decoded chars`);
     return;
   }
 
@@ -1821,7 +1821,7 @@ export async function verifyBuiltPdf({ pdfPath, cvMarkdown, ernScope, label }) {
       'the ERN line, or pass --ern-scope=cityjobs if this really is a cityjobs posting.',
     );
   }
-  console.log(`Γ£à PDF ERN check (other): ${ern} correctly absent (${result.chars} decoded chars)`);
+  console.log(`✅ PDF ERN check (other): ${ern} correctly absent (${result.chars} decoded chars)`);
 }
 
 /**
@@ -1835,7 +1835,7 @@ export async function verifyBuiltPdf({ pdfPath, cvMarkdown, ernScope, label }) {
  * the batch. Surviving entries render through one shared Chromium (renderBatch).
  *
  * A results manifest is always written next to the input manifest as
- * `<manifest>.results.json` ΓÇö an ordered array mirroring the input, each item
+ * `<manifest>.results.json` — an ordered array mirroring the input, each item
  * `{outputPath, ok, ...}`. The process exits non-zero if ANY entry failed (or
  * the browser died), so cron/batch-tailor callers never mistake a partial run
  * for success; it exits zero only when every document rendered.
@@ -1855,7 +1855,7 @@ async function runBatchFromManifest(manifestPath, globals) {
   try {
     assertInsideWorkspace(resolvedManifest, 'batch manifest');
   } catch (err) {
-    console.error(`Γ¥î ${err.message}`);
+    console.error(`❌ ${err.message}`);
     process.exit(1);
   }
 
@@ -1863,7 +1863,7 @@ async function runBatchFromManifest(manifestPath, globals) {
   try {
     raw = await readFile(resolvedManifest, 'utf-8');
   } catch (err) {
-    console.error(`Γ¥î Cannot read batch manifest: ${resolvedManifest} (${err.message})`);
+    console.error(`❌ Cannot read batch manifest: ${resolvedManifest} (${err.message})`);
     process.exit(1);
   }
 
@@ -1871,12 +1871,12 @@ async function runBatchFromManifest(manifestPath, globals) {
   try {
     manifest = JSON.parse(raw);
   } catch (err) {
-    console.error(`Γ¥î Batch manifest is not valid JSON: ${err.message}`);
+    console.error(`❌ Batch manifest is not valid JSON: ${err.message}`);
     process.exit(1);
   }
 
   if (!Array.isArray(manifest) || manifest.length === 0) {
-    console.error('Γ¥î Batch manifest must be a non-empty JSON array of {input, output, format?, reportNum?}.');
+    console.error('❌ Batch manifest must be a non-empty JSON array of {input, output, format?, reportNum?}.');
     process.exit(1);
   }
 
@@ -1974,7 +1974,7 @@ async function runBatchFromManifest(manifestPath, globals) {
         styleTokens,
       });
     } catch (err) {
-      console.error(`Γ¥î Skipping batch entry ${i} (${spec?.output ?? '?'}): ${err.message}`);
+      console.error(`❌ Skipping batch entry ${i} (${spec?.output ?? '?'}): ${err.message}`);
       // Record outputPath with the same manifest-dir-resolved absolute convention
       // successful entries use, so consumers see one path shape across ok/failed
       // results; null stays null when the entry named no output.
@@ -1984,7 +1984,7 @@ async function runBatchFromManifest(manifestPath, globals) {
   }
 
   if (entries.length > 0) {
-    console.log(`≡ƒôª Batch: rendering ${entries.length} document(s) in one ChromiumΓÇª`);
+    console.log(`📦 Batch: rendering ${entries.length} document(s) in one Chromium…`);
     const rendered = await renderBatch(entries);
     rendered.forEach((r, k) => { results[entries[k]._idx] = r; });
   }
@@ -1998,15 +1998,15 @@ async function runBatchFromManifest(manifestPath, globals) {
     // explicitly so the write can never land outside the workspace.
     assertInsideWorkspace(resultsPath, 'batch results');
     writeFileSync(resultsPath, JSON.stringify(results, null, 2) + '\n');
-    console.log(`≡ƒöù Batch results: ${resultsPath}`);
+    console.log(`🔗 Batch results: ${resultsPath}`);
   } catch (err) {
-    console.error(`ΓÜá∩╕Å  Could not write batch results manifest: ${err.message}`);
+    console.error(`⚠️  Could not write batch results manifest: ${err.message}`);
     // A failed results write is itself a batch failure: consumers rely on the
     // manifest, so exit non-zero even when every entry rendered fine.
     process.exitCode = 1;
   }
 
-  console.log(`≡ƒôª Batch complete: ${ok} ok, ${failed} failed`);
+  console.log(`📦 Batch complete: ${ok} ok, ${failed} failed`);
   // Signal failure via exitCode, not process.exit(1): the latter can truncate
   // buffered stdout (the summary + results-path logs above) before it flushes.
   // Returning normally lets in-process callers read the full breakdown and the
@@ -2026,16 +2026,16 @@ async function runBatchFromManifest(manifestPath, globals) {
  * Missing font files keep their original reference and log a warning.
  *
  * Encoded font data: URLs are memoized across calls (keyed by resolved absolute
- * path, not name ΓÇö two fonts can share a display name but not a path) so a
+ * path, not name — two fonts can share a display name but not a path) so a
  * batch render does not re-read and re-base64 the same font once per document.
  * The cache holds only successful encodings; a missing font is re-checked each
  * call so a font added mid-run is picked up. The bytes are deterministic, so a
- * cache hit returns the exact same data: URL ΓÇö output stays byte-identical.
+ * cache hit returns the exact same data: URL — output stays byte-identical.
  *
  * Cache lifetime and invalidation: the cache lives only for the duration of a
  * single CLI run (a module-level Map, never persisted). It is keyed by path and
  * is deliberately NOT invalidated when a font file changes or is deleted mid-run
- * ΓÇö once a path is cached, that path serves the first-read bytes for the rest of
+ * — once a path is cached, that path serves the first-read bytes for the rest of
  * the run even if the file is later edited or removed on disk (no mtime/size
  * stat check). This is intentional: a batch renders from a fixed set of fonts and
  * relies on the stale-on-deletion behavior to stay byte-identical; the next CLI
@@ -2058,7 +2058,7 @@ export async function inlineLocalFonts(html) {
     const fontPath = resolve(fontsDir, name);
     const rel = relative(fontsDir, fontPath);
     if (rel.startsWith('..') || isAbsolute(rel)) {
-      console.warn(`ΓÜá∩╕Å  Font reference escapes fonts/, keeping original reference: ${name}`);
+      console.warn(`⚠️  Font reference escapes fonts/, keeping original reference: ${name}`);
       continue;
     }
     if (_fontDataUrlCache.has(fontPath)) {
@@ -2073,7 +2073,7 @@ export async function inlineLocalFonts(html) {
       dataUrls.set(name, dataUrl);
     } catch (err) {
       if (err?.code !== 'ENOENT') throw err;
-      console.warn(`ΓÜá∩╕Å  Font file not found, keeping original reference: fonts/${name}`);
+      console.warn(`⚠️  Font file not found, keeping original reference: fonts/${name}`);
     }
   }
   return html.replace(FONT_REF, (match, _quote, name) => dataUrls.get(name) || match);
@@ -2084,7 +2084,7 @@ export async function inlineLocalFonts(html) {
  *
  * Writes the HTML to a temporary file in the baseDir and loads it via
  * page.goto() to give the page a file:// origin. This allows relative
- * resources (images, fonts) to load ΓÇö setContent() runs from about:blank
+ * resources (images, fonts) to load — setContent() runs from about:blank
  * and Chromium blocks file:// subresource loads from non-file origins.
  *
  * Local url('./fonts/...') references are inlined as data: URLs first so
@@ -2113,7 +2113,7 @@ export async function renderHtmlToPdf(html, outputPath, opts = {}) {
   } finally {
     if (browser) {
       await browser.close().catch((err) => {
-        console.warn(`ΓÜá∩╕Å  Browser cleanup failed: ${err.message}`);
+        console.warn(`⚠️  Browser cleanup failed: ${err.message}`);
       });
     }
   }
@@ -2121,7 +2121,7 @@ export async function renderHtmlToPdf(html, outputPath, opts = {}) {
 
 /**
  * Render one already-normalized HTML document to a PDF on an already-launched
- * browser. This is the page-level half of the render ΓÇö it owns the per-document
+ * browser. This is the page-level half of the render — it owns the per-document
  * work (theme/print/font injection, temp file, page, PDF, page-budget, manifest)
  * but NOT the browser lifecycle. Both the single-CV path (renderHtmlToPdf) and
  * the batch path (renderBatch) call this exact function, which is what keeps a
@@ -2129,7 +2129,7 @@ export async function renderHtmlToPdf(html, outputPath, opts = {}) {
  *
  * The page and the temp HTML file are always cleaned up in a finally, so a
  * throw here (e.g. a strict page-budget overflow) never leaks a page into the
- * shared browser ΓÇö the caller's remaining documents keep their own fresh pages.
+ * shared browser — the caller's remaining documents keep their own fresh pages.
  *
  * @param {import('playwright').Browser} browser - An open browser to render on.
  * @param {string} html - Full HTML document to render.
@@ -2164,7 +2164,7 @@ async function renderInPage(browser, html, outputPath, opts = {}) {
   // too rather than in each caller (#3887). A null kind means the caller
   // declared one this manifest cannot key on: the CLI and the batch loop
   // validate before rendering, but a direct renderHtmlToPdf() caller has
-  // nothing else in front of it, and applyManifestRow() reads null as 'cv' ΓÇö
+  // nothing else in front of it, and applyManifestRow() reads null as 'cv' —
   // so an unrecognized kind would evict the report's real CV row and hand the
   // apply flow the wrong document. Rejected here, before the page renders, so
   // a mislabelled artifact never reaches disk either.
@@ -2183,7 +2183,7 @@ async function renderInPage(browser, html, outputPath, opts = {}) {
 
   // Inject the user's theme tokens (config/profile.yml `style:`) as CSS custom
   // properties so the templates' var(--x, <default>) reads pick them up (#1837).
-  // No `style:` block ΓåÆ no tokens ΓåÆ byte-identical output. Both the CV path and
+  // No `style:` block → no tokens → byte-identical output. Both the CV path and
   // the cover-letter path flow through here, so both are themed from one place.
   const styleTokens = opts.styleTokens ?? readStyleTokens(resolve(outputRoot, 'config', 'profile.yml'));
   html = injectThemeStyle(html, styleTokens);
@@ -2204,7 +2204,7 @@ async function renderInPage(browser, html, outputPath, opts = {}) {
     // Both are denied because this HTML is not fully trusted: it is built from
     // cv.md, the job posting and the evaluation report, and postings are untrusted
     // input (AGENTS.md). With JS off an injected <script> cannot run; with
-    // non-local requests aborted an injected <img src="https://ΓÇª"> cannot beacon
+    // non-local requests aborted an injected <img src="https://…"> cannot beacon
     // out. file:/data: subresources still load, which is all a template needs.
     //
     // newContext(), not newPage(): javaScriptEnabled is a Playwright context
@@ -2264,39 +2264,39 @@ async function renderInPage(browser, html, outputPath, opts = {}) {
       strictPages: opts.strictPages ?? false,
     });
 
-    console.log(`Γ£à PDF generated: ${outputPath}`);
-    console.log(`≡ƒôè Pages: ${pageCount}`);
-    console.log(`≡ƒôª Size: ${(pdfBuffer.length / 1024).toFixed(1)} KB`);
+    console.log(`✅ PDF generated: ${outputPath}`);
+    console.log(`📊 Pages: ${pageCount}`);
+    console.log(`📦 Size: ${(pdfBuffer.length / 1024).toFixed(1)} KB`);
 
     try {
       await updatePDFManifest(reportNum, outputPath, inputPath, format, artifactKind);
-      console.log(`≡ƒöù Manifest: data/pdf-index.tsv updated${reportNum ? ` (report ${reportNum})` : ' (no --report given)'}`);
+      console.log(`🔗 Manifest: data/pdf-index.tsv updated${reportNum ? ` (report ${reportNum})` : ' (no --report given)'}`);
     } catch (err) {
-      // The PDF itself succeeded ΓÇö never fail the run over manifest bookkeeping.
-      console.error(`ΓÜá∩╕Å  Manifest update failed: ${err.message}`);
+      // The PDF itself succeeded — never fail the run over manifest bookkeeping.
+      console.error(`⚠️  Manifest update failed: ${err.message}`);
     }
 
     return { outputPath, pageCount, size: pdfBuffer.length };
   } finally {
     // Close the page so a batch does not accumulate pages into the shared
-    // browser (leak ΓåÆ OOM). Optional-chained: the single path's browser.close()
+    // browser (leak → OOM). Optional-chained: the single path's browser.close()
     // already reclaims the page, and minimal test doubles may omit close().
     if (page && typeof page.close === 'function') {
       await page.close().catch((err) => {
-        console.warn(`ΓÜá∩╕Å  Page cleanup failed: ${err.message}`);
+        console.warn(`⚠️  Page cleanup failed: ${err.message}`);
       });
     }
     // Close the per-document context too, so the JS-disabled context created
     // above does not accumulate in the shared browser across a batch (#2384).
     if (context && typeof context.close === 'function') {
       await context.close().catch((err) => {
-        console.warn(`ΓÜá∩╕Å  Context cleanup failed: ${err.message}`);
+        console.warn(`⚠️  Context cleanup failed: ${err.message}`);
       });
     }
     // Clean up temp file
     await unlink(tmpHtmlPath).catch((err) => {
       if (err?.code !== 'ENOENT') {
-        console.warn(`ΓÜá∩╕Å  Temporary HTML cleanup failed: ${err.message}`);
+        console.warn(`⚠️  Temporary HTML cleanup failed: ${err.message}`);
       }
     });
   }
@@ -2307,13 +2307,13 @@ async function renderInPage(browser, html, outputPath, opts = {}) {
  *
  * Maintainer conditions (#2384): the browser is launched once via the same
  * opts.launchBrowser seam the single path uses, and closed in a finally at the
- * batch boundary ΓÇö it never outlives the batch and is torn down even if a
+ * batch boundary — it never outlives the batch and is torn down even if a
  * document throws. Each entry renders on its own page (renderInPage), and a
  * failing entry is captured as `{ok:false, error}` without stopping the rest.
  *
  * The browser is owned here: renderBatch closes whatever launchBrowser returns.
  * launchBrowser is a launch *factory*, not a caller-owned handle, so this does
- * not break test injection ΓÇö the stub returns a fresh browser to be closed.
+ * not break test injection — the stub returns a fresh browser to be closed.
  *
  * Rendering is intentionally serial: a shared module-level font cache and one
  * long-lived browser make parallel rendering a determinism/memory hazard that
@@ -2336,7 +2336,7 @@ export async function renderBatch(entries, opts = {}) {
       // NOT escape as an uncaught throw: record a failed result for each entry so
       // runBatchFromManifest still writes a complete results manifest and takes
       // the existing non-zero exit path, instead of crashing before either (#2384).
-      console.error(`Γ¥î Batch browser launch failed: ${err.message}`);
+      console.error(`❌ Batch browser launch failed: ${err.message}`);
       for (const entry of entries) {
         results.push({ outputPath: entry.outputPath, ok: false, error: `browser launch failed: ${err.message}` });
       }
@@ -2347,7 +2347,7 @@ export async function renderBatch(entries, opts = {}) {
         const r = await renderInPage(browser, entry.html, entry.outputPath, entry);
         results.push({ outputPath: entry.outputPath, ok: true, pageCount: r.pageCount, size: r.size });
       } catch (err) {
-        console.error(`Γ¥î Batch entry failed (${entry.outputPath}): ${err.message}`);
+        console.error(`❌ Batch entry failed (${entry.outputPath}): ${err.message}`);
         results.push({ outputPath: entry.outputPath, ok: false, error: err.message });
       }
     }
@@ -2355,7 +2355,7 @@ export async function renderBatch(entries, opts = {}) {
   } finally {
     if (browser) {
       await browser.close().catch((err) => {
-        console.warn(`ΓÜá∩╕Å  Browser cleanup failed: ${err.message}`);
+        console.warn(`⚠️  Browser cleanup failed: ${err.message}`);
       });
     }
   }
@@ -2364,7 +2364,7 @@ export async function renderBatch(entries, opts = {}) {
 const isMain = isMainModule(import.meta.url);
 if (isMain) {
   generatePDF().catch((err) => {
-    console.error('Γ¥î PDF generation failed:', err.message);
+    console.error('❌ PDF generation failed:', err.message);
     process.exit(1);
   });
 }

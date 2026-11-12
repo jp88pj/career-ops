@@ -1,4 +1,4 @@
-// title-keywords.mjs ΓÇö one definition of how a `title_filter` keyword matches a
+// title-keywords.mjs — one definition of how a `title_filter` keyword matches a
 // job title, imported by every path that filters titles.
 //
 // It lives in its own module because there are two such paths and they must not
@@ -25,8 +25,8 @@ export const WORD_PREFIX = 'word:';
 // `stem:` is the other half of the same question, and it exists because the two
 // halves are NOT the same setting seen from two sides.
 //
-// `word:agent` says "agent, and nothing longer" ΓÇö it rejects Agentforce.
-// `stem:agent` says "a word that STARTS with agent" ΓÇö it keeps Agentforce and
+// `word:agent` says "agent, and nothing longer" — it rejects Agentforce.
+// `stem:agent` says "a word that STARTS with agent" — it keeps Agentforce and
 // Agentic, and drops Reagents, where the keyword lands mid-word.
 // A bare `agent`, today's default, keeps all three.
 //
@@ -47,11 +47,11 @@ function escapeForRegExp(s) {
 //
 // String.raw, not a plain template literal: `\p` is not a recognised string
 // escape, so an ordinary template drops the backslash and the class degenerates
-// to the literal characters p, {, L, } ΓÇö no error, and the anchor is simply off.
+// to the literal characters p, {, L, } — no error, and the anchor is simply off.
 //
 // Han, Hiragana, Katakana and Hangul are letters to \p{L}, but those scripts
-// glue a Latin acronym straight onto the next word ("AIσà¿µáêσ╖Ñτ¿ïσ╕ê", "AIπé¿πâ│πé╕πâïπéó",
-// "AI∞ùö∞ºÇδïê∞û┤" ΓÇö all "AI engineer"), so a CJK character next to a keyword is a
+// glue a Latin acronym straight onto the next word ("AI全栈工程师", "AIエンジニア",
+// "AI엔지니어" — all "AI engineer"), so a CJK character next to a keyword is a
 // word EDGE, not a continuation: `ai` must match them exactly as it matches
 // "AI Engineer".
 const WORD_CHAR = String.raw`(?:(?![\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])[\p{L}\p{M}\p{N}_])`;
@@ -62,11 +62,11 @@ const stemPattern = (body) => new RegExp(`(?<!${WORD_CHAR})${body}`, 'u');
 
 // `word:` and `stem:` mean the same thing wherever a keyword list is matched
 // against text, so their handling lives here once rather than being copied into
-// each compiler ΓÇö the drift this module exists to prevent. Returns a matcher
+// each compiler — the drift this module exists to prevent. Returns a matcher
 // when `kw` carries a recognised prefix, or null when it is an ordinary keyword
 // the caller compiles its own way (the title filter auto-anchors short
 // acronyms and falls back to substring; the content filter goes straight to
-// substring ΓÇö see #3103, #3274).
+// substring — see #3103, #3274).
 //
 // Explicit alphanumeric lookarounds rather than \b, because \b's meaning
 // depends on the characters at the keyword's own edges: for `word:c++` a
@@ -74,14 +74,14 @@ const stemPattern = (body) => new RegExp(`(?<!${WORD_CHAR})${body}`, 'u');
 // WORD_CHAR rather than [a-z0-9_]: an ASCII-only lookaround treats every
 // accented letter as a separator, so `word:intern` matched inside "preintern"
 // spelled with an accent and vetoed exactly the international titles this
-// prefix exists to protect. \p{M} covers combining marks, so a decomposed "├⌐"
+// prefix exists to protect. \p{M} covers combining marks, so a decomposed "é"
 // does not split a word either.
 function compilePrefixedKeyword(kw) {
   if (kw.startsWith(WORD_PREFIX)) {
     const bare = kw.slice(WORD_PREFIX.length).trim();
     // A bare `word:` is a config typo. Matching NOTHING is the safe reading: as
-    // a positive it simply contributes no match, while the alternative ΓÇö an
-    // empty pattern matching everything ΓÇö would veto an entire scan from one
+    // a positive it simply contributes no match, while the alternative — an
+    // empty pattern matching everything — would veto an entire scan from one
     // stray colon. Same trade as the "C++" note on scan.mjs's AND_SEPARATOR:
     // prefer a silent drop of one entry over a silent flood.
     if (!bare) return () => false;
@@ -102,7 +102,7 @@ function compilePrefixedKeyword(kw) {
 /**
  * Compile a lowercased keyword into a matcher.
  *
- * Short all-letter acronyms (2-3 chars: cfo, coo, sdr, bdr, gsiΓÇª) match on WORD
+ * Short all-letter acronyms (2-3 chars: cfo, coo, sdr, bdr, gsi…) match on WORD
  * BOUNDARIES so "COO" does not match "Coordinator". A `word:` prefix asks for
  * the same treatment explicitly, at any length: `word:intern` rejects
  * "Operations Intern" and leaves "Internal Tools" and "International
@@ -115,7 +115,7 @@ function compilePrefixedKeyword(kw) {
 // Fold diacritics so a keyword and a title compare equal regardless of accents.
 // Spanish/Portuguese boards routinely publish titles in UPPERCASE WITHOUT
 // accents ("TECNICO CONTROL DE PRODUCCION") while portals.yml is written with
-// them ("Producci├│n"); with toLowerCase() alone they never match, and every
+// them ("Producción"); with toLowerCase() alone they never match, and every
 // such posting is silently counted as filtered_title. BOTH sides are folded,
 // so the comparison stays symmetric.
 // Not lib/ascii-fold.mjs: that one deletes everything outside [a-z0-9]
@@ -153,8 +153,8 @@ export function compileKeyword(kw) {
  * default has always been a plain case-insensitive substring. That default is
  * why a bare negative `java` rejects every posting that merely mentions
  * "JavaScript", and `ios` rejects "curiosity" (#3274). Flipping the default is
- * a breaking change for every configured install ΓÇö the same conclusion #3103
- * reached for `title_filter` ΓÇö so the fix is opt-in: a `word:` or `stem:`
+ * a breaking change for every configured install — the same conclusion #3103
+ * reached for `title_filter` — so the fix is opt-in: a `word:` or `stem:`
  * prefix asks for boundary-anchored matching on that one entry (identical
  * semantics to the title filter), and every other entry keeps the substring
  * behaviour byte-for-byte.
@@ -173,7 +173,7 @@ export function compileContentKeyword(kw) {
 
 // An AND-group: " + " (whitespace-delimited) between terms means EVERY term
 // must appear in the title, in any order. `title_filter.positive` is otherwise
-// matched by compileKeyword ΓÇö a plain substring, EXCEPT for a 2-3 letter
+// matched by compileKeyword — a plain substring, EXCEPT for a 2-3 letter
 // keyword ("AI", "ML", "VP") or a `word:`-prefixed one, both of which are
 // anchored so they cannot hit inside another word. Either way an entry
 // expresses one exact spelling and nothing else, and real titles vary in
@@ -185,14 +185,14 @@ export function compileContentKeyword(kw) {
 //
 // The combinations are {level} x {, - of none} x {optional domain word}: no
 // hand-maintained list of literal spellings converges, and every miss is
-// silent ΓÇö the summary reports one "filtered by title" count that cannot tell
+// silent — the summary reports one "filtered by title" count that cannot tell
 // a well-tuned filter from a leaking one (#2544).
 //
 // The separator REQUIRES surrounding whitespace on purpose. A bare split('+')
 // would turn the perfectly ordinary keyword "C++" into "c", which matches
-// almost every title ΓÇö trading a silent drop for a silent flood.
-// Exported because a caller that must reason about the TERMS of a group ΓÇö the
-// dead-positive guard in tests/title-filter-word-prefix.test.mjs ΓÇö has to split
+// almost every title — trading a silent drop for a silent flood.
+// Exported because a caller that must reason about the TERMS of a group — the
+// dead-positive guard in tests/title-filter-word-prefix.test.mjs — has to split
 // them exactly as this file does, and a second copy of the rule is the drift
 // this module was extracted to end.
 export const AND_SEPARATOR = /\s+\+\s+/;
@@ -230,7 +230,7 @@ function compileAndGroup(keyword, compileTerm) {
 
 // Normalize defensively: a malformed keyword list (a null, numeric, or
 // otherwise non-string entry in the YAML) must not crash the scan via
-// k.toLowerCase(). Shared by both builders below ΓÇö a second copy is how a
+// k.toLowerCase(). Shared by both builders below — a second copy is how a
 // null entry ends up crashing one scanner and not the other.
 function normalizeKeywords(arr, compile) {
   return (Array.isArray(arr) ? arr : [])
@@ -243,8 +243,8 @@ function normalizeKeywords(arr, compile) {
 /**
  * Compile one `domain_filter` entry into a matcher.
  *
- * A domain keyword answers a different question from a title keyword ΓÇö "is this
- * employer in my industry" rather than "is this the right role" ΓÇö and it is
+ * A domain keyword answers a different question from a title keyword — "is this
+ * employer in my industry" rather than "is this the right role" — and it is
  * read at a different granularity: the board gate in scan-ats-full.mjs decides
  * a whole catalogue on one match (#3105). The default differs for that reason.
  *
@@ -254,7 +254,7 @@ function normalizeKeywords(arr, compile) {
  * in common is that the domain term STARTS that word, so only the right-hand
  * anchor closes it:
  *
- *   defi   -> Defici├¬ncia, Defiance, Software Defined, Product Definition
+ *   defi   -> Deficiência, Defiance, Software Defined, Product Definition
  *   solana -> Solanaceae          crypto -> Cryptography
  *
  * `stem:` reaches exactly one of those (Indefinido, where the term lands
@@ -269,7 +269,7 @@ function normalizeKeywords(arr, compile) {
  * `word:` charges for that, and the charge is a real one: it drops "Digital
  * AssetS", "Smart ContractS" and "CryptoCURRENCY", which are genuine finds
  * rather than noise. An entry that needs a longer form asks for it with
- * `stem:`, one entry at a time, the way `title_filter` asks for the opposite ΓÇö
+ * `stem:`, one entry at a time, the way `title_filter` asks for the opposite —
  * and `stem:digital asset` carries no junk risk, because no unrelated word
  * begins with it. Both prefixes are honoured here, so the vocabulary a user
  * learned on title_filter is the same one; only which end of it is free
@@ -286,10 +286,10 @@ function compileDomainTerm(term) {
   if (term.startsWith(WORD_PREFIX) || term.startsWith(STEM_PREFIX)) return compileKeyword(term);
   // Delegated rather than pattern-matched here on purpose: what `word:` MEANS
   // is defined once, above, including the lookarounds that make it Unicode-safe
-  // (the whole reason "Defici├¬ncia" is a case this has to get right). This is a
+  // (the whole reason "Deficiência" is a case this has to get right). This is a
   // statement about which default a domain keyword gets, not a second
   // implementation of the anchor. It also subsumes the 2-3 letter acronym rule
-  // ΓÇö `evm` and `dao` were already anchored, and now agree with everything else
+  // — `evm` and `dao` were already anchored, and now agree with everything else
   // rather than being an exception a reader has to hold.
   return compileKeyword(WORD_PREFIX + term);
 }
@@ -320,7 +320,7 @@ export function barePrefixDomainKeywords(domainKeywords) {
  *
  * Null rather than an always-true predicate: the gate is opt-in (#3105), and
  * "no domain_filter configured" has to be distinguishable from "configured and
- * everything matches" ΓÇö the caller reports the gate in its run summary only
+ * everything matches" — the caller reports the gate in its run summary only
  * when it actually ran, and an always-true predicate would make a config typo
  * look like a working gate that happened to admit every board.
  *
