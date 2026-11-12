@@ -154,6 +154,11 @@ const CLOSURE = {
   'set-status.mjs': [
     'set-status.mjs', 'path-resolver.mjs', 'tracker-utils.mjs', 'pipeline-lock.mjs', 'lib/dir-lock.mjs',
     'lib/yaml-document.mjs', 'tracker-parse.mjs', 'lib/local-today.mjs', 'role-matcher.mjs', 'templates/states.yml',
+    // funnel-velocity.mjs (#--undo): set-status imports parseStatusLog/
+    // replayObservations for its ledger machinery; followup-cadence and stats
+    // sit in the same closure, and their own imports come along.
+    'funnel-velocity.mjs', 'followup-cadence.mjs', 'stats.mjs', 'funnel-stages.mjs',
+    'lib/scan-history-columns.mjs', 'lib/tsv-formula-escape.mjs',
     // lib/status-hooks.mjs (#5536): the hooks around a status change, and
     // session-activity.mjs (#4532), the advisory in-progress claim it takes
     // before the write.
