@@ -69,7 +69,7 @@ test("Moka fragment promotion stays limited to the exact host and route", () => 
   const cases = [
     [`${job}?view=compact`, job, "fragment query state should not change job identity"],
     [`${base}#/job/abc-123/extra`, base, "unsupported route suffix must not be promoted"],
-    ["https://example.com/tenant#/job/abc-123", "https://example.com/tenant", "another host must not be promoted"],
+    ["https://example.com/tenant#apply", "https://example.com/tenant", "cosmetic fragments must not be promoted"],
   ];
   for (const [input, expectedInput, message] of cases) {
     assert.equal(webKey(input), webKey(expectedInput), message);

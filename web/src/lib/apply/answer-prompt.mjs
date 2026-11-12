@@ -10,8 +10,11 @@
  *
  * Moved verbatim from api/apply/prefill/route.ts. The wording, the
  * tab-separated field list and the arrows are the prompt the planner has been
- * receiving all along; this is a relocation, not a rewrite.
+ * receiving all along; this is a relocation, not a rewrite. The one parameterization
+ * is `profile`: the prompt names the profile file through profileRef() in
+ * core/profile-path.mjs (#5144), which is empty-note by default.
  */
+import { DEFAULT_PROFILE_REF } from "../core/profile-path.mjs";
 
 /**
  * One form control, as much of it as the prompt needs. Structurally satisfied by
@@ -27,14 +30,15 @@
  */
 
 /**
- * @param {{title: string, fields: PromptField[], memory?: string}} opts
+ * @param {{title: string, fields: PromptField[], memory?: string, profile?: string}} opts
  * @returns {string}
  */
-export function buildAnswerPrompt({ title, fields, memory = "" }) {
+
+export function buildAnswerPrompt({ title, fields, memory = "", profile = DEFAULT_PROFILE_REF }) {
   const fieldsList = fields
     .map((f) => `${f.id}\t${f.type}${f.required ? "*" : ""}\t${f.label}${f.options ? `\t[options: ${f.options.join(" | ")}]` : ""}`)
     .join("\n");
-  return `You are pre-filling a job application for the user (company/role: ${title}). Read cv.md and config/profile.yml; if a matching report for this company exists in reports/, read it too. Ground EVERY answer in the REAL candidate — never invent facts.${memory ? `\n\nDurable notes about the user:\n${memory}` : ""}
+  return `You are pre-filling a job application for the user (company/role: ${title}). Read cv.md and ${profile}; if a matching report for this company exists in reports/, read it too. Ground EVERY answer in the REAL candidate — never invent facts.${memory ? `\n\nDurable notes about the user:\n${memory}` : ""}
 
 FIELDS (id ⇥ type ⇥ label ⇥ options):
 ${fieldsList}
