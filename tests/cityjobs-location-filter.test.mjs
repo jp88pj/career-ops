@@ -28,6 +28,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { getCareerOpsRoot } from '../path-resolver.mjs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import * as yaml from 'js-yaml';
@@ -35,6 +36,7 @@ import * as yaml from 'js-yaml';
 import { matchesLocation, locationFromSlug } from '../scan-cityjobs.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
+const dataRoot = getCareerOpsRoot() ?? root;
 
 // Every borough shape the cityjobs sitemap produces, plus the citywide one.
 const NYC_SLUGS = [
@@ -78,7 +80,7 @@ test('the location filter is the shared one, not a second implementation', async
   // The failure mode was two matchers that disagreed. Assert that this
   // scanner and the sibling SmartRecruiters scanner agree on every shape.
   const { buildLocationFilter } = await import('../scan.mjs');
-  const config = yaml.load(readFileSync(join(root, 'portals.yml'), 'utf-8')) || {};
+  const config = yaml.load(readFileSync(join(dataRoot, 'portals.yml'), 'utf-8')) || {};
   const sibling = buildLocationFilter(config.location_filter);
 
   for (const [, url] of NYC_SLUGS) {

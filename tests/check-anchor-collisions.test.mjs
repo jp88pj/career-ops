@@ -16,11 +16,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { getCareerOpsRoot } from '../path-resolver.mjs';
 import { checkAnchors, parseAnchors } from '../check-anchor-collisions.mjs';
 import { resolveAnchor } from '../verify-bullet-sources.mjs';
 
-const CV = readFileSync(new URL('../cv.md', import.meta.url), 'utf8');
-const CUSTOM = readFileSync(new URL('../modes/_custom.md', import.meta.url), 'utf8');
+const ROOT = getCareerOpsRoot() ?? new URL('..', import.meta.url).pathname;
+const CV = readFileSync(join(ROOT, 'cv.md'), 'utf8');
+const CUSTOM = readFileSync(join(ROOT, 'modes', '_custom.md'), 'utf8');
 
 // Pulled from the live anchor table, never retyped - a hardcoded copy would drift
 // the first time someone edits that row, and a test that quietly stops reproducing

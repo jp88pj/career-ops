@@ -21,6 +21,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { getCareerOpsRoot } from '../path-resolver.mjs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import * as yaml from 'js-yaml';
@@ -29,7 +30,8 @@ import { buildTitleFilterBySource } from '../title-keywords.mjs';
 import { buildShapePolicy, stripShapeNegatives } from '../lib/employment-shape.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const config = yaml.load(readFileSync(join(root, 'portals.yml'), 'utf-8')) || {};
+const dataRoot = getCareerOpsRoot() ?? root;
+const config = yaml.load(readFileSync(join(dataRoot, 'portals.yml'), 'utf-8')) || {};
 const rule = (config.source_title_filters || []).find((r) => (r.match_hosts || []).includes('cityjobs.nyc.gov'));
 assert.ok(rule, 'the cityjobs board must have its own source_title_filters rule');
 
