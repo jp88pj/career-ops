@@ -15,6 +15,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { getCareerOpsRoot } from '../path-resolver.mjs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import * as yaml from 'js-yaml';
@@ -23,7 +24,8 @@ import { buildTitleFilterBySource, compileKeyword, foldTitle } from '../title-ke
 import { buildShapePolicy, stripShapeNegatives } from '../lib/employment-shape.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const config = yaml.load(readFileSync(join(root, 'portals.yml'), 'utf-8')) || {};
+const dataRoot = getCareerOpsRoot() ?? root;
+const config = yaml.load(readFileSync(join(dataRoot, 'portals.yml'), 'utf-8')) || {};
 
 const entry = (config.tracked_companies || []).find(
   (c) => /jobs\.smartrecruiters\.com\/CityOfNewYork/i.test(c.careers_url || ''),
@@ -90,7 +92,7 @@ test('the veto does not touch the live thread the profile concentrates on', () =
 test('the veto is board-scoped: an EA role on another board is untouched', () => {
   // RECALL. Two of his applications carry an EA title (#50 cityjobs, #122
   // Cohere/Bandana). A board-scoped veto must not reach them.
-  const tracker = readFileSync(join(root, 'data', 'applications.md'), 'utf-8');
+  const tracker = readFileSync(join(dataRoot, 'data', 'applications.md'), 'utf-8');
   const rows = tracker.split('\n').filter((l) => /^\|\s*\d+\s*\|/.test(l));
   const everApplied = rows.filter((l) => {
     const c = l.split('|').map((x) => x.trim());

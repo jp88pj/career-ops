@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getCareerOpsRoot } from '../path-resolver.mjs';
 import { parseExperienceEntries, buildMasterBlocks, buildMasterRegister, formTense } from '../lib/cv-experience-entries.mjs';
 
 // The one reader for a CV's Experience entries.
@@ -25,7 +26,7 @@ import { parseExperienceEntries, buildMasterBlocks, buildMasterRegister, formTen
 // the documented shape that must keep working.
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const cv = readFileSync(join(ROOT, 'cv.md'), 'utf-8');
+const cv = readFileSync(join(getCareerOpsRoot() ?? ROOT, 'cv.md'), 'utf-8');
 
 test('the master yields all of its roles', () => {
   const entries = parseExperienceEntries(cv);
