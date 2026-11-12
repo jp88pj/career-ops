@@ -13,8 +13,15 @@
 // (plugins.mjs), not this plugin, writes them to pipeline.md canonically. No
 // `search://` rows are emitted (they aren't real URLs the pipeline can open).
 //
+// With `gmail.ingest_replies: true` in config/plugins.yml (default off), every
+// message the plugin sees is ALSO appended to data/reply-candidates.json in the
+// exact shape reply-watch.mjs understands — a second pass over the same Gmail
+// label with its own cursor (data/gmail-reply-state.json). This plugin never
+// classifies and never touches the tracker; classification stays reply-watch's
+// job, behind your confirmation.
+//
 // Enable in config/plugins.yml:
-//   gmail: { enabled: true, label: "Job Leads", days_back: 7 }
+//   gmail: { enabled: true, label: "Job Leads", days_back: 7, ingest_replies: true }
 // Add to .env: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN.
 // Run:  node plugins.mjs run gmail
 
@@ -24,6 +31,7 @@ import {
   extractUrls, isCleanUrl, isAuthenticEmail, parseRoleAtCompany,
   getMessageBody, companyFromUrl,
 } from './_helpers.mjs';
+import { loadReplyIds, saveReplyIds, buildReplyCandidate, appendReplyCandidates } from './_reply.mjs';
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me';
@@ -123,11 +131,17 @@ export default {
     } while (pageToken);
 
     const processedIds = loadProcessedIds(ctx);
+    const captureReplies = ctx?.settings?.ingest_replies === true;
+    const replyIds = captureReplies ? loadReplyIds(ctx) : new Set();
+    const replyCandidates = [];
     const seenUrls = new Set();
     const jobs = [];
 
     for (const m of messages) {
-      if (processedIds.has(m.id)) continue;
+      const inJobs = processedIds.has(m.id);
+      const inReplies = replyIds.has(m.id);
+      if (inJobs && inReplies) continue;
+      if (inJobs && !captureReplies) continue;
       // Per-message resilience: a single bad detail fetch is skipped, not fatal.
       let msg;
       try {
@@ -139,29 +153,48 @@ export default {
       const headers = msg.payload?.headers || [];
       const subject = headers.find(h => h.name?.toLowerCase() === 'subject')?.value || '';
 
-      // Fail-closed on spoofed mail (DMARC).
+      // Fail-closed on spoofed mail (DMARC) — applies to BOTH paths: a forged
+      // email is neither a lead nor a reply to interview for.
       if (!isAuthenticEmail(headers)) {
         console.warn(`gmail: skipping spoofed/unauthenticated email "${subject}"`);
         processedIds.add(m.id);
+        if (captureReplies) replyIds.add(m.id);
         continue;
       }
 
-      const seed = parseRoleAtCompany(subject);
-      const cleanUrls = extractUrls(getMessageBody(msg.payload)).filter(isCleanUrl);
-      for (const url of cleanUrls) {
-        if (seenUrls.has(url)) continue;
-        seenUrls.add(url);
-        jobs.push({
-          title: seed?.role || 'Job lead (email)',
-          url,
-          company: companyFromUrl(url) || seed?.company || '',
-          location: '',
-        });
+      if (!inJobs) {
+        const seed = parseRoleAtCompany(subject);
+        const cleanUrls = extractUrls(getMessageBody(msg.payload)).filter(isCleanUrl);
+        for (const url of cleanUrls) {
+          if (seenUrls.has(url)) continue;
+          seenUrls.add(url);
+          jobs.push({
+            title: seed?.role || 'Job lead (email)',
+            url,
+            company: companyFromUrl(url) || seed?.company || '',
+            location: '',
+          });
+        }
+        processedIds.add(m.id);
       }
-      processedIds.add(m.id);
+      if (captureReplies && !inReplies) {
+        replyCandidates.push(buildReplyCandidate(m.id, headers, getMessageBody(msg.payload)));
+        replyIds.add(m.id);
+      }
     }
 
-    if (!ctx?.dryRun) saveProcessedIds(processedIds, ctx);
+    if (!ctx?.dryRun) {
+      saveProcessedIds(processedIds, ctx);
+      if (captureReplies) {
+        if (replyCandidates.length) {
+          const n = await appendReplyCandidates(ctx, replyCandidates);
+          ctx?.log?.(`gmail replies: appended ${n} candidate(s) to ${process.env.CAREER_OPS_REPLY_CANDIDATES || 'data/reply-candidates.json'} (classify with: node reply-watch.mjs)`);
+        }
+        saveReplyIds(ctx, replyIds);
+      }
+    } else if (captureReplies) {
+      ctx?.log?.(`gmail replies: ${replyCandidates.length} candidate(s) would be appended (--dry-run — reply-candidates.json untouched)`);
+    }
     return jobs;
   },
 };

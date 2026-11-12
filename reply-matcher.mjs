@@ -705,6 +705,9 @@ export function classifyReply(cand) {
   const autoKeywords = [
     'Φç¬σè¿σ¢₧σñì', 'µö╢σê░µé¿τÜäτö│Φ»╖', 'τö│Φ»╖σ╖▓µö╢σê░', 'µèòΘÇÆµêÉσèƒ', 'τí«Φ«ñµö╢σê░',
     'thank you for applying', 'application received', 'received your application', 'auto-confirmation', 'confirmation of application', 'automatic reply',
+    // Acknowledgment boilerplate for portals that don't use the phrases above.
+    // Subject-line-only constructions: an interview invite never reads like these.
+    'has been successfully submitted', 'application submission confirmation',
     // Junction: "Thank you SO MUCH for applying" -- the two adverbs break the
     // substring match above. Narrow on purpose: bare 'for applying' would also
     // swallow "thank you for applying and we would love to interview you".
@@ -715,7 +718,10 @@ export function classifyReply(cand) {
   const actionKeywords = [
     'ΦíÑσààΣ┐íµü»', 'µÅÉΣ╛¢Σ┐íµü»', 'σ«îµêÉµ╡ïΦ»ä', 'σ£¿τ║┐µ╡ïΦ»ä', 'τ¼öΦ»òΘóÿ', 'σüÜΣ╕¬µ╡ïΦ»ò', 'µê¬µ¡óµùÑµ£ƒσëì', 'µê¬µ¡óµù╢Θù┤',
     'complete a form', 'provide information', 'finish an assessment', 'coding challenge', 'online test', 'respond by a deadline', 'pick a time', 'schedule a time', 'book a time',
-    'complete assessment', 'take a test', 'assessment', 'coding test', 'deadline', 'fill out', 'complete the form', 'provide details', 'submit info'
+    // Phrase-bound on purpose: a bare 'assessment' here matches the role TITLES
+    // of auto-acknowledgements ("32807-Assessment Specialist (Institutional
+    // Research Specialist)...") and pushes spurious Applied -> Responded flips.
+    'complete assessment', 'complete the assessment', 'complete an assessment', 'skills assessment', 'online assessment', 'assessment link', 'assessment invitation', 'coding test', 'deadline', 'fill out', 'complete the form', 'provide details', 'submit info'
   ];
 
   // 6. Interview keywords

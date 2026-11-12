@@ -179,7 +179,7 @@ const results = [];
 const legacy = [];
 for (const f of files) {
   if (f.includes('RESERVED')) continue; // reservation sentinel, not a report
-  const numMatch = /^(\d{3})-/.exec(f);
+  const numMatch = /^(\d{3,})-/.exec(f);
   if (!numMatch) continue;
   const num = Number(numMatch[1]);
   if (lo !== null && (num < lo || num > hi)) continue;
