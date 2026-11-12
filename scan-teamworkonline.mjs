@@ -50,7 +50,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'fs';
-import * as yaml from 'js-yaml';
+import { loadYaml } from './lib/yaml-document.mjs';
 import { appendToPipeline, appendToScanHistory, loadSeenUrls, normalizeUrlForDedup, PORTALS_PATH } from './scan.mjs';
 import { localToday } from './lib/local-today.mjs';
 import { printScanSummaryHeader } from './lib/scan-summary-marker.mjs';
@@ -79,7 +79,7 @@ const CATEGORIES = flag('--all-categories') ? ALL_CATEGORIES : OPS_CATEGORIES;
 
 // ── Config ───────────────────────────────────────────────────────────────────
 let config = {};
-if (existsSync(PORTALS_PATH)) config = yaml.load(readFileSync(PORTALS_PATH, 'utf-8')) || {};
+if (existsSync(PORTALS_PATH)) config = loadYaml(readFileSync(PORTALS_PATH, 'utf-8')) || {};
 // Honour employment_shape.flag_not_veto, as scan.mjs does: the shape words
 // are lifted out of the title negatives so part-time / seasonal / per-diem
 // postings reach triage and are PRICED, rather than being hard-vetoed.

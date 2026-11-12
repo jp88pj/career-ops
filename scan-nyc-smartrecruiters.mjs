@@ -54,7 +54,7 @@
  */
 
 import { readFileSync, existsSync } from 'fs';
-import * as yaml from 'js-yaml';
+import { loadYaml } from './lib/yaml-document.mjs';
 import {
   appendToPipeline,
   appendToScanHistory,
@@ -93,7 +93,7 @@ const ALL = flag('--all-postings');
 
 // ── Config ──────────────────────────────────────────────────────────────────
 let config = {};
-if (existsSync(PORTALS_PATH)) config = yaml.load(readFileSync(PORTALS_PATH, 'utf-8')) || {};
+if (existsSync(PORTALS_PATH)) config = loadYaml(readFileSync(PORTALS_PATH, 'utf-8')) || {};
 
 // The board comes from portals.yml so the config stays single-sourced.
 const entry = (config.tracked_companies || []).find(

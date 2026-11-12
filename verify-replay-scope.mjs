@@ -35,8 +35,9 @@
 //
 // Exit 1 when a violation is found, 0 when clean.
 
-import { readFileSync, readdirSync, existsSync } from 'fs';
-import { join, extname } from 'path';
+import { readFileSync, existsSync } from 'fs';
+
+import { listTree } from './lib/walk-tree.mjs';
 
 const DEFAULT_PAYLOAD_DIR = process.env.CAREER_OPS_PAYLOAD_DIR || '';
 
@@ -182,14 +183,9 @@ export function pdfText(path) {
 }
 
 function walk(dir, exts) {
-  const acc = [];
-  if (!existsSync(dir)) return acc;
-  for (const e of readdirSync(dir, { withFileTypes: true })) {
-    const p = join(dir, e.name);
-    if (e.isDirectory()) acc.push(...walk(p, exts));
-    else if (exts.includes(extname(e.name))) acc.push(p);
-  }
-  return acc;
+  if (!existsSync(dir)) return [];
+  const pattern = exts.map((e) => e.replace(/\./g, '\\.')).join('|');
+  return listTree(dir, { match: new RegExp(`(?:${pattern})$`) });
 }
 
 function scan() {

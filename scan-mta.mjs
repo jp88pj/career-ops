@@ -36,7 +36,7 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { execFileSync } from 'child_process';
-import * as yaml from 'js-yaml';
+import { loadYaml } from './lib/yaml-document.mjs';
 import { appendToPipeline, appendToScanHistory, loadSeenUrls, PORTALS_PATH, SCAN_HISTORY_PATH as SCAN_HISTORY } from './scan.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { localToday } from './lib/local-today.mjs';
@@ -69,7 +69,7 @@ if (!Number.isInteger(LIMIT) || LIMIT < 1) {
 // ── Config ───────────────────────────────────────────────────────────────────
 
 let config = {};
-if (existsSync(PORTALS_PATH)) config = yaml.load(readFileSync(PORTALS_PATH, 'utf-8')) || {};
+if (existsSync(PORTALS_PATH)) config = loadYaml(readFileSync(PORTALS_PATH, 'utf-8')) || {};
 
 const titleFilter = config.title_filter || {};
 

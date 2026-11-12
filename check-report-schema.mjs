@@ -23,12 +23,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
 
 import { getCareerOpsRoot } from './path-resolver.mjs';
-
-const require = createRequire(import.meta.url);
-const yaml = require('js-yaml');
+import { loadYaml } from './lib/yaml-document.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA_ROOT = getCareerOpsRoot();
@@ -89,7 +86,7 @@ function extractMachineSummary(text) {
   const m = text.match(/##\s*Machine Summary[\s\S]*?```yaml\s*([\s\S]*?)```/);
   if (!m) return { ok: false, reason: 'no Machine Summary yaml fence' };
   try {
-    const doc = yaml.load(m[1]);
+    const doc = loadYaml(m[1]);
     if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
       return { ok: false, reason: 'Machine Summary yaml is not a mapping' };
     }

@@ -63,7 +63,7 @@
 
 import https from 'node:https';
 import { readFileSync, existsSync } from 'fs';
-import * as yaml from 'js-yaml';
+import { loadYaml } from './lib/yaml-document.mjs';
 import { appendToPipeline, appendToScanHistory, loadSeenUrls, normalizeUrlForDedup, PORTALS_PATH } from './scan.mjs';
 import { localToday } from './lib/local-today.mjs';
 import { printScanSummaryHeader } from './lib/scan-summary-marker.mjs';
@@ -98,7 +98,7 @@ if (!Number.isInteger(LIMIT) || LIMIT < 1) { console.error('Error: --limit takes
 
 // ── Config ───────────────────────────────────────────────────────────────────
 let config = {};
-if (existsSync(PORTALS_PATH)) config = yaml.load(readFileSync(PORTALS_PATH, 'utf-8')) || {};
+if (existsSync(PORTALS_PATH)) config = loadYaml(readFileSync(PORTALS_PATH, 'utf-8')) || {};
 
 // Grade band. Professional NY grades run 09-29; 6xx are executive.
 const GRADE_MIN = 12, GRADE_MAX = 26, GRADE_FLAG_ABOVE = 20;

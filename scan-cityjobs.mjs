@@ -60,7 +60,7 @@
 
 import { readFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import * as yaml from 'js-yaml';
+import { loadYaml } from './lib/yaml-document.mjs';
 import { appendToPipeline, appendToScanHistory, loadSeenUrls, PORTALS_PATH, SCAN_HISTORY_PATH as SCAN_HISTORY } from './scan.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { localToday } from './lib/local-today.mjs';
@@ -120,7 +120,7 @@ const DETAIL_LIMIT = (() => {
 // ── Config ──────────────────────────────────────────────────────────────────
 
 let config = {};
-if (existsSync(PORTALS_PATH)) config = yaml.load(readFileSync(PORTALS_PATH, 'utf-8')) || {};
+if (existsSync(PORTALS_PATH)) config = loadYaml(readFileSync(PORTALS_PATH, 'utf-8')) || {};
 
 // The CIVIL-SERVICE TITLE CODES that count as in-lane on this board, read from
 // this board's own source_title_filters rule.

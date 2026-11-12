@@ -43,7 +43,7 @@
 import { chromium } from 'playwright';
 import { readFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import * as yaml from 'js-yaml';
+import { loadYaml } from './lib/yaml-document.mjs';
 import { appendToPipeline, appendToScanHistory, loadSeenUrls, PORTALS_PATH, SCAN_HISTORY_PATH } from './scan.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { localToday } from './lib/local-today.mjs';
@@ -86,7 +86,7 @@ const PERSONAL   = args.includes('--personal');
 
 let config = {};
 if (existsSync(PORTALS_PATH)) {
-  config = yaml.load(readFileSync(PORTALS_PATH, 'utf-8')) || {};
+  config = loadYaml(readFileSync(PORTALS_PATH, 'utf-8')) || {};
 }
 
 // `enabled: false` switches a single pass off without deleting it, matching how
