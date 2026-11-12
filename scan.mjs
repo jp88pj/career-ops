@@ -100,6 +100,8 @@ const parseYaml = loadYaml;
 
 // ── Config ──────────────────────────────────────────────────────────
 import { resolveTrackerPath } from './path-resolver.mjs';
+import { applyEntryResponseCap } from './lib/entry-response-cap.mjs';
+export { applyEntryResponseCap };
 
 export const PORTALS_PATH = process.env.CAREER_OPS_PORTALS || path.join(DATA_ROOT, 'portals.yml');
 // An explicit override wins; otherwise the root fixed above, since the .env just
@@ -1272,6 +1274,27 @@ export function addDays(dateStr, days) {
 // no-op" and simply skips the literal-country-name pass-through, which is
 // the same conservative "don't penalize missing data" default used
 // throughout this file.
+// config/profile.yml `candidate.years_of_experience`, the candidate's side of
+// experience_filter. Unset reads as undefined, and resolveExperienceFilter then
+// keeps the filter off and says why. A value that is set but not a number, or
+// a profile that does not parse, is named here: "no years are set" would send
+// the user looking for a key they already wrote.
+export function loadCandidateYears(profilePath = PROFILE_PATH) {
+  if (!existsSync(profilePath)) return undefined;
+  let raw;
+  try {
+    raw = loadYaml(readFileSync(profilePath, 'utf-8')) || {};
+  } catch (err) {
+    console.warn(`⚠️  experience_filter could not read ${profilePath}: ${String(err?.message ?? err).split('\n')[0]}`);
+    return undefined;
+  }
+  const years = raw?.candidate?.years_of_experience;
+  if (years === undefined || years === null) return undefined;
+  if (typeof years === 'number' && Number.isFinite(years)) return years;
+  console.warn(`⚠️  candidate.years_of_experience in ${profilePath} must be a number, got ${JSON.stringify(years)}`);
+  return undefined;
+}
+
 export function loadCandidateCountry(profilePath = PROFILE_PATH) {
   if (!existsSync(profilePath)) return '';
   try {
@@ -3906,10 +3929,11 @@ export async function verifyOffers(offers, { headedFallback = false, throttleBas
         // with a precise status, dedup-blocking them on subsequent scans.
         invalid.push({ ...offer, code, reason });
         console.log(`  ⛔ invalid   ${offer.company} | ${offer.title} (${reason})`);
-      } else if (result === 'uncertain' && code === 'no_apply_control') {
-        // Page loaded but classifier could not find an Apply control. Drop from
-        // pipeline and record in scan-history for visibility only: the row does
-        // not pin the URL (OBSERVATIONAL_SCAN_HISTORY_STATUSES), so the next
+      } else if (result === 'uncertain' && (code === 'no_apply_control' || code === 'insufficient_content')) {
+        // Page loaded but classifier could not find an Apply control (or too
+        // little text to hold one: insufficient_content). Drop from pipeline
+        // and record in scan-history for visibility only: the row does not
+        // pin the URL (OBSERVATIONAL_SCAN_HISTORY_STATUSES), so the next
         // --verify scan checks it again rather than losing a live posting whose
         // button the classifier does not recognise (#4832).
         dropped.push({ ...offer, reason });

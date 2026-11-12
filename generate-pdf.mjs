@@ -2369,4 +2369,106 @@ if (isMain) {
   });
 }
 
+// --- Locked sections (v1.40.0 contract, ported verbatim from upstream) ------
+// HTML renderers enforce `locked_sections` in config/profile.yml; the helper
+// pair below is what build-cv-html.mjs imports. Kept byte-close to upstream so
+// future updates diff cleanly; the local patch inventory names this file.
+
+function normalizeForComparison(text) {
+  if (!text) return '';
+  return text
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&#?[a-z0-9]+;/gi, ' ')
+    .replace(/[#*`_~|•·]/g, ' ') // Strip markdown and bullet chars
+    .replace(/[^\p{L}\p{M}\p{N}\s]/gu, ' ') // Strip punctuation to be safe against ATS transformations
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Excerpts of two normalized section bodies around the first place they differ,
+ * so a locked-section failure shows what changed rather than an entire section.
+ * A whole Experience section runs to thousands of characters, which the web UI
+ * would cut off before the changed text. Equal-length windows of `context`
+ * characters either side of the divergence; an ellipsis marks each cut end.
+ * @param {string} expected
+ * @param {string} found
+ * @param {number} [context]
+ * @returns {[string, string]}
+ */
+export function lockedSectionExcerpts(expected, found, context = 80) {
+  let i = 0;
+  const max = Math.min(expected.length, found.length);
+  while (i < max && expected[i] === found[i]) i++;
+  const start = Math.max(0, i - context);
+  const cut = (text) => {
+    const end = Math.min(text.length, i + context);
+    return `${start > 0 ? '…' : ''}${text.slice(start, end)}${end < text.length ? '…' : ''}`;
+  };
+  return [cut(expected), cut(found)];
+}
+
+/**
+ * Validate that sections marked as locked in config/profile.yml are identical
+ * (ignoring formatting) between the source cv.md and the rendered HTML.
+ * @param {string} html
+ * @param {string} cvMarkdown
+ * @param {string[]} lockedKeys
+ */
+export function validateLockedSections(html, cvMarkdown, lockedKeys) {
+  if (!lockedKeys || lockedKeys.length === 0) return;
+
+  const htmlSections = html.matchAll(/<[^>]+class=["'][^"']*\bsection-title\b[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/gi);
+  const renderedMap = new Map();
+  let lastKey = null;
+  let lastIndex = 0;
+  for (const match of htmlSections) {
+    if (lastKey) {
+      renderedMap.set(lastKey, html.substring(lastIndex, match.index));
+    }
+    lastKey = sectionKey(match[1]);
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastKey) {
+    renderedMap.set(lastKey, html.substring(lastIndex));
+  }
+
+  // Each heading's section runs to the next heading of the same or a higher
+  // level, measured from that heading itself: a cv.md that opens with a
+  // `# Name` title must not swallow the `##` sections below it. When two
+  // headings fold to the same key, the shallower (then the first) one wins.
+  const sourceLines = cvMarkdown.split(/\r?\n/);
+  const headings = [];
+  sourceLines.forEach((line, index) => {
+    const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (heading) headings.push({ index, level: heading[1].length, key: sectionKey(heading[2]) });
+  });
+  const sourceMap = new Map();
+  const sourceLevels = new Map();
+  headings.forEach((heading, i) => {
+    if (sourceLevels.has(heading.key) && sourceLevels.get(heading.key) <= heading.level) return;
+    const next = headings.slice(i + 1).find(other => other.level <= heading.level);
+    const end = next ? next.index : sourceLines.length;
+    const body = sourceLines.slice(heading.index + 1, end);
+    sourceMap.set(heading.key, body.length ? body.join('\n') + '\n' : '');
+    sourceLevels.set(heading.key, heading.level);
+  });
+
+  for (const key of lockedKeys) {
+    if (!sourceMap.has(key)) {
+      const availableKeys = Array.from(sourceMap.keys()).map(k => `'${k}'`).join(', ');
+      throw new Error(`Configured locked_section '${key}' not found in cv.md. Available sections: ${availableKeys}`);
+    }
+    const sourceNorm = normalizeForComparison(sourceMap.get(key));
+    const renderedRaw = renderedMap.get(key) || '';
+    const renderedNorm = normalizeForComparison(renderedRaw);
+
+    if (sourceNorm !== renderedNorm) {
+      const [expectedExcerpt, foundExcerpt] = lockedSectionExcerpts(sourceNorm, renderedNorm);
+      throw new Error(`Locked section '${key}' was modified during tailoring.\nExpected (normalized): ${expectedExcerpt}\nFound (normalized): ${foundExcerpt}`);
+    }
+  }
+}
+
 export { normalizeTextForATS, sectionKey };

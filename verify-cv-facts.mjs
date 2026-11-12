@@ -1050,6 +1050,73 @@ const LATEX_ARG = String.raw`\s*\{((?:[^{}]|\{[^{}]*\})*)\}`;
 const LATEX_SUBHEADING_RE = new RegExp(String.raw`\\resumeSubheading${LATEX_ARG}${LATEX_ARG}${LATEX_ARG}${LATEX_ARG}`, 'g');
 
 /**
+ * Find balanced (span|div) elements matching an open-tag regex.
+ * Yields { tag, openStart, contentStart, contentEnd, elementEnd }.
+ */
+function findBalancedElements(raw, openRe) {
+  const elements = [];
+  let openMatch;
+  while ((openMatch = openRe.exec(raw)) !== null) {
+    const tag = openMatch[1];
+    const openStart = openMatch.index;
+    const contentStart = openRe.lastIndex;
+    if (openMatch[0].endsWith('/>')) {
+      elements.push({ tag, openStart, contentStart, contentEnd: contentStart, elementEnd: contentStart });
+      continue;
+    }
+    const tagRe = new RegExp(String.raw`</?${tag}\b[^>]*>`, 'gi');
+    tagRe.lastIndex = contentStart;
+    let depth = 1;
+    let tagMatch;
+    let contentEnd = -1;
+    let elementEnd = -1;
+    while ((tagMatch = tagRe.exec(raw)) !== null) {
+      if (tagMatch[0].startsWith('</')) {
+        depth--;
+        if (depth === 0) {
+          contentEnd = tagMatch.index;
+          elementEnd = tagRe.lastIndex;
+          openRe.lastIndex = elementEnd;
+          break;
+        }
+      } else if (!tagMatch[0].endsWith('/>')) {
+        depth++;
+      }
+    }
+    if (elementEnd !== -1) {
+      elements.push({ tag, openStart, contentStart, contentEnd, elementEnd });
+    }
+  }
+  return elements;
+}
+
+/**
+ * Remove balanced elements matching openRe, replacing each with a space.
+ */
+function removeBalancedElements(raw, openRe) {
+  const elements = findBalancedElements(raw, openRe);
+  if (elements.length === 0) return raw;
+  let result = '';
+  let lastIndex = 0;
+  for (const el of elements) {
+    result += raw.slice(lastIndex, el.openStart) + ' ';
+    lastIndex = el.elementEnd;
+  }
+  result += raw.slice(lastIndex);
+  return result;
+}
+
+/**
+ * Extract inner contents of structured HTML elements matching class `cls`,
+ * accounting for potential nested tags of the same type (e.g. nowrap spans inside
+ * a span field like job-company, or nested divs inside edu-title).
+ */
+function extractStructuredFieldInners(raw, cls) {
+  const openRe = new RegExp(String.raw`<(span|div)\b[^>]*\bclass="[^"]*(?<![\w-])${cls}(?![\w-])[^"]*"[^>]*>`, 'gi');
+  return findBalancedElements(raw, openRe).map(el => raw.slice(el.contentStart, el.contentEnd));
+}
+
+/**
  * Employer, education, certification and title claims a CV builder emitted as
  * structured fields.
  *
@@ -1065,10 +1132,19 @@ export function structuredFieldClaims(text) {
     if (value) claims.push({ kind, value, line, blocking });
   };
   for (const [cls, kind, blocking] of STRUCTURED_HTML_FIELDS) {
-    const re = new RegExp(String.raw`<(span|div)\b[^>]*\bclass="[^"]*(?<![\w-])${cls}(?![\w-])[^"]*"[^>]*>([\s\S]*?)</\1>`, 'gi');
-    for (const match of raw.matchAll(re)) {
-      // edu-title encloses its edu-org span, which is read on its own.
-      add(kind, match[2].replace(/<span\b[^>]*>[\s\S]*?<\/span>/gi, ' '), blocking);
+    for (const inner of extractStructuredFieldInners(raw, cls)) {
+      // edu-title encloses its edu-org span or div, which is read on its own.
+      // Remove the full nested classed element (accounting for inner formatting
+      // spans); unclassed formatting spans like nowrap wrappers must be kept.
+      const withoutEduOrg = removeBalancedElements(
+        inner,
+        /<(span|div)\b[^>]*\bclass="[^"]*(?<![\w-])edu-org(?![\w-])[^"]*"[^>]*>/gi,
+      );
+      const cleaned = removeBalancedElements(
+        withoutEduOrg,
+        /<span\b[^>]*\bclass="[^"]*"[^>]*>/gi,
+      );
+      add(kind, cleaned, blocking);
     }
   }
   for (const match of raw.matchAll(LATEX_SUBHEADING_RE)) {
@@ -2039,6 +2115,50 @@ function sourceContainsFact(sourceText, value) {
  * @returns {{ verdict: 'pass'|'warn'|'block', invented: string[], unsupportedFacts: object[], advisoryFacts: object[], forbidden: string[], warnings: string[] }}
  * @throws when the config is invalid
  */
+// Two independent signals, so a hit is corroborated rather than one regex:
+//   1. line-initial ">" then whitespace then a word or "*" -- the blockquote
+//      signature. Precise enough not to trip on "grew by > 20%", which has a
+//      digit after the ">" and is not at line start.
+//   2. the QA vocabulary itself, matched on the STRIPPED text, because
+//      stripMarkup() removes the ** markers but leaves the ">" and the words.
+const MARKUP_LEAK_BQUOTE_RE = /^[ \t]*>[ \t]+(?=[A-Za-z*(])/m;
+// Extended 2026-10-08 after the guard was measured against every marker form
+// actually present in cv.md. Four forms this repo writes into its own records
+// were NOT covered, and each would render verbatim into a submitted CV:
+//   - `CORRECTED <date> by the user:` — the replay-operator correction. The list
+//     had `SCOPE CORRECTED`, which this form does not contain. Requiring the date
+//     keeps ordinary prose safe: "corrected data" is legitimate CV text,
+//     "CORRECTED 2026-09-29" never is.
+//   - `Scope ceiling:` — the list had `SCOPE CORRECTED`; these are different
+//     labels for different things. Punctuation-anchored so honest prose ("a strict
+//     scope ceiling on delegated work") cannot trip it.
+//   - `Never write` — the list had `Do not write`. Same rule, other polarity.
+//   - `Recorded as self-assessment` — how a self-assessment ceiling is marked.
+//   - `Provenance:` — the note header.
+//
+// WHY THERE IS NO TRAILING \b ON THIS PATTERN
+// A word boundary requires a word character on exactly one side. These labels are
+// PUNCTUATION-TERMINATED ("Scope ceiling:", "Provenance:"), and `:` is not a word
+// character, so `\b` between the colon and the following space never matches. A
+// trailing `\b` therefore silently disables every punctuation-terminated entry —
+// which is precisely how `Provenance:` looked listed and was not. A leading \b is
+// kept; the tokens are specific enough that a suffix collision ("user-stateds")
+// is not a realistic concern, and losing the whole class is a far worse trade.
+const MARKUP_LEAK_VOCAB_RE = /\b(?:READ BEFORE REUSING|SCOPE CORRECTED|LANGUAGE CORRECTION|NEVER auto-updated|Re-evaluate from|user-stated|user-confirmed|Do not write|Never write|Recorded as self-assessment|CORRECTED \d{4}-\d{2}-\d{2}|Scope ceiling\s*[:,\u2014]|Provenance:)/i;
+
+/** Find internal annotations that leaked into a rendered document. */
+export function findMarkupLeaks(rawText, strippedText) {
+  const hits = [];
+  const raw = String(rawText ?? '');
+  if (MARKUP_LEAK_BQUOTE_RE.test(raw)) {
+    const m = raw.match(/^[ \t]*>[ \t]+[^\n]{0,90}/m);
+    hits.push(`markdown blockquote rendered into output${m ? `: ${m[0].trim().slice(0, 80)}` : ''}`);
+  }
+  const v = String(strippedText ?? raw).match(MARKUP_LEAK_VOCAB_RE);
+  if (v) hits.push(`internal QA annotation rendered into output: "${v[0]}"`);
+  return hits;
+}
+
 export function verifyFacts(targetText, {
   sourcePaths = DEFAULT_SOURCES,
   planTexts = [],
@@ -2096,7 +2216,11 @@ export function verifyFacts(targetText, {
   const coverage = !languageGap ? countGap
     : countGap ? { ...countGap, message: `${countGap.message} ${languageGap}` }
       : { reason: 'scope-not-checked', message: languageGap, spans: [] };
-  const blocked = invented.length || unsupportedFacts.length || forbidden.length;
+  // A leaked annotation BLOCKS rather than warns. It is not a borderline call
+  // about the candidate's wording: the document is unusable as-is, and shipping
+  // it would put "READ BEFORE REUSING" in front of a recruiter.
+  const markupLeaks = findMarkupLeaks(targetText, stripMarkup(targetText));
+  const blocked = invented.length || unsupportedFacts.length || forbidden.length || markupLeaks.length;
   return {
     verdict: blocked ? 'block' : (warnings.length || advisoryFacts.length || coverage) ? 'warn' : 'pass',
     invented,
@@ -2105,6 +2229,7 @@ export function verifyFacts(targetText, {
     forbidden,
     warnings,
     coverage,
+    markupLeaks,
     // Deliberately outside the verdict: no config is a normal state, not a
     // finding. It rides along so a caller can say the phrase lists were never
     // loaded instead of printing a clean result the reader takes for "checked".
@@ -2234,6 +2359,7 @@ export function assertFacts(targetText, options = {}) {
       return sourceLine ? `${kind}=${value} (source says: ${sourceLine})` : `${kind}=${value}`;
     }).join(', ')}`);
     if (result.forbidden.length) details.push(`forbidden phrases found: ${result.forbidden.join(', ')}`);
+    if (result.markupLeaks?.length) details.push(`rendered-markup leak: ${result.markupLeaks.join('; ')}`);
     throw new Error(`Fact check failed${options.label ? ` for ${options.label}` : ''}: ${details.join('; ')}. ${factSourceAdvice({ letterAnswers: Array.isArray(options.planTexts) })}`);
   }
   return result;
@@ -2921,6 +3047,10 @@ export function runCli(args = process.argv.slice(2)) {
     if (result.forbidden.length) {
       console.error('\nForbidden phrases found:');
       for (const phrase of result.forbidden) console.error(`  - ${phrase}`);
+    }
+    if (result.markupLeaks?.length) {
+      console.error('\nRendered-markup leaks:');
+      for (const leak of result.markupLeaks) console.error(`  - ${leak}`);
     }
     console.error(`\n${factSourceAdvice()}`);
     return 1;

@@ -38,6 +38,7 @@ import { createAdmissionGate, formatSkipCounts } from './lib/admission-gate.mjs'
 import { localToday } from './lib/local-today.mjs';
 import { getCareerOpsRoot, getProfilePath } from './path-resolver.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
+import { classifyLiveness, isUnreadableVerdict } from './liveness-core.mjs';
 import { withJdArchiveSection } from './lib/jd-archive-section.mjs';
 import { locateApplyReport } from './apply-scope.mjs';
 
@@ -723,6 +724,14 @@ async function cmdEvaluate(input, ctx) {
   tracker.record('evaluation', resultObj.usage);
   const result = resultObj.content;
 
+  // A model that says it could not evaluate the posting has not evaluated it:
+  // save nothing, so the pipeline leaves the row pending (#5809).
+  const notEvaluated = result.match(/^---DEAD_POSTING---\s*$|^\s*(?:status:\s*)?needs_confirmation\b.*$/m);
+  if (notEvaluated) {
+    console.error(`Not evaluated, nothing saved. The model replied: ${notEvaluated[0].trim()}`);
+    return null;
+  }
+
   let reservedNumbers;
   try {
     reservedNumbers = await reserveReportNumbers(1, {
@@ -957,4 +966,19 @@ MODEL SELECTION:
 if (invokedDirectly && ['scan', 'evaluate', 'eval', 'pipeline', 'apply'].includes(command)) {
   const modelName = process.env.CAREER_OPS_MODEL || activeModel || 'free-rotation';
   console.log('\n' + formatBreakdown(tracker, modelName, 'openrouter'));
+}
+
+const UNREADABLE_PAGE_CODES = new Set(['bot_challenge', 'redirected_off_posting']);
+
+// Why a fetched page holds no job description to evaluate, or null when it
+// does. The runner used to send any page to the model, so a 404, a bot wall or
+// a Workday page that had not rendered yet came back as a report and a done
+// pipeline row for a posting nobody read (#5809).
+export function unreadableJobPage({ status = 0, requestedUrl = '', finalUrl = '', text = '' } = {}) {
+  if (status >= 400) return `HTTP ${status}`;
+  const verdict = classifyLiveness({ status, requestedUrl, finalUrl, bodyText: text });
+  if (verdict.result === 'expired' || isUnreadableVerdict(verdict) || UNREADABLE_PAGE_CODES.has(verdict.code)) {
+    return `${verdict.code}: ${verdict.reason}`;
+  }
+  return null;
 }

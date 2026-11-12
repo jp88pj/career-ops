@@ -355,7 +355,7 @@ export function classifyLiveness({ status = 0, requestedUrl = '', finalUrl = '',
   }
 
   if (bodyText.trim().length < MIN_CONTENT_CHARS) {
-    return { result: 'expired', code: 'insufficient_content', reason: 'insufficient content — likely nav/footer only' };
+    return { result: 'uncertain', code: 'insufficient_content', reason: 'insufficient content — likely nav/footer only, or not rendered yet' };
   }
 
   return { result: 'uncertain', code: 'no_apply_control', reason: 'content present but no visible apply control found' };
@@ -370,11 +370,11 @@ const EXPIRED_HISTORY_STATUS = /expired/i;
 
 /**
  * True when a verdict means "the posting body could not be read", not "the
- * posting is closed". Today that condition is carried inside
- * `result: 'expired'` with `code: 'insufficient_content'` (nav/footer only, or
- * a body that sits in an unreadable iframe). Consumers that must not treat such
- * a verdict as closure call this instead of repeating the code string.
- * Detection only: it does not change what classifyLiveness returns.
+ * posting is closed": `code: 'insufficient_content'` (nav/footer only, or a
+ * body that sits in an unreadable iframe). classifyLiveness returns it as
+ * `uncertain`; consumers that may also see an older or hand-built verdict
+ * labelled `expired` with that code call this instead of repeating the code
+ * string. Detection only: it does not change what classifyLiveness returns.
  */
 export function isUnreadableVerdict(verdict) {
   return verdict?.code === 'insufficient_content';
