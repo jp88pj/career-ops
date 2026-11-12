@@ -3067,3 +3067,13 @@ export function runCli(args = process.argv.slice(2)) {
 if (isMainModule(import.meta.url)) {
   process.exitCode = runCli();
 }
+
+export function newFactWarnings(first, second) {
+  const factKey = ({ kind, value }) => `${kind}\u0000${value}`;
+  const seenFacts = new Set((first.advisoryFacts ?? []).map(factKey));
+  const seenPhrases = new Set(first.warnings ?? []);
+  const warnings = (second.warnings ?? []).filter((phrase) => !seenPhrases.has(phrase));
+  const advisoryFacts = (second.advisoryFacts ?? []).filter((fact) => !seenFacts.has(factKey(fact)));
+  const coverage = first.coverage ? null : (second.coverage ?? null);
+  return warnings.length || advisoryFacts.length || coverage ? { warnings, advisoryFacts, coverage } : null;
+}

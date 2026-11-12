@@ -371,6 +371,11 @@ export function buildHtml(payload, templatePath) {
   // split/join) ensures a substituted value that itself contains a {{TOKEN}}
   // sequence is left literal instead of being re-interpreted as a placeholder.
   //
+  // Tokens are found by balancing `{{` against `}}` (replaceBalancedTokens),
+  // not by a regex, so a token that contains braces — `{{ config | default({}) }}`
+  // — or another token — `{{ outer {{ inner }} }}` — is visited and reported
+  // whole, rather than cut at the first `}}` it happens to contain.
+  //
   // A token with no entry in the map is a template the renderer cannot fill —
   // a custom cover-letter template (KINDS.cover in cv-templates.mjs) carrying a
   // typo'd or unsupported token. Collect those DURING the pass rather than
@@ -378,7 +383,7 @@ export function buildHtml(payload, templatePath) {
   // the same sequence appearing inside a substituted value, which is exactly
   // what the single pass above is careful to leave literal.
   const unresolved = new Set();
-  const rendered = html.replace(/\{\{[A-Z_]+\}\}/g, (token) => {
+  const rendered = replaceBalancedTokens(html, (token) => {
     const value = replacements[token];
     if (value == null) {
       unresolved.add(token);
@@ -529,3 +534,38 @@ Usage:
 
 const isMain = isMainModule(import.meta.url);
 if (isMain) main();
+
+export function replaceBalancedTokens(text, replaceToken) {
+  let out = "";
+  let emitted = 0;
+  let searchFrom = 0;
+  while (true) {
+    const start = text.indexOf("{{", searchFrom);
+    if (start === -1) break;
+    let depth = 0;
+    let end = -1;
+    for (let i = start; i < text.length - 1; ) {
+      if (text[i] === "{" && text[i + 1] === "{") {
+        depth++;
+        i += 2;
+      } else if (text[i] === "}" && text[i + 1] === "}") {
+        depth--;
+        i += 2;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      } else {
+        i++;
+      }
+    }
+    if (end === -1) {
+      searchFrom = start + 2;
+      continue;
+    }
+    out += text.slice(emitted, start) + replaceToken(text.slice(start, end));
+    emitted = end;
+    searchFrom = end;
+  }
+  return out + text.slice(emitted);
+}
