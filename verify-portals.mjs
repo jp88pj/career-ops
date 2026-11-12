@@ -90,6 +90,8 @@ const probeFetchText = followRedirects(defaultFetchText);
 import { decodeEntities } from './providers/_html-entities.mjs';
 import { asciiFold } from './lib/ascii-fold.mjs';
 import { loadProviders, resolveProvider } from './providers/_registry.mjs';
+import { LEVER_TIMEOUT_MS } from './providers/lever.mjs';
+import { ASHBY_TIMEOUT_MS } from './providers/ashby.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { flagValue, hasFlag, validateFlags } from './lib/cli-flags.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
@@ -285,7 +287,7 @@ export function deriveSlugCandidates(name, { firstWordSuffixes = true } = {}) {
 const AGGREGATOR_HOSTS = [
   'greenhouse.io', 'ashbyhq.com', 'lever.co', 'myworkdayjobs.com', 'workday.com',
   'smartrecruiters.com', 'jobvite.com', 'icims.com', 'bamboohr.com', 'gem.com',
-  'recruitee.com', 'teamtailor.com', 'personio.com', 'workable.com', 'breezy.hr',
+  'recruitee.com', 'teamtailor.com', 'personio.com', 'workable.com', 'breezy.hr', 'paylocity.com',
   'linkedin.com', 'indeed.com', 'glassdoor.com', 'ycombinator.com', 'wellfound.com',
 ];
 
@@ -508,7 +510,7 @@ export async function probeSlug(
     };
   const url = spec.probeUrl(slug, { eu });
   try {
-    const json = await fetchJson(url);
+    const json = await fetchJson(url, ats === 'lever' ? { timeoutMs: LEVER_TIMEOUT_MS } : ats === 'ashby' ? { timeoutMs: ASHBY_TIMEOUT_MS } : undefined);
     const count = spec.jobCount(json);
     if (count == null)
       return {
