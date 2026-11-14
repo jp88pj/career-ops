@@ -528,3 +528,13 @@ export function planExpiredDiscards(trackerText, expiredUrls, { statuses = DEFAU
   }
   return rows;
 }
+
+const CLOUDFLARE_INTERSTITIAL_TITLES = [
+  { re: /^just a moment\.{0,3}(?:…)?$/i, kind: 'challenge page' },
+  { re: /^attention required!?\s*\|\s*cloudflare$/i, kind: 'block page' },
+];
+
+export function cloudflareInterstitial(title) {
+  const text = String(title ?? '').trim();
+  return CLOUDFLARE_INTERSTITIAL_TITLES.find(({ re }) => re.test(text))?.kind ?? null;
+}
