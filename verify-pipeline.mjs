@@ -30,10 +30,10 @@ import { fileURLToPath } from 'url';
 import { getCareerOpsRoot, resolveTrackerPath } from './path-resolver.mjs';
 import {
   looksLikeScoreCell, isSeparatorRow, isHeaderRow, resolveColumns,
-  normalizeTextKey, normalizeVia, unwrapReportUrlToken, parseMarkdownLinks,
+  normalizeTextKey, normalizeVia, unwrapReportUrlToken, parseMarkdownLinks, extractReqNumber, extractCellUrl,
 } from './tracker-parse.mjs';
 import { CONTROL_CHARS, findDeadReportLink, trackerLinkDirsFor } from './tracker-utils.mjs';
-import { normalizeUrl } from './url-key.mjs';
+import { normalizeUrl, postingUrlRelation, isAggregatorUrl, aggregatorPostingId } from './url-key.mjs';
 import { checkTrackerSync } from './tracker-sync-check.mjs';
 import { normalizeStatus } from './followup-cadence.mjs';
 import { checkFollowupsSchema } from './stats.mjs';
@@ -119,6 +119,7 @@ for (const line of lines) {
     pdf: parts[COLMAP.pdf],
     report: parts[COLMAP.report],
     notes: COLMAP.notes != null ? (parts[COLMAP.notes] || '') : '',
+    url: COLMAP.url != null ? (parts[COLMAP.url] || '') : '',
   });
 }
 
@@ -151,8 +152,49 @@ for (const e of entries) {
 if (badStatuses === 0) ok('All statuses are canonical');
 
 // --- Check 2: Duplicates ---
+// Grouped by normalized company+role (heuristic). A same company+role can still
+// be multiple distinct postings (different requisitions, URLs, locations, or
+// language versions). Suppress the warning only when strong evidence proves
+// every pair in the group is distinct: req/job IDs in Notes differ on both
+// sides, or posting URLs differ by the same evidence merge-tracker/dedup use
+// (url-key.mjs), including same-aggregator different posting IDs. Aggregator
+// ambiguity and missing/unknown IDs or URLs are NOT evidence of distinctness,
+// so those groups remain warnings for human review.
+function postingUrlOf(entry) {
+  return extractCellUrl(entry.url || '');
+}
+function reqsProveDistinct(a, b) {
+  const ra = extractReqNumber(a.notes || '');
+  const rb = extractReqNumber(b.notes || '');
+  return Boolean(ra && rb && ra !== rb);
+}
+function urlsProveDistinct(a, b) {
+  const ua = postingUrlOf(a);
+  const ub = postingUrlOf(b);
+  if (!normalizeUrl(ua) || !normalizeUrl(ub)) return false;
+  if (isAggregatorUrl(ua) || isAggregatorUrl(ub)) {
+    const ia = aggregatorPostingId(ua);
+    const ib = aggregatorPostingId(ub);
+    // Comparable only on one board: different boards/ids are not evidence.
+    return Boolean(ia && ib && ia.domain === ib.domain && ia.id !== ib.id);
+  }
+  return postingUrlRelation(ua, ub) === 'distinct';
+}
+function pairProvenDistinct(a, b) {
+  return reqsProveDistinct(a, b) || urlsProveDistinct(a, b);
+}
+function groupProvenAllDistinct(group) {
+  for (let i = 0; i < group.length; i++) {
+    for (let j = i + 1; j < group.length; j++) {
+      if (!pairProvenDistinct(group[i], group[j])) return false;
+    }
+  }
+  return true;
+}
+
 const companyRoleMap = new Map();
 let dupes = 0;
+let disambiguatedDupes = 0;
 for (const e of entries) {
   // Unicode-aware (#2393): an [a-z0-9] strip erases non-Latin scripts outright,
   // so every Japanese company and every Japanese role keyed to '' and unrelated
@@ -161,13 +203,19 @@ for (const e of entries) {
   if (!companyRoleMap.has(key)) companyRoleMap.set(key, []);
   companyRoleMap.get(key).push(e);
 }
-for (const [key, group] of companyRoleMap) {
+for (const [, group] of companyRoleMap) {
   if (group.length > 1) {
-    warn(`Possible duplicates: ${group.map(e => `#${e.num}`).join(', ')} (${group[0].company} — ${group[0].role})`);
+    if (groupProvenAllDistinct(group)) {
+      disambiguatedDupes++;
+      continue;
+    }
+    warn(`Possible duplicates: ${group.map(e => `#${e.num}`).join(', ')} (${group[0].company} - ${group[0].role})`);
     dupes++;
   }
 }
-if (dupes === 0) ok('No exact duplicates found');
+if (dupes === 0 && disambiguatedDupes === 0) ok('No exact duplicates found');
+else if (dupes === 0) ok(`No unresolved possible duplicates (${disambiguatedDupes} group(s) proven distinct by req/job ID or posting URL)`);
+else if (disambiguatedDupes > 0) ok(`${disambiguatedDupes} possible-duplicate group(s) proven distinct by req/job ID or posting URL`);
 
 // --- Check 3: Report links ---
 // Markdown links resolve relative to the file that contains them, so report
