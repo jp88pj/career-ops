@@ -35,10 +35,10 @@ import { getCareerOpsRoot, resolveTrackerPath } from './path-resolver.mjs';
 import {
   looksLikeScoreCell, isSeparatorRow, isHeaderRow, resolveColumns,
   normalizeTextKey, normalizeVia, unwrapReportUrlToken, parseMarkdownLinks,
-  extractReqNumber,
+  extractReqNumber, extractCellUrl,
 } from './tracker-parse.mjs';
 import { CONTROL_CHARS, findDeadReportLink, trackerLinkDirsFor, corporateFormTokensMatch, MIN_STEM_CHARS } from './tracker-utils.mjs';
-import { normalizeUrl } from './url-key.mjs';
+import { normalizeUrl, postingUrlRelation, isAggregatorUrl, aggregatorPostingId } from './url-key.mjs';
 import { checkTrackerSync } from './tracker-sync-check.mjs';
 import { normalizeStatus } from './followup-cadence.mjs';
 import { checkFollowupsSchema } from './stats.mjs';
@@ -159,6 +159,7 @@ for (const line of lines) {
     pdf: parts[COLMAP.pdf],
     report: parts[COLMAP.report],
     notes: COLMAP.notes != null ? (parts[COLMAP.notes] || '') : '',
+    url: COLMAP.url != null ? (parts[COLMAP.url] || '') : '',
   });
 }
 
@@ -194,9 +195,50 @@ for (const e of entries) {
 if (badStatuses === 0) ok('All statuses are canonical');
 
 // --- Check 2: Duplicates ---
+// Grouped by normalized company+role (heuristic). A same company+role can still
+// be multiple distinct postings (different requisitions, URLs, locations, or
+// language versions). Suppress the warning only when strong evidence proves
+// every pair in the group is distinct: req/job IDs in Notes differ on both
+// sides, or posting URLs differ by the same evidence merge-tracker/dedup use
+// (url-key.mjs), including same-aggregator different posting IDs. Aggregator
+// ambiguity and missing/unknown IDs or URLs are NOT evidence of distinctness,
+// so those groups remain warnings for human review.
+function postingUrlOf(entry) {
+  return extractCellUrl(entry.url || '');
+}
+function reqsProveDistinct(a, b) {
+  const ra = extractReqNumber(a.notes || '');
+  const rb = extractReqNumber(b.notes || '');
+  return Boolean(ra && rb && ra !== rb);
+}
+function urlsProveDistinct(a, b) {
+  const ua = postingUrlOf(a);
+  const ub = postingUrlOf(b);
+  if (!normalizeUrl(ua) || !normalizeUrl(ub)) return false;
+  if (isAggregatorUrl(ua) || isAggregatorUrl(ub)) {
+    const ia = aggregatorPostingId(ua);
+    const ib = aggregatorPostingId(ub);
+    // Comparable only on one board: different boards/ids are not evidence.
+    return Boolean(ia && ib && ia.domain === ib.domain && ia.id !== ib.id);
+  }
+  return postingUrlRelation(ua, ub) === 'distinct';
+}
+function pairProvenDistinct(a, b) {
+  return reqsProveDistinct(a, b) || urlsProveDistinct(a, b);
+}
+function groupProvenAllDistinct(group) {
+  for (let i = 0; i < group.length; i++) {
+    for (let j = i + 1; j < group.length; j++) {
+      if (!pairProvenDistinct(group[i], group[j])) return false;
+    }
+  }
+  return true;
+}
+
 const companyRoleMap = new Map();
 const roleMap = new Map();
 let dupes = 0;
+let disambiguatedDupes = 0;
 for (const e of entries) {
   // Unicode-aware (#2393): an [a-z0-9] strip erases non-Latin scripts outright,
   // so every Japanese company and every Japanese role keyed to '' and unrelated
@@ -220,29 +262,15 @@ for (const e of entries) {
     buckets.get(bucketKey).push({ entry: e, companyKey, tokens });
   }
 }
-for (const [key, group] of companyRoleMap) {
+for (const [, group] of companyRoleMap) {
   if (group.length > 1) {
-    let hasPossibleDuplicate = false;
-
-    for (let i = 0; i < group.length && !hasPossibleDuplicate; i++) {
-      for (let j = i + 1; j < group.length; j++) {
-        const reqA = extractReqNumber(group[i].notes);
-        const reqB = extractReqNumber(group[j].notes);
-
-        // Distinct known requisition IDs mean distinct openings.
-        // Missing IDs are not enough to rule out a duplicate.
-        if (!reqA || !reqB || reqA === reqB) {
-          hasPossibleDuplicate = true;
-          break;
-        }
-      }
+    if (groupProvenAllDistinct(group)) {
+      disambiguatedDupes++;
+      continue;
     }
-
-    if (hasPossibleDuplicate) {
-      warn(`Possible duplicates: ${group.map(e => `#${e.num}`).join(', ')} (${group[0].company} — ${group[0].role})`,
-        "run node dedup-tracker.mjs --dry-run to preview a merge; if they are genuinely different openings, put each req/job ID in the notes column so they stay distinct");
-      dupes++;
-    }
+    warn(`Possible duplicates: ${group.map(e => `#${e.num}`).join(', ')} (${group[0].company} — ${group[0].role})`,
+      "run node dedup-tracker.mjs --dry-run to preview a merge; if they are genuinely different openings, put each req/job ID in the notes column so they stay distinct");
+    dupes++;
   }
 }
 // Exact groups above retain their existing warnings. Compare different company
@@ -260,16 +288,16 @@ for (const group of [...roleMap.values()].flatMap(buckets => [...buckets.values(
           || !corporateFormTokensMatch(left.tokens, right.tokens)) continue;
       const a = left.entry;
       const b = right.entry;
-      const reqA = extractReqNumber(a.notes);
-      const reqB = extractReqNumber(b.notes);
-      if (reqA && reqB && reqA !== reqB) continue;
+      if (pairProvenDistinct(a, b)) continue;
       warn(`Possible duplicates: #${a.num}, #${b.num} (${a.company} — ${a.role})`,
         "run node dedup-tracker.mjs --dry-run to preview a merge; if they are genuinely different openings, put each req/job ID in the notes column so they stay distinct");
       dupes++;
     }
   }
 }
-if (dupes === 0) ok('No exact duplicates found');
+if (dupes === 0 && disambiguatedDupes === 0) ok('No exact duplicates found');
+else if (dupes === 0) ok(`No unresolved possible duplicates (${disambiguatedDupes} group(s) proven distinct by req/job ID or posting URL)`);
+else if (disambiguatedDupes > 0) ok(`${disambiguatedDupes} possible-duplicate group(s) proven distinct by req/job ID or posting URL`);
 
 // --- Check 3: Report links ---
 // Markdown links resolve relative to the file that contains them, so report
